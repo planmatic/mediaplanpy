@@ -1,0 +1,148 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Media Plan OSC Workspace Configuration",
+    "type": "object",
+    "required": ["workspace_name", "storage"],
+    "properties": {
+        "workspace_name": {
+            "type": "string",
+            "description": "Name of this workspace configuration"
+        },
+        "environment": {
+            "type": "string",
+            "description": "Environment this configuration applies to",
+            "enum": ["development", "testing", "production"],
+            "default": "development"
+        },
+        "storage": {
+            "type": "object",
+            "required": ["mode"],
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["local", "s3"],
+                    "default": "local",
+                    "description": "Storage mode for media plans"
+                },
+                "local": {
+                    "type": "object",
+                    "properties": {
+                        "base_path": {
+                            "type": "string",
+                            "description": "Base directory for storing media plans"
+                        },
+                        "create_if_missing": {
+                            "type": "boolean",
+                            "default": True,
+                            "description": "Create directory if it doesn't exist"
+                        }
+                    }
+                },
+                "s3": {
+                    "type": "object",
+                    "properties": {
+                        "bucket": {
+                            "type": "string",
+                            "description": "S3 bucket name"
+                        },
+                        "prefix": {
+                            "type": "string",
+                            "description": "Optional prefix for all objects",
+                            "default": "mediaplans/"
+                        },
+                        "profile": {
+                            "type": "string",
+                            "description": "AWS profile name to use for authentication"
+                        },
+                        "region": {
+                            "type": "string",
+                            "description": "AWS region"
+                        }
+                    }
+                }
+            }
+        },
+        "database": {
+            "type": "object",
+            "description": "Optional PostgreSQL database configuration",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enable database integration"
+                },
+                "host": {
+                    "type": "string",
+                    "description": "PostgreSQL host"
+                },
+                "port": {
+                    "type": "integer",
+                    "default": 5432,
+                    "description": "PostgreSQL port"
+                },
+                "database": {
+                    "type": "string",
+                    "description": "Database name"
+                },
+                "schema": {
+                    "type": "string",
+                    "default": "public",
+                    "description": "Schema name"
+                },
+                "ssl": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Use SSL for database connection"
+                }
+            }
+        },
+        "excel": {
+            "type": "object",
+            "description": "Excel configuration",
+            "properties": {
+                "template_path": {
+                    "type": "string",
+                    "description": "Path to Excel template file"
+                },
+                "default_export_path": {
+                    "type": "string",
+                    "description": "Default path for Excel exports"
+                }
+            }
+        },
+        "google_sheets": {
+            "type": "object",
+            "description": "Google Sheets configuration",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Enable Google Sheets integration"
+                },
+                "credentials_path": {
+                    "type": "string",
+                    "description": "Path to Google API credentials file"
+                },
+                "template_id": {
+                    "type": "string",
+                    "description": "ID of template Google Sheet to use for exports"
+                }
+            }
+        },
+        "logging": {
+            "type": "object",
+            "description": "Logging configuration",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                    "default": "INFO"
+                },
+                "file": {
+                    "type": "string",
+                    "description": "Optional log file path"
+                }
+            }
+        }
+    }
+}
