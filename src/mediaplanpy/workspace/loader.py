@@ -123,6 +123,9 @@ class WorkspaceManager:
                 self.config = json.load(f)
                 logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {file_path}")
                 return self.config
+        except WorkspaceNotFoundError:
+            # Re-raise WorkspaceNotFoundError without wrapping it
+            raise
         except FileNotFoundError:
             raise WorkspaceNotFoundError(f"Workspace file not found at {self.workspace_path}")
         except json.JSONDecodeError as e:

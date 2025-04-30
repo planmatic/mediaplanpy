@@ -1,0 +1,76 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mediaplanpy"
+version = "0.1.0"
+description = "Python SDK for Media Plan Open Data Standard"
+readme = "README.md"
+authors = [
+    {name = "Laurent Colard", email = "laurent.colard@l5i.com"}
+]
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "jsonschema>=4.0.0",
+    "pydantic>=2.0.0",
+    "pandas>=1.3.0",
+    "openpyxl>=3.0.0",
+    "pyarrow>=7.0.0",
+    "boto3>=1.24.0",
+    "psycopg2-binary>=2.9.0",
+    "google-api-python-client>=2.0.0",
+    "google-auth-httplib2>=0.1.0",
+    "google-auth-oauthlib>=0.5.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=22.0.0",
+    "isort>=5.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=2.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/laurent-colard-l5i/mediaplanpy"
+"Bug Tracker" = "https://github.com/laurent-colard-l5i/mediaplanpy/issues"
+
+[project.scripts]
+mediaplanpy = "mediaplanpy.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.black]
+line-length = 100
+target-version = ["py38", "py39", "py310", "py311"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"

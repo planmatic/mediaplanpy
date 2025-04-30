@@ -1,60 +1,60 @@
 """
-Media Plan OSC - Python SDK for Media Plans.
+Exceptions for the mediaplanpy package.
 
-A lightweight, open-source Python SDK for interacting with the open data
-standard for media plans.
+This module defines custom exceptions used throughout the package.
 """
 
-__version__ = '0.1.0'
 
-# Setup package-level logger
-import logging
+class MediaPlanError(Exception):
+    """Base exception for all mediaplanpy errors."""
+    pass
 
-logger = logging.getLogger("mediaplanpy")
-logger.setLevel(logging.INFO)
 
-# Import workspace module
-from mediaplanpy.workspace import (
-    WorkspaceManager,
-    WorkspaceError,
-    WorkspaceNotFoundError,
-    WorkspaceValidationError
-)
+class WorkspaceError(MediaPlanError):
+    """Base exception for workspace-related errors."""
+    pass
 
-# Import exceptions
-from mediaplanpy.exceptions import (
-    MediaPlanError,
-    SchemaError,
-    ValidationError,
-    StorageError,
-    FileReadError,
-    FileWriteError,
-    S3Error,
-    DatabaseError
-)
 
-# Import the main classes that users will interact with
-# These will be implemented in future modules
-# from mediaplanpy.models import MediaPlan, Campaign, LineItem
-# from mediaplanpy.io import read_mediaplan, write_mediaplan
+class WorkspaceNotFoundError(WorkspaceError):
+    """Exception raised when a workspace configuration cannot be found."""
+    pass
 
-__all__ = [
-    # Workspace
-    'WorkspaceManager',
-    'WorkspaceError',
-    'WorkspaceNotFoundError',
-    'WorkspaceValidationError',
 
-    # Exceptions
-    'MediaPlanError',
-    'SchemaError',
-    'ValidationError',
-    'StorageError',
-    'FileReadError',
-    'FileWriteError',
-    'S3Error',
-    'DatabaseError',
+class WorkspaceValidationError(WorkspaceError):
+    """Exception raised when a workspace configuration fails validation."""
+    pass
 
-    # Version
-    '__version__'
-]
+
+class SchemaError(MediaPlanError):
+    """Base exception for schema-related errors."""
+    pass
+
+
+class ValidationError(SchemaError):
+    """Exception raised when a media plan fails validation against the schema."""
+    pass
+
+
+class StorageError(MediaPlanError):
+    """Base exception for storage-related errors."""
+    pass
+
+
+class FileReadError(StorageError):
+    """Exception raised when a file cannot be read."""
+    pass
+
+
+class FileWriteError(StorageError):
+    """Exception raised when a file cannot be written."""
+    pass
+
+
+class S3Error(StorageError):
+    """Exception raised when an S3 operation fails."""
+    pass
+
+
+class DatabaseError(StorageError):
+    """Exception raised when a database operation fails."""
+    pass

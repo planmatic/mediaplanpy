@@ -33,7 +33,7 @@
                         },
                         "create_if_missing": {
                             "type": "boolean",
-                            "default": True,
+                            "default": true,
                             "description": "Create directory if it doesn't exist"
                         }
                     }
@@ -68,7 +68,7 @@
             "properties": {
                 "enabled": {
                     "type": "boolean",
-                    "default": False,
+                    "default": false,
                     "description": "Enable database integration"
                 },
                 "host": {
@@ -91,7 +91,7 @@
                 },
                 "ssl": {
                     "type": "boolean",
-                    "default": True,
+                    "default": true,
                     "description": "Use SSL for database connection"
                 }
             }
@@ -116,7 +116,7 @@
             "properties": {
                 "enabled": {
                     "type": "boolean",
-                    "default": False,
+                    "default": false,
                     "description": "Enable Google Sheets integration"
                 },
                 "credentials_path": {
