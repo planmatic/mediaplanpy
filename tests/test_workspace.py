@@ -1,20 +1,23 @@
 """
-Tests for the workspace module.
+Tests for the workspace module with schema integration.
 """
 import os
 import json
 import tempfile
 import pytest
 from pathlib import Path
+from unittest import mock
+import copy
 
 # Import the WorkspaceManager and exceptions
-# Assuming the workspace module is in src/mediaplanpy/workspace/__init__.py
 from mediaplanpy.workspace import (
     WorkspaceManager,
     WorkspaceError,
     WorkspaceNotFoundError,
     WorkspaceValidationError
 )
+
+from mediaplanpy.schema import SchemaRegistry, SchemaValidator, SchemaMigrator
 
 
 # Fixture for a temporary workspace.json file
@@ -32,6 +35,13 @@ def temp_workspace_file():
                     "base_path": "${user_documents}/mediaplanpy_test",
                     "create_if_missing": True
                 }
+            },
+            "schema_settings": {
+                "preferred_version": "v1.0.0",
+                "auto_migrate": False,
+                "offline_mode": True,
+                "repository_url": "https://example.com/schemas/",
+                "local_cache_dir": "${user_documents}/mediaplanpy_test/schemas"
             },
             "database": {
                 "enabled": False
@@ -75,6 +85,41 @@ def invalid_workspace_file():
         yield str(config_path)
 
 
+# Fixture for a sample media plan
+@pytest.fixture
+def sample_media_plan():
+    """Create a sample media plan for testing."""
+    return {
+        "meta": {
+            "schema_version": "v1.0.0",
+            "created_by": "test@example.com",
+            "created_at": "2025-01-01T00:00:00Z"
+        },
+        "campaign": {
+            "id": "test_campaign",
+            "name": "Test Campaign",
+            "objective": "awareness",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "budget": {
+                "total": 100000
+            }
+        },
+        "lineitems": [
+            {
+                "id": "test_lineitem",
+                "channel": "social",
+                "platform": "Facebook",
+                "publisher": "Meta",
+                "start_date": "2025-01-01",
+                "end_date": "2025-06-30",
+                "budget": 50000,
+                "kpi": "CPM"
+            }
+        ]
+    }
+
+
 # Test loading a workspace file
 def test_load_workspace(temp_workspace_file):
     """Test loading a workspace file."""
@@ -85,6 +130,7 @@ def test_load_workspace(temp_workspace_file):
     assert config["workspace_name"] == "Test Workspace"
     assert config["environment"] == "testing"
     assert config["storage"]["mode"] == "local"
+    assert config["schema_settings"]["preferred_version"] == "v1.0.0"
 
 
 # Test validation of a valid workspace
@@ -136,6 +182,10 @@ def test_create_default_workspace():
         assert config["storage"]["mode"] == "local"
         assert config["database"]["enabled"] is False
 
+        # Check schema settings
+        assert "schema_settings" in config
+        assert config["schema_settings"]["preferred_version"] == "v1.0.0"
+
 
 # Test resolving path variables
 def test_resolve_path_variables(temp_workspace_file):
@@ -170,6 +220,11 @@ def test_get_config_sections(temp_workspace_file):
     db_config = manager.get_database_config()
     assert db_config["enabled"] is False
 
+    # Get schema settings
+    schema_settings = manager.get_schema_settings()
+    assert schema_settings["preferred_version"] == "v1.0.0"
+    assert schema_settings["offline_mode"] is True
+
 
 # Test creating workspace with nested directories
 def test_create_workspace_nested_dirs():
@@ -183,3 +238,94 @@ def test_create_workspace_nested_dirs():
 
         # Check if file was created
         assert os.path.exists(nested_path)
+
+
+# Test schema registry integration
+def test_schema_registry_integration(temp_workspace_file):
+    """Test integration with schema registry."""
+    manager = WorkspaceManager(temp_workspace_file)
+    manager.load()
+
+    # Access schema registry
+    registry = manager.schema_registry
+
+    # Check if registry was initialized with workspace settings
+    assert registry.repo_url == "https://example.com/schemas/"
+
+    # Use OS-aware path checking
+    local_cache_dir = str(registry.local_cache_dir)
+    assert "mediaplanpy_test" in local_cache_dir
+    assert "schemas" in local_cache_dir
+
+
+# Test media plan validation
+def test_validate_media_plan(temp_workspace_file, sample_media_plan):
+    """Test validating a media plan using workspace settings."""
+    manager = WorkspaceManager(temp_workspace_file)
+    manager.load()
+
+    # Make a deep copy to avoid modifications affecting other tests
+    media_plan = copy.deepcopy(sample_media_plan)
+
+    # Mock the schema validator to avoid actual schema loading
+    mock_validator = mock.Mock()
+    mock_validator.validate.return_value = []  # No validation errors
+    manager._schema_validator = mock_validator
+
+    # Validate media plan
+    errors = manager.validate_media_plan(media_plan)
+
+    # Check validation was called with the correct version
+    assert mock_validator.validate.called
+    assert mock_validator.validate.call_args[0][0] == media_plan
+    assert mock_validator.validate.call_args[0][1] == "v1.0.0"
+
+    # Check no errors were returned
+    assert errors == []
+
+
+# Test media plan migration
+def test_migrate_media_plan(temp_workspace_file):
+    """Test migrating a media plan using workspace settings."""
+    manager = WorkspaceManager(temp_workspace_file)
+    manager.load()
+
+    # Define the media plan directly in this test to ensure correct version
+    media_plan = {
+        "meta": {
+            "schema_version": "v1.0.0",  # Explicitly set to v1.0.0
+            "created_by": "test@example.com",
+            "created_at": "2025-01-01T00:00:00Z"
+        },
+        "campaign": {
+            "id": "test_campaign",
+            "name": "Test Campaign",
+            "objective": "awareness",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "budget": {
+                "total": 100000
+            }
+        },
+        "lineitems": []
+    }
+
+    # Mock the schema migrator to avoid actual migration
+    mock_migrator = mock.Mock()
+    # Create a copy to avoid modifying the original
+    migrated_plan = copy.deepcopy(media_plan)
+    migrated_plan["meta"]["schema_version"] = "v1.1.0"
+    mock_migrator.migrate.return_value = migrated_plan
+    manager._schema_migrator = mock_migrator
+
+    # Migrate media plan to v1.1.0
+    result = manager.migrate_media_plan(media_plan, "v1.1.0")
+
+    # Check migration was called with the correct versions
+    assert mock_migrator.migrate.called
+    assert mock_migrator.migrate.call_args[0][0] == media_plan
+    assert mock_migrator.migrate.call_args[0][1] == "v1.0.0"  # From version
+    assert mock_migrator.migrate.call_args[0][2] == "v1.1.0"  # To version
+
+    # Check result has updated version
+    assert result["meta"]["schema_version"] == "v1.1.0"

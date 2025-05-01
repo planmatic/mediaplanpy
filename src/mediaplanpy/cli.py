@@ -6,6 +6,7 @@ and media plans.
 """
 import os
 import sys
+import json
 import argparse
 import logging
 from pathlib import Path
@@ -16,6 +17,22 @@ from mediaplanpy.workspace import (
     WorkspaceError,
     WorkspaceNotFoundError,
     WorkspaceValidationError
+)
+
+# Import schema module
+from mediaplanpy.schema import (
+    SchemaRegistry,
+    SchemaValidator,
+    SchemaMigrator
+)
+
+# Import exceptions
+from mediaplanpy.exceptions import (
+    SchemaError,
+    SchemaVersionError,
+    SchemaRegistryError,
+    SchemaMigrationError,
+    ValidationError
 )
 
 # Configure logging
@@ -52,6 +69,32 @@ def setup_argparse():
     info_parser = workspace_subparsers.add_parser("info", help="Display information about the workspace")
     info_parser.add_argument("--path", help="Path to workspace.json")
 
+    # Schema commands
+    schema_parser = subparsers.add_parser("schema", help="Schema management")
+    schema_subparsers = schema_parser.add_subparsers(dest="schema_command")
+
+    # schema info
+    schema_info_parser = schema_subparsers.add_parser("info", help="Display schema information")
+    schema_info_parser.add_argument("--workspace", help="Path to workspace.json")
+
+    # schema versions
+    schema_versions_parser = schema_subparsers.add_parser("versions", help="List supported schema versions")
+    schema_versions_parser.add_argument("--workspace", help="Path to workspace.json")
+    schema_versions_parser.add_argument("--refresh", action="store_true", help="Force refresh from repository")
+
+    # schema validate
+    schema_validate_parser = schema_subparsers.add_parser("validate", help="Validate a media plan against schema")
+    schema_validate_parser.add_argument("file", help="Path to media plan JSON file")
+    schema_validate_parser.add_argument("--version", help="Schema version to validate against")
+    schema_validate_parser.add_argument("--workspace", help="Path to workspace.json")
+
+    # schema migrate
+    schema_migrate_parser = schema_subparsers.add_parser("migrate", help="Migrate a media plan to a new schema version")
+    schema_migrate_parser.add_argument("file", help="Path to media plan JSON file")
+    schema_migrate_parser.add_argument("--to-version", help="Target schema version")
+    schema_migrate_parser.add_argument("--output", help="Output file path (defaults to input with version suffix)")
+    schema_migrate_parser.add_argument("--workspace", help="Path to workspace.json")
+
     return parser
 
 
@@ -64,6 +107,9 @@ def handle_workspace_init(args):
         print(f"Storage mode: {config['storage']['mode']}")
         if config['storage']['mode'] == 'local':
             print(f"Local storage path: {config['storage']['local']['base_path']}")
+        print(f"Schema settings:")
+        print(f"  Preferred version: {config['schema_settings']['preferred_version']}")
+        print(f"  Repository URL: {config['schema_settings']['repository_url']}")
     except WorkspaceError as e:
         print(f"❌ Error creating workspace: {e}")
         return 1
@@ -128,6 +174,14 @@ def handle_workspace_info(args):
             if 'region' in s3_config:
                 print(f"  Region: {s3_config['region']}")
 
+        print("\nSchema Settings:")
+        schema_settings = resolved.get('schema_settings', {})
+        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v1.0.0')}")
+        print(f"  Auto Migrate: {schema_settings.get('auto_migrate', False)}")
+        print(f"  Offline Mode: {schema_settings.get('offline_mode', False)}")
+        print(f"  Repository URL: {schema_settings.get('repository_url', 'default')}")
+        print(f"  Local Cache Directory: {schema_settings.get('local_cache_dir', 'default')}")
+
         print("\nDatabase Configuration:")
         db_config = config['database']
         if db_config.get('enabled', False):
@@ -180,6 +234,144 @@ def handle_workspace_info(args):
     return 0
 
 
+def handle_schema_info(args):
+    """Handle the 'schema info' command."""
+    try:
+        # Load workspace if specified
+        if args.workspace:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+            registry = manager.schema_registry
+        else:
+            # Use default registry
+            registry = SchemaRegistry()
+
+        # Get schema information
+        current_version = registry.get_current_version()
+        supported_versions = registry.get_supported_versions()
+
+        print(f"Schema Information:")
+        print(f"  Current Version: {current_version}")
+        print(f"  Supported Versions: {', '.join(supported_versions)}")
+        print(f"  Repository URL: {registry.repo_url}")
+        print(f"  Local Cache Directory: {registry.local_cache_dir}")
+
+    except (WorkspaceError, SchemaError) as e:
+        print(f"❌ Error getting schema information: {e}")
+        return 1
+    return 0
+
+
+def handle_schema_versions(args):
+    """Handle the 'schema versions' command."""
+    try:
+        # Load workspace if specified
+        if args.workspace:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+            registry = manager.schema_registry
+        else:
+            # Use default registry
+            registry = SchemaRegistry()
+
+        # Get versions (with optional refresh)
+        versions_info = registry.load_versions_info(force_refresh=args.refresh)
+
+        print(f"Schema Versions:")
+        print(f"  Current: {versions_info.get('current')}")
+        print(f"  Supported: {', '.join(versions_info.get('supported', []))}")
+        if 'deprecated' in versions_info and versions_info['deprecated']:
+            print(f"  Deprecated: {', '.join(versions_info.get('deprecated', []))}")
+        if 'description' in versions_info:
+            print(f"  Description: {versions_info['description']}")
+
+    except (WorkspaceError, SchemaError) as e:
+        print(f"❌ Error getting schema versions: {e}")
+        return 1
+    return 0
+
+
+def handle_schema_validate(args):
+    """Handle the 'schema validate' command."""
+    try:
+        # Load workspace if specified
+        if args.workspace:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+            validator = manager.schema_validator
+        else:
+            # Use default validator
+            validator = SchemaValidator()
+
+        # Validate the file
+        errors = validator.validate_file(args.file, args.version)
+
+        if not errors:
+            print(f"✅ Media plan '{args.file}' is valid")
+        else:
+            print(f"❌ Media plan validation failed with {len(errors)} errors:")
+            for i, error in enumerate(errors, 1):
+                print(f"  {i}. {error}")
+            return 1
+
+    except (WorkspaceError, SchemaError, ValidationError) as e:
+        print(f"❌ Error validating media plan: {e}")
+        return 1
+    return 0
+
+
+def handle_schema_migrate(args):
+    """Handle the 'schema migrate' command."""
+    try:
+        # Load workspace if specified
+        if args.workspace:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+            migrator = manager.schema_migrator
+        else:
+            # Use default migrator
+            migrator = SchemaMigrator()
+
+        # Load the media plan
+        with open(args.file, 'r') as f:
+            media_plan = json.load(f)
+
+        # Get source version
+        from_version = media_plan.get("meta", {}).get("schema_version")
+        if not from_version:
+            print(f"❌ Media plan does not specify a schema version")
+            return 1
+
+        # Get target version
+        to_version = args.to_version
+        if not to_version:
+            # If no target version specified, use current version
+            to_version = migrator.registry.get_current_version()
+
+        # Migrate the media plan
+        migrated_plan = migrator.migrate(media_plan, from_version, to_version)
+
+        # Determine output path
+        if args.output:
+            output_path = args.output
+        else:
+            # Default to input file name with version suffix
+            input_path = Path(args.file)
+            output_path = input_path.with_stem(f"{input_path.stem}_{to_version}")
+
+        # Write the migrated plan
+        with open(output_path, 'w') as f:
+            json.dump(migrated_plan, f, indent=2)
+
+        print(f"✅ Migrated media plan from {from_version} to {to_version}")
+        print(f"  Output saved to: {output_path}")
+
+    except (WorkspaceError, SchemaError, ValidationError) as e:
+        print(f"❌ Error migrating media plan: {e}")
+        return 1
+    return 0
+
+
 def main():
     """Main entry point for the CLI."""
     parser = setup_argparse()
@@ -204,6 +396,24 @@ def main():
             return handle_workspace_validate(args)
         elif args.workspace_command == "info":
             return handle_workspace_info(args)
+
+    # Handle schema commands
+    elif args.command == "schema":
+        if not args.schema_command:
+            # If no schema subcommand, print schema help
+            for action in parser._actions:
+                if action.dest == 'schema_command':
+                    action.choices['info'].print_help()
+                    return 1
+
+        if args.schema_command == "info":
+            return handle_schema_info(args)
+        elif args.schema_command == "versions":
+            return handle_schema_versions(args)
+        elif args.schema_command == "validate":
+            return handle_schema_validate(args)
+        elif args.schema_command == "migrate":
+            return handle_schema_migrate(args)
 
     # If we reach here, no command was handled
     parser.print_help()

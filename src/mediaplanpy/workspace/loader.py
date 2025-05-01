@@ -17,6 +17,7 @@ from mediaplanpy.exceptions import (
     WorkspaceValidationError
 )
 from mediaplanpy.workspace.validator import validate_workspace, WORKSPACE_SCHEMA
+from mediaplanpy.schema import SchemaRegistry, SchemaValidator, SchemaMigrator
 
 # Configure logging
 logger = logging.getLogger("mediaplanpy.workspace.loader")
@@ -48,10 +49,78 @@ class WorkspaceManager:
         self.config = None
         self._resolved_config = None
 
+        # Schema components (initialized when needed)
+        self._schema_registry = None
+        self._schema_validator = None
+        self._schema_migrator = None
+
     @property
     def is_loaded(self) -> bool:
         """Return True if a workspace configuration is loaded."""
         return self.config is not None
+
+    @property
+    def schema_registry(self) -> SchemaRegistry:
+        """
+        Get the schema registry for this workspace.
+
+        The registry is initialized with settings from the workspace configuration.
+
+        Returns:
+            A SchemaRegistry instance.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+        """
+        if not self.is_loaded:
+            raise WorkspaceError("No workspace configuration loaded. Call load() first.")
+
+        if self._schema_registry is None:
+            # Initialize schema registry with workspace settings
+            schema_settings = self.get_schema_settings()
+            repo_url = schema_settings.get('repository_url')
+            local_cache_dir = schema_settings.get('local_cache_dir')
+
+            # Resolve paths if needed
+            if local_cache_dir:
+                local_cache_dir = self._resolve_path_variables(local_cache_dir)
+
+            self._schema_registry = SchemaRegistry(
+                repo_url=repo_url,
+                local_cache_dir=local_cache_dir
+            )
+
+        return self._schema_registry
+
+    @property
+    def schema_validator(self) -> SchemaValidator:
+        """
+        Get the schema validator for this workspace.
+
+        Returns:
+            A SchemaValidator instance.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+        """
+        if self._schema_validator is None:
+            self._schema_validator = SchemaValidator(registry=self.schema_registry)
+        return self._schema_validator
+
+    @property
+    def schema_migrator(self) -> SchemaMigrator:
+        """
+        Get the schema migrator for this workspace.
+
+        Returns:
+            A SchemaMigrator instance.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+        """
+        if self._schema_migrator is None:
+            self._schema_migrator = SchemaMigrator(registry=self.schema_registry)
+        return self._schema_migrator
 
     def locate_workspace_file(self) -> str:
         """
@@ -263,6 +332,13 @@ class WorkspaceManager:
                     "create_if_missing": True
                 }
             },
+            "schema_settings": {
+                "preferred_version": "v1.0.0",
+                "auto_migrate": False,
+                "offline_mode": False,
+                "repository_url": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/",
+                "local_cache_dir": "${user_home}/.mediaplanpy/schemas"
+            },
             "database": {
                 "enabled": False
             },
@@ -347,3 +423,61 @@ class WorkspaceManager:
         """
         resolved = self.get_resolved_config()
         return resolved.get('google_sheets', {})
+
+    def get_schema_settings(self) -> Dict[str, Any]:
+        """
+        Get the resolved schema settings configuration section.
+
+        Returns:
+            The resolved schema settings configuration.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+        """
+        resolved = self.get_resolved_config()
+        return resolved.get('schema_settings', {})
+
+    def validate_media_plan(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> List[str]:
+        """
+        Validate a media plan against the appropriate schema.
+
+        Args:
+            media_plan: The media plan data to validate.
+            version: The schema version to validate against. If None, uses the preferred
+                     version from workspace settings, or the version in the media plan.
+
+        Returns:
+            List of validation error messages, empty if validation succeeds.
+        """
+        # If no version specified, use preferred version from settings
+        if version is None:
+            schema_settings = self.get_schema_settings()
+            version = schema_settings.get('preferred_version')
+
+        # Validate using the schema validator
+        return self.schema_validator.validate(media_plan, version)
+
+    def migrate_media_plan(self, media_plan: Dict[str, Any], to_version: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Migrate a media plan to a specific schema version.
+
+        Args:
+            media_plan: The media plan data to migrate.
+            to_version: The target schema version. If None, uses the preferred
+                       version from workspace settings.
+
+        Returns:
+            The migrated media plan data.
+        """
+        # If no target version specified, use preferred version from settings
+        if to_version is None:
+            schema_settings = self.get_schema_settings()
+            to_version = schema_settings.get('preferred_version')
+
+        # Get current version from media plan
+        from_version = media_plan.get("meta", {}).get("schema_version")
+        if not from_version:
+            raise WorkspaceError("Media plan does not specify a schema version")
+
+        # Migrate using the schema migrator
+        return self.schema_migrator.migrate(media_plan, from_version, to_version)

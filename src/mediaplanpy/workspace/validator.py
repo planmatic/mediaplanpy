@@ -35,7 +35,7 @@ def validate_workspace(config: Dict[str, Any]) -> List[str]:
         config: The workspace configuration to validate.
 
     Returns:
-        A list of validation errors, if any.
+        A list of validation error messages, if any.
 
     Raises:
         WorkspaceValidationError: If the configuration fails validation.
@@ -52,6 +52,7 @@ def validate_workspace(config: Dict[str, Any]) -> List[str]:
     # Additional validations beyond the schema
     errors.extend(validate_storage_config(config))
     errors.extend(validate_database_config(config))
+    errors.extend(validate_schema_settings(config))
 
     return errors
 
@@ -101,5 +102,31 @@ def validate_database_config(config: Dict[str, Any]) -> List[str]:
             errors.append("Database integration enabled but no host specified.")
         if not db_config.get('database'):
             errors.append("Database integration enabled but no database name specified.")
+
+    return errors
+
+
+def validate_schema_settings(config: Dict[str, Any]) -> List[str]:
+    """
+    Validate schema-specific configuration.
+
+    Args:
+        config: The workspace configuration to validate.
+
+    Returns:
+        A list of validation errors, if any.
+    """
+    errors = []
+    schema_settings = config.get('schema_settings', {})
+
+    # Verify preferred_version, if specified, is a valid format (v followed by digits and dots)
+    preferred_version = schema_settings.get('preferred_version')
+    if preferred_version and not preferred_version.startswith('v'):
+        errors.append(f"Schema version should start with 'v': {preferred_version}")
+
+    # If we have a repository_url, make sure it's a proper URL
+    repo_url = schema_settings.get('repository_url')
+    if repo_url and not (repo_url.startswith('http://') or repo_url.startswith('https://')):
+        errors.append(f"Repository URL should start with http:// or https://: {repo_url}")
 
     return errors

@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "mediaplanpy Workspace Configuration",
+    "title": "Media Plan PY Workspace Configuration",
     "type": "object",
     "required": ["workspace_name", "storage"],
     "properties": {
@@ -59,6 +59,37 @@
                             "description": "AWS region"
                         }
                     }
+                }
+            }
+        },
+        "schema_settings": {
+            "type": "object",
+            "description": "Schema configuration settings",
+            "properties": {
+                "preferred_version": {
+                    "type": "string",
+                    "description": "Preferred schema version to use",
+                    "default": "v1.0.0"
+                },
+                "auto_migrate": {
+                    "type": "boolean",
+                    "description": "Automatically migrate to preferred version when loading",
+                    "default": false
+                },
+                "offline_mode": {
+                    "type": "boolean",
+                    "description": "Only use locally cached schemas",
+                    "default": false
+                },
+                "repository_url": {
+                    "type": "string",
+                    "description": "URL to the schema repository",
+                    "default": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/"
+                },
+                "local_cache_dir": {
+                    "type": "string",
+                    "description": "Directory to cache schemas locally",
+                    "default": "${user_home}/.mediaplanpy/schemas"
                 }
             }
         },
