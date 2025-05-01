@@ -48,12 +48,16 @@ from mediaplanpy.schema import (
     SchemaMigrator
 )
 
-# Import models (commented out until implemented)
-# from mediaplanpy.models import (
-#     MediaPlan,
-#     Campaign,
-#     LineItem
-# )
+# Import models
+from mediaplanpy.models import (
+    BaseModel,
+    LineItem,
+    Campaign,
+    Budget,
+    TargetAudience,
+    MediaPlan,
+    Meta
+)
 
 # Import the main IO functions (commented out until implemented)
 # from mediaplanpy.io import read_mediaplan, write_mediaplan
@@ -88,10 +92,14 @@ __all__ = [
     'SchemaValidator',
     'SchemaMigrator',
 
-    # Models (commented out until implemented)
-    # 'MediaPlan',
-    # 'Campaign',
-    # 'LineItem',
+    # Models
+    'BaseModel',
+    'LineItem',
+    'Campaign',
+    'Budget',
+    'TargetAudience',
+    'MediaPlan',
+    'Meta',
 
     # Version
     '__version__'
