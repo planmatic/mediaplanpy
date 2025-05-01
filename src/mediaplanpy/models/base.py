@@ -9,6 +9,7 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, ClassVar
 from datetime import date, datetime
+from decimal import Decimal  # Added import
 import copy
 
 from pydantic import BaseModel as PydanticBaseModel
@@ -16,7 +17,6 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError
 from mediaplanpy.schema import SchemaValidator, get_current_version
-
 
 class BaseModel(PydanticBaseModel):
     """
@@ -56,7 +56,25 @@ class BaseModel(PydanticBaseModel):
         Returns:
             A dictionary representation of the model.
         """
-        return self.model_dump(exclude_none=exclude_none)
+        # First, get the Pydantic model dump as a dictionary
+        data = self.model_dump(exclude_none=exclude_none)
+
+        # Process the dictionary to convert date/datetime objects to strings
+        # and decimal objects to numbers
+        def process_value(value):
+            if isinstance(value, (date, datetime)):
+                return value.isoformat()
+            elif isinstance(value, Decimal):
+                return float(value)
+            elif isinstance(value, dict):
+                return {k: process_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [process_value(item) for item in value]
+            return value
+
+        # Process all values in the dictionary
+        processed_data = {key: process_value(value) for key, value in data.items()}
+        return processed_data
 
     def to_json(self, exclude_none: bool = True, indent: int = 2) -> str:
         """
