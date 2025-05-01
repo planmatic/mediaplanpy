@@ -30,6 +30,21 @@ class SchemaError(MediaPlanError):
     pass
 
 
+class SchemaVersionError(SchemaError):
+    """Exception raised when a schema version is not supported."""
+    pass
+
+
+class SchemaRegistryError(SchemaError):
+    """Exception raised when there's an issue with the schema registry."""
+    pass
+
+
+class SchemaMigrationError(SchemaError):
+    """Exception raised when a schema migration fails."""
+    pass
+
+
 class ValidationError(SchemaError):
     """Exception raised when a media plan fails validation against the schema."""
     pass

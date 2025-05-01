@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "title": "Media Plan OSC Workspace Configuration",
+    "title": "mediaplanpy Workspace Configuration",
     "type": "object",
     "required": ["workspace_name", "storage"],
     "properties": {
