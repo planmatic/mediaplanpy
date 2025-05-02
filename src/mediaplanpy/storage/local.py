@@ -207,7 +207,16 @@ class LocalStorageBackend(StorageBackend):
 
             # Convert back to paths relative to base path
             base_path_len = len(self.base_path) + 1  # +1 for trailing slash
-            return [f[base_path_len:] if f.startswith(self.base_path) else f for f in files]
+            result = []
+            for f in files:
+                if f.startswith(self.base_path):
+                    # Make sure we use forward slashes for consistency across platforms
+                    rel_path = f[base_path_len:]
+                    rel_path = rel_path.replace('\\', '/')
+                    result.append(rel_path)
+                else:
+                    result.append(f)
+            return result
         except Exception as e:
             raise StorageError(f"Failed to list files in {full_path}: {e}")
 

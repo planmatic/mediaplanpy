@@ -31,15 +31,26 @@ def get_format_handler_instance(format_name_or_path: str, **options) -> FormatHa
         ValueError: If no format handler is found.
     """
     # Check if it looks like a path with an extension
-    if '.' in format_name_or_path and '/' in format_name_or_path:
+    if '.' in format_name_or_path:
         handler_class = get_format_handler_for_file(format_name_or_path)
-        if not handler_class:
-            raise ValueError(f"No format handler found for file '{format_name_or_path}'")
-        return handler_class(**options)
+        if handler_class:
+            return handler_class(**options)
 
     # Otherwise, treat it as a format name
-    handler_class = get_format_handler(format_name_or_path)
-    return handler_class(**options)
+    try:
+        handler_class = get_format_handler(format_name_or_path)
+        return handler_class(**options)
+    except ValueError:
+        # If not found by name and it has a dot, it might be a path
+        # Try to get by extension as a fallback
+        if '.' in format_name_or_path:
+            extension = format_name_or_path.split('.')[-1].lower()
+            for handler_cls in _format_registry.values():
+                if handler_cls.file_extension == extension:
+                    return handler_cls(**options)
+
+        # If we get here, no handler was found
+        raise ValueError(f"No format handler found for '{format_name_or_path}'")
 
 
 __all__ = [

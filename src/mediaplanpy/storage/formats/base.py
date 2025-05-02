@@ -52,8 +52,14 @@ class FormatHandler(abc.ABC):
         Returns:
             True if the filename has this format's extension, False otherwise.
         """
-        ext = cls.get_file_extension()
-        return filename.lower().endswith(f".{ext}")
+        if not filename or not cls.file_extension:
+            return False
+
+        try:
+            extension = filename.split('.')[-1].lower()
+            return extension == cls.file_extension.lower()
+        except (IndexError, AttributeError):
+            return False
 
     @abc.abstractmethod
     def serialize(self, data: Dict[str, Any], **kwargs) -> Union[str, bytes]:
@@ -177,8 +183,12 @@ def get_format_handler_for_file(filename: str) -> Optional[Type[FormatHandler]]:
     Returns:
         The format handler class, or None if no handler matches the filename.
     """
-    for handler_class in _format_registry.values():
-        if handler_class.matches_extension(filename):
-            return handler_class
+    try:
+        extension = filename.split('.')[-1].lower()
+        for handler_class in _format_registry.values():
+            if handler_class.file_extension == extension:
+                return handler_class
+    except (IndexError, AttributeError):
+        pass
 
     return None

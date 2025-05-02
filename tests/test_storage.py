@@ -54,7 +54,7 @@ def temp_workspace_file(temp_storage_dir):
     }
 
     # Write the config to a temporary file
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode='w') as tmp:
         json.dump(workspace_config, tmp)
         tmp_path = tmp.name
 
