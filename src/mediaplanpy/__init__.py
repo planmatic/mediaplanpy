@@ -59,8 +59,14 @@ from mediaplanpy.models import (
     Meta
 )
 
-# Import the main IO functions (commented out until implemented)
-# from mediaplanpy.io import read_mediaplan, write_mediaplan
+# Import storage module
+from mediaplanpy.storage import (
+    read_mediaplan,
+    write_mediaplan,
+    get_storage_backend,
+    get_format_handler_instance,
+    JsonFormatHandler
+)
 
 __all__ = [
     # Workspace
@@ -100,6 +106,13 @@ __all__ = [
     'TargetAudience',
     'MediaPlan',
     'Meta',
+
+    # Storage
+    'read_mediaplan',
+    'write_mediaplan',
+    'get_storage_backend',
+    'get_format_handler_instance',
+    'JsonFormatHandler',
 
     # Version
     '__version__'

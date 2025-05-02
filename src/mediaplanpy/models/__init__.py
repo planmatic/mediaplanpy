@@ -10,6 +10,9 @@ from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
 from mediaplanpy.models.mediaplan import MediaPlan, Meta
 
+# Import storage integration (which patches MediaPlan with storage methods)
+import mediaplanpy.models.mediaplan_storage
+
 __all__ = [
     'BaseModel',
     'LineItem',

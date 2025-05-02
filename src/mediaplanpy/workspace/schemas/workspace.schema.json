@@ -20,7 +20,7 @@
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["local", "s3"],
+                    "enum": ["local", "s3", "gdrive"],
                     "default": "local",
                     "description": "Storage mode for media plans"
                 },
@@ -57,6 +57,23 @@
                         "region": {
                             "type": "string",
                             "description": "AWS region"
+                        }
+                    }
+                },
+                "gdrive": {
+                    "type": "object",
+                    "properties": {
+                        "folder_id": {
+                            "type": "string",
+                            "description": "Google Drive folder ID to store media plans"
+                        },
+                        "credentials_path": {
+                            "type": "string",
+                            "description": "Path to Google API credentials file"
+                        },
+                        "token_path": {
+                            "type": "string",
+                            "description": "Path to store the OAuth token"
                         }
                     }
                 }
@@ -157,6 +174,44 @@
                 "template_id": {
                     "type": "string",
                     "description": "ID of template Google Sheet to use for exports"
+                }
+            }
+        },
+        "storage_formats": {
+            "type": "object",
+            "description": "Default settings for storage formats",
+            "properties": {
+                "default_format": {
+                    "type": "string",
+                    "enum": ["json", "parquet"],
+                    "default": "json",
+                    "description": "Default format to use when not specified"
+                },
+                "json": {
+                    "type": "object",
+                    "properties": {
+                        "indent": {
+                            "type": "integer",
+                            "default": 2,
+                            "description": "Number of spaces for indentation in JSON files"
+                        },
+                        "ensure_ascii": {
+                            "type": "boolean",
+                            "default": false,
+                            "description": "Ensure ASCII characters only in JSON output"
+                        }
+                    }
+                },
+                "parquet": {
+                    "type": "object",
+                    "properties": {
+                        "compression": {
+                            "type": "string",
+                            "enum": ["none", "snappy", "gzip", "brotli", "lz4", "zstd"],
+                            "default": "snappy",
+                            "description": "Compression algorithm for Parquet files"
+                        }
+                    }
                 }
             }
         },
