@@ -1,8 +1,8 @@
 """
-Example usage of the storage module.
+Example usage of the enhanced storage functionality.
 
-This script demonstrates how to use the storage functionality
-to save and load media plans from various storage backends.
+This script demonstrates how to use the enhanced storage functionality
+with automatic file naming based on campaign ID.
 """
 
 import os
@@ -20,14 +20,7 @@ from mediaplanpy.models import (
     Meta
 )
 from mediaplanpy.workspace import WorkspaceManager
-from mediaplanpy.exceptions import StorageError, FileReadError, FileWriteError
-from mediaplanpy.storage import (
-    read_mediaplan,
-    write_mediaplan,
-    get_storage_backend,
-    get_format_handler_instance,
-    JsonFormatHandler
-)
+from mediaplanpy.exceptions import StorageError
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -58,125 +51,103 @@ def main():
             import json
             json.dump(config, f, indent=2)
 
-        # Create a media plan to save
-        logger.info("Creating a new media plan")
-
-        media_plan = MediaPlan.create_new(
-            created_by="example@agency.com",
-            campaign_name="Summer 2025 Campaign",
-            campaign_objective="Increase brand awareness for new product line",
-            campaign_start_date="2025-06-01",
-            campaign_end_date="2025-08-31",
-            campaign_budget=200000,
-            comments="Campaign for the summer product launch",
-            target_audience={
-                "age_range": "18-34",
-                "location": "United States",
-                "interests": ["summer", "outdoors", "lifestyle"]
-            }
-        )
-
-        # Add line items
-        logger.info("Adding line items")
-
-        # Social media line item
-        media_plan.add_lineitem({
-            "id": "li_social_fb_01",
-            "channel": "social",
-            "platform": "Facebook",
-            "publisher": "Meta",
-            "start_date": "2025-06-01",
-            "end_date": "2025-07-15",
-            "budget": 80000,
-            "kpi": "CPM",
-            "creative_ids": ["cr_001", "cr_002"]
-        })
-
-        # Display line item
-        media_plan.add_lineitem(LineItem(
-            id="li_display_gdn_01",
-            channel="display",
-            platform="Google Display Network",
-            publisher="Google",
-            start_date=date(2025, 6, 15),
-            end_date=date(2025, 8, 15),
-            budget=Decimal("120000"),
-            kpi="CPC",
-            creative_ids=["cr_003", "cr_004", "cr_005"]
-        ))
-
         # Load the workspace
         logger.info("Loading workspace")
         manager = WorkspaceManager(str(workspace_path))
         manager.load()
 
-        # Method 1: Save directly using the media plan's storage method
-        logger.info("Method 1: Saving media plan using media_plan.save_to_storage()")
+        # Create a media plan to save
+        logger.info("Creating a new media plan")
 
-        # Define the path where to save the media plan (relative to the storage base path)
-        relative_path = "campaigns/summer_2025/media_plan.json"
+        media_plan = MediaPlan.create_new(
+            created_by="example@agency.com",
+            campaign_name="Fall 2025 Campaign",
+            campaign_objective="Increase brand awareness for new product line",
+            campaign_start_date="2025-09-01",
+            campaign_end_date="2025-11-30",
+            campaign_budget=150000,
+            comments="Campaign for the fall product launch",
+            # Use a custom campaign ID
+            campaign_id="fall_2025_campaign",
+            target_audience={
+                "age_range": "18-34",
+                "location": "United States",
+                "interests": ["fall", "fashion", "lifestyle"]
+            }
+        )
 
-        # Save to storage
-        media_plan.save_to_storage(manager, relative_path)
+        # Add a line item
+        logger.info("Adding a line item")
+        media_plan.add_lineitem({
+            "id": "li_social_ig_01",
+            "channel": "social",
+            "platform": "Instagram",
+            "publisher": "Meta",
+            "start_date": "2025-09-01",
+            "end_date": "2025-10-15",
+            "budget": 75000,
+            "kpi": "CPM",
+            "creative_ids": ["cr_001", "cr_002"]
+        })
 
-        # Method 2: Load directly using the media plan's storage method
-        logger.info("Method 2: Loading media plan using MediaPlan.load_from_storage()")
+        # Example 1: Save with automatic path generation
+        logger.info("Example 1: Saving with automatic path generation")
+        saved_path = media_plan.save_to_storage(manager)
+        logger.info(f"Media plan automatically saved to: {saved_path}")
 
-        # Load from storage
-        loaded_plan = MediaPlan.load_from_storage(manager, relative_path)
-
+        # Example 2: Load with campaign_id
+        logger.info("Example 2: Loading with campaign_id")
+        loaded_plan = MediaPlan.load_from_storage(
+            manager,
+            campaign_id="fall_2025_campaign"
+        )
         logger.info(f"Loaded media plan with campaign: {loaded_plan.campaign.name}")
-        logger.info(f"Loaded media plan has {len(loaded_plan.lineitems)} line items")
 
-        # Method 3: Using the storage module directly
-        logger.info("Method 3: Using the storage module functions directly")
+        # Example 3: Save with automatic path but specify format
+        logger.info("Example 3: Saving with automatic path but specifying format")
+        saved_path = media_plan.save_to_storage(
+            manager,
+            format_name="json",
+            indent=4  # Custom JSON formatting option
+        )
+        logger.info(f"Media plan automatically saved to: {saved_path}")
 
-        # Get resolved workspace config
-        workspace_config = manager.get_resolved_config()
+        # Example 4: Create another media plan with a complex ID
+        logger.info("Example 4: Create a media plan with a complex ID")
+        complex_plan = MediaPlan.create_new(
+            created_by="example@agency.com",
+            campaign_name="Special Campaign",
+            campaign_objective="Testing complex IDs",
+            campaign_start_date="2025-10-01",
+            campaign_end_date="2025-10-31",
+            campaign_budget=50000,
+            # Use an ID with characters that need sanitization
+            campaign_id="special/campaign/2025",
+        )
 
-        # Define a different path for this example
-        another_path = "campaigns/summer_2025/media_plan_copy.json"
+        # Save it and check that the ID is sanitized in the path
+        saved_path = complex_plan.save_to_storage(manager)
+        logger.info(f"Complex ID media plan saved to: {saved_path}")
 
-        # Write directly using the storage module
-        write_mediaplan(workspace_config, media_plan.to_dict(), another_path)
+        # Example 5: Save to a specific folder
+        logger.info("Example 5: Save to a specific folder")
+        folder_path = "campaigns/fall_2025/"
+        saved_path = media_plan.save_to_storage(
+            manager,
+            path=f"{folder_path}{media_plan.campaign.id}.json"
+        )
+        logger.info(f"Media plan saved to specific folder: {saved_path}")
 
-        # Read directly using the storage module
-        loaded_data = read_mediaplan(workspace_config, another_path)
-
-        logger.info(f"Directly loaded media plan data with campaign: {loaded_data['campaign']['name']}")
-
-        # Method 4: Using the storage backend directly
-        logger.info("Method 4: Using the storage backend directly")
-
-        # Get storage backend
-        backend = get_storage_backend(workspace_config)
-
-        # Get format handler
-        format_handler = get_format_handler_instance("json", indent=4)
-
-        # Define yet another path for this example
-        yet_another_path = "campaigns/summer_2025/media_plan_direct.json"
-
-        # Write the file
-        serialized_data = format_handler.serialize(media_plan.to_dict())
-        backend.write_file(yet_another_path, serialized_data)
-
-        # Read the file
-        read_content = backend.read_file(yet_another_path)
-        direct_loaded_data = format_handler.deserialize(read_content)
-
-        logger.info(f"Directly loaded media plan data with campaign: {direct_loaded_data['campaign']['name']}")
-
-        # List all saved media plans
-        logger.info("Listing all media plans in the campaigns directory")
-
-        all_files = backend.list_files("campaigns", pattern="**/*.json")
-        logger.info(f"Found {len(all_files)} media plan files:")
+        # Example 6: List all saved files
+        logger.info("Example 6: List all saved files")
+        storage_backend = manager.get_storage_backend()
+        all_files = storage_backend.list_files("")
+        logger.info(f"All saved files ({len(all_files)}):")
         for file_path in all_files:
-            file_info = backend.get_file_info(file_path)
-            logger.info(f"  - {file_path} (size: {file_info['size']} bytes, modified: {file_info['modified']})")
+            file_info = storage_backend.get_file_info(file_path)
+            logger.info(f"  - {file_path} (size: {file_info['size']} bytes)")
 
-        logger.info("Example completed successfully!")
+        logger.info("Enhanced storage example completed successfully!")
 
     except StorageError as e:
         logger.error(f"Storage error: {e}")

@@ -70,14 +70,35 @@ manager = WorkspaceManager("path/to/workspace.json")
 manager.load()
 
 # Create a media plan
-media_plan = MediaPlan.create_new(...)
+media_plan = MediaPlan.create_new(
+    campaign_id="fall_2025_campaign",
+    # other required parameters...
+)
 
-# Save to storage
-media_plan.save_to_storage(manager, "path/to/save.json")
+# Save to storage with automatic path generation based on campaign ID
+saved_path = media_plan.save_to_storage(manager)
+# The media plan is saved to "fall_2025_campaign.json"
 
-# Load from storage
-loaded_plan = MediaPlan.load_from_storage(manager, "path/to/save.json")
+# Alternatively, specify a path
+media_plan.save_to_storage(manager, "campaigns/my_campaign.json")
+
+# Load from storage using campaign ID
+loaded_plan = MediaPlan.load_from_storage(manager, campaign_id="fall_2025_campaign")
+
+# Or load from a specific path
+loaded_plan = MediaPlan.load_from_storage(manager, "campaigns/my_campaign.json")
 ```
+
+#### Automatic Path Generation
+
+If you don't specify a path when saving a media plan, the storage module will automatically generate a path based on the campaign ID:
+
+1. The campaign ID is sanitized (replacing `/` and `\` with `_`)
+2. The default file format is JSON
+3. The file is saved as `{campaign_id}.json`
+
+This makes it easy to save and load media plans without specifying a path every time.
+
 
 ### Using Storage Module Directly
 

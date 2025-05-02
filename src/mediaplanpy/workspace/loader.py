@@ -481,3 +481,19 @@ class WorkspaceManager:
 
         # Migrate using the schema migrator
         return self.schema_migrator.migrate(media_plan, from_version, to_version)
+
+    def get_storage_backend(self) -> 'StorageBackend':
+        """
+        Get the storage backend for this workspace.
+
+        Returns:
+            A StorageBackend instance.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+        """
+        if not self.is_loaded:
+            raise WorkspaceError("No workspace configuration loaded. Call load() first.")
+
+        from mediaplanpy.storage import get_storage_backend
+        return get_storage_backend(self.get_resolved_config())
