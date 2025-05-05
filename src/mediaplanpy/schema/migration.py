@@ -6,6 +6,9 @@ between different schema versions.
 """
 
 import logging
+import uuid
+from datetime import datetime
+from decimal import Decimal
 from typing import Dict, Any, List, Optional, Union, Callable
 
 from mediaplanpy.exceptions import SchemaError, SchemaMigrationError, SchemaVersionError
@@ -36,9 +39,8 @@ class SchemaMigrator:
 
     def _register_default_migrations(self):
         """Register the default migration paths."""
-        # No migrations yet, but will be added as new versions are released
-        # Example: self.register_migration("v0.9.0", "v1.0.0", self._migrate_v090_to_v100)
-        pass
+        # Register migration from v0.0.0 to v1.0.0
+        self.register_migration("v0.0.0", "v1.0.0", self._migrate_v000_to_v100)
 
     def register_migration(self, from_version: str, to_version: str,
                           migration_func: Callable[[Dict[str, Any]], Dict[str, Any]]):
@@ -177,24 +179,98 @@ class SchemaMigrator:
 
         return current_data
 
-    # Migration functions for specific version transitions
-    # These will be added as new schema versions are released
-
-    def _migrate_example(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _migrate_v000_to_v100(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Example migration function (placeholder).
+        Migrate a media plan from schema v0.0.0 to v1.0.0.
 
         Args:
-            data: Media plan data to migrate.
+            data: Media plan data in v0.0.0 format.
 
         Returns:
-            Migrated media plan data.
+            Media plan data in v1.0.0 format.
         """
-        # This is just a placeholder for future migrations
-        # Clone the data to avoid modifying the original
-        result = data.copy()
+        # Create a deep copy to avoid modifying the original
+        import copy
+        result = copy.deepcopy(data)
 
-        # Apply transformations here
-        # ...
+        # Update metadata
+        if "meta" in result:
+            meta = result["meta"]
+            # Add id if missing
+            if "id" not in meta:
+                meta["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
+
+            # Add name if missing (use campaign name or create default)
+            if "name" not in meta:
+                campaign_name = result.get("campaign", {}).get("name", "Unnamed Media Plan")
+                meta["name"] = campaign_name
+
+        # Update campaign
+        if "campaign" in result:
+            campaign = result["campaign"]
+
+            # Transform budget structure
+            if "budget" in campaign:
+                budget = campaign.pop("budget")
+                campaign["budget_total"] = budget.get("total", 0)
+
+                # Keep by_channel info in a custom field if needed
+                if "by_channel" in budget:
+                    campaign["dim_custom1"] = f"budget_by_channel:{str(budget['by_channel'])}"
+
+            # Transform target audience
+            if "target_audience" in campaign:
+                target_audience = campaign.pop("target_audience")
+
+                # Extract age range
+                age_range = target_audience.get("age_range")
+                if age_range and "-" in age_range:
+                    try:
+                        start, end = age_range.split("-")
+                        campaign["audience_age_start"] = int(start.strip())
+                        campaign["audience_age_end"] = int(end.strip())
+                    except (ValueError, TypeError):
+                        # In case of parsing error, just set a name
+                        campaign["audience_name"] = f"Age {age_range}"
+
+                # Extract location
+                location = target_audience.get("location")
+                if location:
+                    campaign["location_type"] = "Country"  # Assume country as default
+                    campaign["locations"] = [location]
+
+                # Extract interests
+                interests = target_audience.get("interests")
+                if interests:
+                    campaign["audience_interests"] = interests
+
+        # Update line items
+        if "lineitems" in result:
+            for i, lineitem in enumerate(result["lineitems"]):
+                # Required fields in v1.0.0
+                # Add name if missing
+                if "name" not in lineitem:
+                    lineitem["name"] = lineitem.get("id", f"Line Item {i+1}")
+
+                # Change budget to cost_total
+                if "budget" in lineitem:
+                    lineitem["cost_total"] = lineitem.pop("budget")
+
+                # Map optional fields
+                if "channel" in lineitem:
+                    # Keep as is, already aligned
+                    pass
+
+                if "platform" in lineitem:
+                    lineitem["vehicle"] = lineitem.pop("platform")
+
+                if "publisher" in lineitem:
+                    lineitem["partner"] = lineitem.pop("publisher")
+
+                # Handle creative_ids as a custom dimension
+                if "creative_ids" in lineitem and lineitem["creative_ids"]:
+                    creative_ids_str = ",".join(lineitem["creative_ids"])
+                    lineitem["dim_custom1"] = f"creative_ids:{creative_ids_str}"
+                    del lineitem["creative_ids"]
 
         return result

@@ -1,8 +1,8 @@
 """
-Example usage of the enhanced storage functionality.
+Example usage of the enhanced storage functionality with v1.0.0 schema support.
 
 This script demonstrates how to use the enhanced storage functionality
-with automatic file naming based on campaign ID.
+with automatic file naming based on campaign ID and the v1.0.0 schema.
 """
 
 import os
@@ -14,8 +14,6 @@ from pathlib import Path
 from mediaplanpy.models import (
     MediaPlan,
     Campaign,
-    Budget,
-    TargetAudience,
     LineItem,
     Meta
 )
@@ -56,8 +54,8 @@ def main():
         manager = WorkspaceManager(str(workspace_path))
         manager.load()
 
-        # Create a media plan to save
-        logger.info("Creating a new media plan")
+        # Create a media plan to save with v1.0.0 schema
+        logger.info("Creating a new media plan with v1.0.0 schema")
 
         media_plan = MediaPlan.create_new(
             created_by="example@agency.com",
@@ -67,33 +65,74 @@ def main():
             campaign_end_date="2025-11-30",
             campaign_budget=150000,
             comments="Campaign for the fall product launch",
+            # v1.0.0 specific fields
+            mediaplan_id="mediaplan_fall_2025",
+            media_plan_name="Fall 2025 Media Plan",
+            # v1.0.0 audience fields
+            audience_age_start=18,
+            audience_age_end=34,
+            audience_gender="Any",
+            audience_interests=["fall", "fashion", "lifestyle"],
+            # v1.0.0 location fields
+            location_type="Country",
+            locations=["United States"],
             # Use a custom campaign ID
-            campaign_id="fall_2025_campaign",
-            target_audience={
-                "age_range": "18-34",
-                "location": "United States",
-                "interests": ["fall", "fashion", "lifestyle"]
-            }
+            campaign_id="fall_2025_campaign"
         )
 
-        # Add a line item
-        logger.info("Adding a line item")
+        # Add line items with v1.0.0 structure
+        logger.info("Adding line items with v1.0.0 structure")
+
+        # Social media line item
         media_plan.add_lineitem({
             "id": "li_social_ig_01",
-            "channel": "social",
-            "platform": "Instagram",
-            "publisher": "Meta",
+            "name": "Instagram Fall Campaign",  # Required in v1.0.0
             "start_date": "2025-09-01",
             "end_date": "2025-10-15",
-            "budget": 75000,
+            "cost_total": 75000,  # v1.0.0 uses cost_total instead of budget
+            "channel": "social",
+            "vehicle": "Instagram",  # v1.0.0 uses vehicle instead of platform
+            "partner": "Meta",       # v1.0.0 uses partner instead of publisher
             "kpi": "CPM",
-            "creative_ids": ["cr_001", "cr_002"]
+            "metric_impressions": 15000000,
+            "metric_clicks": 250000
+        })
+
+        # Display line item
+        media_plan.add_lineitem({
+            "id": "li_display_01",
+            "name": "Display Ad Campaign",  # Required in v1.0.0
+            "start_date": "2025-10-01",
+            "end_date": "2025-11-15",
+            "cost_total": 50000,  # v1.0.0 uses cost_total instead of budget
+            "channel": "display",
+            "vehicle": "Google Display Network",
+            "partner": "Google",
+            "kpi": "CPC",
+            "metric_impressions": 10000000,
+            "metric_clicks": 200000
+        })
+
+        # Video line item
+        media_plan.add_lineitem({
+            "id": "li_video_01",
+            "name": "YouTube Fall Campaign",  # Required in v1.0.0
+            "start_date": "2025-10-15",
+            "end_date": "2025-11-30",
+            "cost_total": 25000,  # v1.0.0 uses cost_total instead of budget
+            "channel": "video",
+            "vehicle": "YouTube",
+            "partner": "Google",
+            "kpi": "CPV",
+            "metric_impressions": 5000000,
+            "metric_views": 1000000
         })
 
         # Example 1: Save with automatic path generation
         logger.info("Example 1: Saving with automatic path generation")
         saved_path = media_plan.save_to_storage(manager)
         logger.info(f"Media plan automatically saved to: {saved_path}")
+        logger.info(f"The saved path is based on the campaign_id: {media_plan.campaign.id}")
 
         # Example 2: Load with campaign_id
         logger.info("Example 2: Loading with campaign_id")
@@ -101,7 +140,10 @@ def main():
             manager,
             campaign_id="fall_2025_campaign"
         )
-        logger.info(f"Loaded media plan with campaign: {loaded_plan.campaign.name}")
+        logger.info(f"Loaded media plan with ID: {loaded_plan.meta.id}")
+        logger.info(f"Loaded plan name: {loaded_plan.meta.name}")
+        logger.info(f"Loaded campaign: {loaded_plan.campaign.name}")
+        logger.info(f"Number of line items: {len(loaded_plan.lineitems)}")
 
         # Example 3: Save with automatic path but specify format
         logger.info("Example 3: Saving with automatic path but specifying format")
@@ -121,13 +163,28 @@ def main():
             campaign_start_date="2025-10-01",
             campaign_end_date="2025-10-31",
             campaign_budget=50000,
+            # v1.0.0 specific fields
+            mediaplan_id="mediaplan_special_2025",
+            media_plan_name="Special Campaign 2025",
             # Use an ID with characters that need sanitization
             campaign_id="special/campaign/2025",
+            # Add a line item to make it complete
+            lineitems=[
+                {
+                    "id": "li_special_01",
+                    "name": "Special Line Item",
+                    "start_date": "2025-10-01",
+                    "end_date": "2025-10-31",
+                    "cost_total": 50000,
+                    "channel": "social"
+                }
+            ]
         )
 
         # Save it and check that the ID is sanitized in the path
         saved_path = complex_plan.save_to_storage(manager)
         logger.info(f"Complex ID media plan saved to: {saved_path}")
+        logger.info(f"Notice how special/campaign/2025 was sanitized to 'special_campaign_2025'")
 
         # Example 5: Save to a specific folder
         logger.info("Example 5: Save to a specific folder")
@@ -146,6 +203,98 @@ def main():
         for file_path in all_files:
             file_info = storage_backend.get_file_info(file_path)
             logger.info(f"  - {file_path} (size: {file_info['size']} bytes)")
+
+        # Example 7: Migrate a v0.0.0 plan and save it
+        logger.info("Example 7: Migrate a v0.0.0 plan to v1.0.0 and save it")
+
+        # Create a v0.0.0 media plan
+        v0_media_plan = {
+            "meta": {
+                "schema_version": "v0.0.0",
+                "created_by": "example@agency.com",
+                "created_at": "2025-05-01T12:00:00Z",
+                "comments": "Legacy media plan"
+            },
+            "campaign": {
+                "id": "legacy_campaign",
+                "name": "Legacy Campaign",
+                "objective": "awareness",
+                "start_date": "2025-05-01",
+                "end_date": "2025-07-31",
+                "budget": {
+                    "total": 100000,
+                    "by_channel": {
+                        "social": 60000,
+                        "display": 40000
+                    }
+                },
+                "target_audience": {
+                    "age_range": "25-45",
+                    "location": "United States",
+                    "interests": ["technology", "business"]
+                }
+            },
+            "lineitems": [
+                {
+                    "id": "legacy_li_001",
+                    "channel": "social",
+                    "platform": "LinkedIn",
+                    "publisher": "Microsoft",
+                    "start_date": "2025-05-01",
+                    "end_date": "2025-06-30",
+                    "budget": 60000,
+                    "kpi": "CPM"
+                },
+                {
+                    "id": "legacy_li_002",
+                    "channel": "display",
+                    "platform": "Google Display",
+                    "publisher": "Google",
+                    "start_date": "2025-06-01",
+                    "end_date": "2025-07-31",
+                    "budget": 40000,
+                    "kpi": "CPC"
+                }
+            ]
+        }
+
+        # Create a MediaPlan object from the v0.0.0 data
+        migrated_plan = MediaPlan.from_v0_mediaplan(v0_media_plan)
+
+        # Save the migrated plan
+        migrated_path = migrated_plan.save_to_storage(manager)
+        logger.info(f"Migrated media plan saved to: {migrated_path}")
+        logger.info(f"Migrated plan ID: {migrated_plan.meta.id}")
+        logger.info(f"Migrated plan schema version: {migrated_plan.meta.schema_version}")
+        logger.info(f"First line item cost_total: ${migrated_plan.lineitems[0].cost_total:,.2f}")
+
+        # Example 8: Load a media plan by mediaplan_id
+        logger.info("Example 8: Load a media plan by mediaplan_id")
+
+        # First, find the file that contains our mediaplan_id
+        target_id = migrated_plan.meta.id
+        found_file = None
+
+        for file_path in all_files:
+            # Read each file and check if it contains our media plan ID
+            try:
+                with storage_backend.open_file(file_path, 'r') as f:
+                    file_content = json.load(f)
+                    if file_content.get("meta", {}).get("id") == target_id:
+                        found_file = file_path
+                        break
+            except:
+                # Skip files that can't be parsed as JSON
+                continue
+
+        if found_file:
+            logger.info(f"Found media plan with ID '{target_id}' in file: {found_file}")
+
+            # Load it directly from the file path
+            found_plan = MediaPlan.load_from_storage(manager, path=found_file)
+            logger.info(f"Successfully loaded media plan: {found_plan.meta.name or found_plan.campaign.name}")
+        else:
+            logger.info(f"Could not find a media plan with ID: {target_id}")
 
         logger.info("Enhanced storage example completed successfully!")
 

@@ -1,5 +1,5 @@
 """
-Tests for the workspace module with schema integration.
+Tests for the workspace module with schema integration for v1.0.0.
 """
 import os
 import json
@@ -37,7 +37,7 @@ def temp_workspace_file():
                 }
             },
             "schema_settings": {
-                "preferred_version": "v0.0.0",
+                "preferred_version": "v1.0.0",  # Updated to v1.0.0
                 "auto_migrate": False,
                 "offline_mode": True,
                 "repository_url": "https://example.com/schemas/",
@@ -85,10 +85,52 @@ def invalid_workspace_file():
         yield str(config_path)
 
 
-# Fixture for a sample media plan
+# Fixture for a sample media plan v1.0.0
 @pytest.fixture
-def sample_media_plan():
-    """Create a sample media plan for testing."""
+def sample_media_plan_v1():
+    """Create a sample v1.0.0 media plan for testing."""
+    return {
+        "meta": {
+            "id": "mediaplan_12345",
+            "schema_version": "v1.0.0",
+            "name": "Test Media Plan",
+            "created_by": "test@example.com",
+            "created_at": "2025-01-01T00:00:00Z"
+        },
+        "campaign": {
+            "id": "test_campaign",
+            "name": "Test Campaign",
+            "objective": "awareness",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "budget_total": 100000,
+            "audience_age_start": 18,
+            "audience_age_end": 34,
+            "audience_gender": "Any",
+            "audience_interests": ["sports", "technology"],
+            "location_type": "Country",
+            "locations": ["United States"]
+        },
+        "lineitems": [
+            {
+                "id": "test_lineitem",
+                "name": "Social Media Line Item",
+                "start_date": "2025-01-01",
+                "end_date": "2025-06-30",
+                "cost_total": 50000,
+                "channel": "social",
+                "vehicle": "Facebook",
+                "partner": "Meta",
+                "kpi": "CPM"
+            }
+        ]
+    }
+
+
+# Fixture for a sample media plan v0.0.0
+@pytest.fixture
+def sample_media_plan_v0():
+    """Create a sample v0.0.0 media plan for testing."""
     return {
         "meta": {
             "schema_version": "v0.0.0",
@@ -103,6 +145,11 @@ def sample_media_plan():
             "end_date": "2025-12-31",
             "budget": {
                 "total": 100000
+            },
+            "target_audience": {
+                "age_range": "18-34",
+                "location": "United States",
+                "interests": ["sports", "technology"]
             }
         },
         "lineitems": [
@@ -130,7 +177,7 @@ def test_load_workspace(temp_workspace_file):
     assert config["workspace_name"] == "Test Workspace"
     assert config["environment"] == "testing"
     assert config["storage"]["mode"] == "local"
-    assert config["schema_settings"]["preferred_version"] == "v0.0.0"
+    assert config["schema_settings"]["preferred_version"] == "v1.0.0"  # Updated
 
 
 # Test validation of a valid workspace
@@ -182,9 +229,9 @@ def test_create_default_workspace():
         assert config["storage"]["mode"] == "local"
         assert config["database"]["enabled"] is False
 
-        # Check schema settings
+        # Check schema settings - should now default to v1.0.0
         assert "schema_settings" in config
-        assert config["schema_settings"]["preferred_version"] == "v0.0.0"
+        assert config["schema_settings"]["preferred_version"] == "v1.0.0"  # Updated
 
 
 # Test resolving path variables
@@ -222,7 +269,7 @@ def test_get_config_sections(temp_workspace_file):
 
     # Get schema settings
     schema_settings = manager.get_schema_settings()
-    assert schema_settings["preferred_version"] == "v0.0.0"
+    assert schema_settings["preferred_version"] == "v1.0.0"  # Updated
     assert schema_settings["offline_mode"] is True
 
 
@@ -259,13 +306,13 @@ def test_schema_registry_integration(temp_workspace_file):
 
 
 # Test media plan validation
-def test_validate_media_plan(temp_workspace_file, sample_media_plan):
-    """Test validating a media plan using workspace settings."""
+def test_validate_media_plan_v1(temp_workspace_file, sample_media_plan_v1):
+    """Test validating a v1.0.0 media plan using workspace settings."""
     manager = WorkspaceManager(temp_workspace_file)
     manager.load()
 
     # Make a deep copy to avoid modifications affecting other tests
-    media_plan = copy.deepcopy(sample_media_plan)
+    media_plan = copy.deepcopy(sample_media_plan_v1)
 
     # Mock the schema validator to avoid actual schema loading
     mock_validator = mock.Mock()
@@ -278,54 +325,121 @@ def test_validate_media_plan(temp_workspace_file, sample_media_plan):
     # Check validation was called with the correct version
     assert mock_validator.validate.called
     assert mock_validator.validate.call_args[0][0] == media_plan
-    assert mock_validator.validate.call_args[0][1] == "v0.0.0"
+    assert mock_validator.validate.call_args[0][1] == "v1.0.0"  # Default now v1.0.0
 
     # Check no errors were returned
     assert errors == []
 
 
-# Test media plan migration
-def test_migrate_media_plan(temp_workspace_file):
-    """Test migrating a media plan using workspace settings."""
+# Test media plan validation with invalid v1.0.0 plan
+def test_validate_media_plan_v1_invalid(temp_workspace_file, sample_media_plan_v1):
+    """Test validating an invalid v1.0.0 media plan using workspace settings."""
     manager = WorkspaceManager(temp_workspace_file)
     manager.load()
 
-    # Define the media plan directly in this test to ensure correct version
-    media_plan = {
+    # Make a deep copy and remove required field
+    media_plan = copy.deepcopy(sample_media_plan_v1)
+    del media_plan["meta"]["id"]  # Remove required field in v1.0.0
+
+    # Mock the schema validator to return an error
+    mock_validator = mock.Mock()
+    mock_validator.validate.return_value = ["meta.id is required"]
+    manager._schema_validator = mock_validator
+
+    # Validate media plan
+    errors = manager.validate_media_plan(media_plan)
+
+    # Check validation was called
+    assert mock_validator.validate.called
+
+    # Check errors were returned
+    assert len(errors) > 0
+    assert "id" in errors[0]
+
+
+# Test media plan migration
+def test_migrate_media_plan_v0_to_v1(temp_workspace_file, sample_media_plan_v0):
+    """Test migrating a v0.0.0 media plan to v1.0.0 using workspace settings."""
+    manager = WorkspaceManager(temp_workspace_file)
+    manager.load()
+
+    # Make a deep copy to avoid modifications affecting other tests
+    media_plan = copy.deepcopy(sample_media_plan_v0)
+
+    # Mock the schema migrator to simulate migration
+    mock_migrator = mock.Mock()
+    # Create a simulated migrated plan with v1.0.0 structure
+    migrated_plan = {
         "meta": {
-            "schema_version": "v0.0.0",  # Explicitly set to v0.0.0
-            "created_by": "test@example.com",
-            "created_at": "2025-01-01T00:00:00Z"
+            "id": "mediaplan_" + media_plan["campaign"]["id"],  # Generated ID
+            "schema_version": "v1.0.0",
+            "name": media_plan["campaign"]["name"],  # Generated name
+            "created_by": media_plan["meta"]["created_by"],
+            "created_at": media_plan["meta"]["created_at"]
         },
         "campaign": {
-            "id": "test_campaign",
-            "name": "Test Campaign",
-            "objective": "awareness",
-            "start_date": "2025-01-01",
-            "end_date": "2025-12-31",
-            "budget": {
-                "total": 100000
-            }
+            "id": media_plan["campaign"]["id"],
+            "name": media_plan["campaign"]["name"],
+            "objective": media_plan["campaign"]["objective"],
+            "start_date": media_plan["campaign"]["start_date"],
+            "end_date": media_plan["campaign"]["end_date"],
+            "budget_total": media_plan["campaign"]["budget"]["total"],
+            "audience_age_start": 18,
+            "audience_age_end": 34,
+            "location_type": "Country",
+            "locations": ["United States"],
+            "audience_interests": media_plan["campaign"]["target_audience"]["interests"]
         },
-        "lineitems": []
+        "lineitems": [
+            {
+                "id": media_plan["lineitems"][0]["id"],
+                "name": "Social Media Line Item",  # Generated name
+                "start_date": media_plan["lineitems"][0]["start_date"],
+                "end_date": media_plan["lineitems"][0]["end_date"],
+                "cost_total": media_plan["lineitems"][0]["budget"],
+                "channel": media_plan["lineitems"][0]["channel"],
+                "vehicle": media_plan["lineitems"][0]["platform"],
+                "partner": media_plan["lineitems"][0]["publisher"],
+                "kpi": media_plan["lineitems"][0]["kpi"]
+            }
+        ]
     }
-
-    # Mock the schema migrator to avoid actual migration
-    mock_migrator = mock.Mock()
-    # Create a copy to avoid modifying the original
-    migrated_plan = copy.deepcopy(media_plan)
-    migrated_plan["meta"]["schema_version"] = "v1.1.0"
     mock_migrator.migrate.return_value = migrated_plan
     manager._schema_migrator = mock_migrator
 
-    # Migrate media plan to v1.1.0
-    result = manager.migrate_media_plan(media_plan, "v1.1.0")
+    # Migrate media plan
+    result = manager.migrate_media_plan(media_plan)
 
     # Check migration was called with the correct versions
     assert mock_migrator.migrate.called
     assert mock_migrator.migrate.call_args[0][0] == media_plan
     assert mock_migrator.migrate.call_args[0][1] == "v0.0.0"  # From version
-    assert mock_migrator.migrate.call_args[0][2] == "v1.1.0"  # To version
+    assert mock_migrator.migrate.call_args[0][2] == "v1.0.0"  # To version (from workspace settings)
 
-    # Check result has updated version
-    assert result["meta"]["schema_version"] == "v1.1.0"
+    # Check result has v1.0.0 structure
+    assert result["meta"]["schema_version"] == "v1.0.0"
+    assert "id" in result["meta"]
+    assert "name" in result["meta"]
+    assert "budget_total" in result["campaign"]
+    assert "budget" not in result["campaign"]
+    assert "target_audience" not in result["campaign"]
+    assert "audience_interests" in result["campaign"]
+    assert "name" in result["lineitems"][0]
+    assert "cost_total" in result["lineitems"][0]
+    assert "budget" not in result["lineitems"][0]
+    assert "vehicle" in result["lineitems"][0]
+    assert "platform" not in result["lineitems"][0]
+
+
+# Test getting storage backend
+def test_get_storage_backend(temp_workspace_file):
+    """Test getting the storage backend."""
+    manager = WorkspaceManager(temp_workspace_file)
+    manager.load()
+
+    # Get storage backend
+    backend = manager.get_storage_backend()
+
+    # Verify it's created
+    assert backend is not None
+    assert hasattr(backend, 'base_path')

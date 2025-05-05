@@ -1,5 +1,5 @@
 """
-Tests for the storage module.
+Tests for the storage module with v1.0.0 schema support.
 """
 import os
 import json
@@ -45,6 +45,11 @@ def temp_workspace_file(temp_storage_dir):
                 "create_if_missing": True
             }
         },
+        "schema_settings": {
+            "preferred_version": "v1.0.0",  # Updated to v1.0.0
+            "auto_migrate": False,
+            "offline_mode": True
+        },
         "database": {
             "enabled": False
         },
@@ -65,13 +70,15 @@ def temp_workspace_file(temp_storage_dir):
 
 
 @pytest.fixture
-def sample_mediaplan():
-    """Create a sample media plan for testing."""
+def sample_mediaplan_v1():
+    """Create a sample media plan (v1.0.0) for testing."""
     return MediaPlan(
         meta=Meta(
-            schema_version="v0.0.0",
+            id="mediaplan_12345",
+            schema_version="v1.0.0",
             created_by="test@example.com",
             created_at=datetime(2025, 1, 1, 12, 0, 0),
+            name="Test Media Plan",
             comments="Test media plan"
         ),
         campaign=Campaign(
@@ -80,17 +87,22 @@ def sample_mediaplan():
             objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
-            budget=Budget(total=Decimal("100000"))
+            budget_total=Decimal("100000"),
+            audience_age_start=18,
+            audience_age_end=34,
+            location_type="Country",
+            locations=["United States"]
         ),
         lineitems=[
             LineItem(
                 id="test_lineitem",
-                channel="social",
-                platform="Facebook",
-                publisher="Meta",
+                name="Social Line Item",
                 start_date=date(2025, 1, 1),
                 end_date=date(2025, 6, 30),
-                budget=Decimal("50000"),
+                cost_total=Decimal("50000"),
+                channel="social",
+                vehicle="Facebook",
+                partner="Meta",
                 kpi="CPM"
             )
         ]
@@ -417,8 +429,8 @@ class TestStorageFunctions:
         with pytest.raises(ValueError):
             get_format_handler_instance("invalid")
 
-    def test_read_write_mediaplan(self, temp_storage_dir, sample_mediaplan):
-        """Test reading and writing media plans."""
+    def test_read_write_mediaplan_v1(self, temp_storage_dir, sample_mediaplan_v1):
+        """Test reading and writing v1.0.0 media plans."""
         workspace_config = {
             "storage": {
                 "mode": "local",
@@ -429,24 +441,31 @@ class TestStorageFunctions:
         }
 
         # Write media plan
-        path = "test_mediaplan.json"
-        write_mediaplan(workspace_config, sample_mediaplan.to_dict(), path)
+        path = "test_mediaplan_v1.json"
+        write_mediaplan(workspace_config, sample_mediaplan_v1.to_dict(), path)
 
         # Verify file exists
         assert os.path.exists(os.path.join(temp_storage_dir, path))
 
         # Read media plan
         data = read_mediaplan(workspace_config, path)
-        assert data["meta"]["schema_version"] == "v0.0.0"
+
+        # Verify v1.0.0 structure
+        assert data["meta"]["schema_version"] == "v1.0.0"
+        assert data["meta"]["id"] == "mediaplan_12345"
+        assert data["meta"]["name"] == "Test Media Plan"
         assert data["campaign"]["name"] == "Test Campaign"
+        assert data["campaign"]["budget_total"] == 100000
         assert len(data["lineitems"]) == 1
+        assert data["lineitems"][0]["name"] == "Social Line Item"
+        assert data["lineitems"][0]["cost_total"] == 50000
 
 
 class TestMediaPlanStorageIntegration:
     """Test the integration with MediaPlan model."""
 
-    def test_save_load_to_storage(self, temp_workspace_file, sample_mediaplan):
-        """Test saving and loading media plans using MediaPlan methods."""
+    def test_save_load_to_storage_v1(self, temp_workspace_file, sample_mediaplan_v1):
+        """Test saving and loading v1.0.0 media plans using MediaPlan methods."""
         # Load workspace manager
         manager = WorkspaceManager(temp_workspace_file)
         manager.load()
@@ -455,8 +474,8 @@ class TestMediaPlanStorageIntegration:
         base_path = manager.get_resolved_config()["storage"]["local"]["base_path"]
 
         # Save media plan
-        path = "test_integration.json"
-        sample_mediaplan.save_to_storage(manager, path)
+        path = "test_integration_v1.json"
+        sample_mediaplan_v1.save_to_storage(manager, path)
 
         # Verify file exists
         assert os.path.exists(os.path.join(base_path, path))
@@ -464,8 +483,40 @@ class TestMediaPlanStorageIntegration:
         # Load media plan
         loaded_plan = MediaPlan.load_from_storage(manager, path)
 
-        # Verify data
-        assert loaded_plan.meta.schema_version == "v0.0.0"
+        # Verify v1.0.0 data structure
+        assert loaded_plan.meta.schema_version == "v1.0.0"
+        assert loaded_plan.meta.id == "mediaplan_12345"
+        assert loaded_plan.meta.name == "Test Media Plan"
         assert loaded_plan.campaign.name == "Test Campaign"
+        assert loaded_plan.campaign.budget_total == Decimal("100000")
         assert len(loaded_plan.lineitems) == 1
         assert loaded_plan.lineitems[0].id == "test_lineitem"
+        assert loaded_plan.lineitems[0].name == "Social Line Item"
+        assert loaded_plan.lineitems[0].cost_total == Decimal("50000")
+
+    def test_auto_path_generation_v1(self, temp_workspace_file, sample_mediaplan_v1):
+        """Test automatic path generation based on media plan ID and campaign ID."""
+        # Load workspace manager
+        manager = WorkspaceManager(temp_workspace_file)
+        manager.load()
+
+        # Get the base path for verification
+        base_path = manager.get_resolved_config()["storage"]["local"]["base_path"]
+
+        # Test auto path generation with media plan ID
+        saved_path = sample_mediaplan_v1.save_to_storage(manager)
+        expected_path = f"{sample_mediaplan_v1.campaign.id}.json"
+
+        # Verify file exists at the expected path
+        assert os.path.exists(os.path.join(base_path, expected_path))
+        assert saved_path == expected_path
+
+        # Load by campaign ID
+        loaded_plan = MediaPlan.load_from_storage(
+            manager,
+            campaign_id=sample_mediaplan_v1.campaign.id
+        )
+
+        # Verify data
+        assert loaded_plan.meta.id == sample_mediaplan_v1.meta.id
+        assert loaded_plan.campaign.name == sample_mediaplan_v1.campaign.name

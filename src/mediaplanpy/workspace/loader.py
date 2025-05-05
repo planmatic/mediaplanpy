@@ -333,7 +333,7 @@ class WorkspaceManager:
                 }
             },
             "schema_settings": {
-                "preferred_version": "v0.0.0",
+                "preferred_version": "v1.0.0",
                 "auto_migrate": False,
                 "offline_mode": False,
                 "repository_url": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/",

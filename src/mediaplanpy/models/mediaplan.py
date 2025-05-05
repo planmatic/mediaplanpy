@@ -3,7 +3,7 @@ Media Plan model for mediaplanpy.
 
 This module provides the MediaPlan model class representing a complete
 media plan with campaigns and line items, following the Media Plan Open
-Data Standard.
+Data Standard v1.0.0.
 """
 
 import os
@@ -25,15 +25,17 @@ class Meta(BaseModel):
     """
     Metadata for a media plan.
     """
+    id: str = Field(..., description="Unique identifier for the media plan")
     schema_version: str = Field(..., description="Version of the schema being used")
     created_by: str = Field(..., description="Creator of the media plan")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+    name: Optional[str] = Field(None, description="Name of the media plan")
     comments: Optional[str] = Field(None, description="Comments about the media plan")
 
 
 class MediaPlan(BaseModel):
     """
-    Represents a complete media plan following the Media Plan Open Data Standard.
+    Represents a complete media plan following the Media Plan Open Data Standard v1.0.0.
 
     A media plan contains metadata, a campaign, and a list of line items.
     """
@@ -93,6 +95,15 @@ class MediaPlan(BaseModel):
                         f"Line item {i} ({line_item.id}) ends after campaign: "
                         f"{line_item.end_date} > {self.campaign.end_date}"
                     )
+
+            # Check if total cost of line items matches campaign budget_total
+            total_cost = sum(item.cost_total for item in self.lineitems)
+            # Allow a small difference for rounding errors (0.01)
+            if abs(total_cost - self.campaign.budget_total) > Decimal('0.01'):
+                errors.append(
+                    f"Sum of line item costs ({total_cost}) does not match "
+                    f"campaign budget_total ({self.campaign.budget_total})"
+                )
 
         return errors
 
@@ -169,14 +180,14 @@ class MediaPlan(BaseModel):
                 return True
         return False
 
-    def calculate_total_budget(self) -> Decimal:
+    def calculate_total_cost(self) -> Decimal:
         """
-        Calculate the total budget from all line items.
+        Calculate the total cost from all line items.
 
         Returns:
-            The total budget.
+            The total cost.
         """
-        return sum(item.budget for item in self.lineitems)
+        return sum(item.cost_total for item in self.lineitems)
 
     def validate_against_schema(self, validator: Optional[SchemaValidator] = None,
                                 version: Optional[str] = None) -> List[str]:
@@ -279,17 +290,33 @@ class MediaPlan(BaseModel):
         # Generate a campaign ID if not provided
         campaign_id = kwargs.pop("campaign_id", f"campaign_{uuid.uuid4().hex[:8]}")
 
-        # Create budget object
-        budget = Budget(
-            total=campaign_budget,
-            by_channel=kwargs.pop("budget_by_channel", None)
-        )
+        # Generate a media plan ID if not provided
+        mediaplan_id = kwargs.pop("mediaplan_id", f"mediaplan_{uuid.uuid4().hex[:8]}")
 
-        # Create target audience if provided
-        target_audience = None
-        ta_data = kwargs.pop("target_audience", None)
-        if ta_data:
-            target_audience = TargetAudience(**ta_data)
+        # Handle audience-related parameters for v1.0.0
+        audience_fields = {}
+        target_audience = kwargs.pop("target_audience", None)
+
+        if target_audience:
+            # Extract audience fields from target_audience
+            if isinstance(target_audience, dict):
+                # Extract age range
+                age_range = target_audience.get("age_range")
+                if age_range and "-" in age_range:
+                    try:
+                        start, end = age_range.split("-")
+                        audience_fields["audience_age_start"] = int(start.strip())
+                        audience_fields["audience_age_end"] = int(end.strip())
+                    except (ValueError, TypeError):
+                        pass
+
+                # Extract other audience fields
+                if "location" in target_audience:
+                    audience_fields["location_type"] = "Country"
+                    audience_fields["locations"] = [target_audience["location"]]
+
+                if "interests" in target_audience:
+                    audience_fields["audience_interests"] = target_audience["interests"]
 
         # Create the campaign
         campaign = Campaign(
@@ -298,15 +325,20 @@ class MediaPlan(BaseModel):
             objective=campaign_objective,
             start_date=campaign_start_date,
             end_date=campaign_end_date,
-            budget=budget,
-            target_audience=target_audience
+            budget_total=campaign_budget,
+            **audience_fields
         )
+
+        # Extract media plan name if provided
+        media_plan_name = kwargs.pop("media_plan_name", campaign_name)
 
         # Create meta information
         meta = Meta(
+            id=mediaplan_id,
             schema_version=schema_version,
             created_by=created_by,
             created_at=datetime.now(),
+            name=media_plan_name,
             comments=kwargs.pop("comments", None)
         )
 
@@ -316,6 +348,14 @@ class MediaPlan(BaseModel):
         for item_data in lineitems_data:
             try:
                 if isinstance(item_data, dict):
+                    # For v1.0.0, ensure budget is renamed to cost_total
+                    if "budget" in item_data and "cost_total" not in item_data:
+                        item_data["cost_total"] = item_data.pop("budget")
+
+                    # Ensure line item has a name
+                    if "name" not in item_data:
+                        item_data["name"] = item_data.get("id", f"Item {len(lineitems) + 1}")
+
                     lineitems.append(LineItem.from_dict(item_data))
                 else:
                     lineitems.append(item_data)
@@ -334,3 +374,40 @@ class MediaPlan(BaseModel):
         media_plan.assert_valid()
 
         return media_plan
+
+    @classmethod
+    def from_v0_mediaplan(cls, v0_mediaplan: Dict[str, Any]) -> "MediaPlan":
+        """
+        Convert a v0.0.0 media plan dictionary to a v1.0.0 MediaPlan model.
+
+        Args:
+            v0_mediaplan: Dictionary containing v0.0.0 media plan data.
+
+        Returns:
+            A new MediaPlan instance with v1.0.0 structure.
+        """
+        # Extract metadata
+        v0_meta = v0_mediaplan.get("meta", {})
+        meta_data = {
+            "id": v0_meta.get("id", f"mediaplan_{uuid.uuid4().hex[:8]}"),  # Generate ID if not present
+            "schema_version": "v1.0.0",  # Set to the new version
+            "created_by": v0_meta.get("created_by", ""),
+            "created_at": v0_meta.get("created_at", datetime.now().isoformat()),
+            "comments": v0_meta.get("comments")
+        }
+
+        # Handle campaign
+        v0_campaign = v0_mediaplan.get("campaign", {})
+        campaign = Campaign.from_v0_campaign(v0_campaign)
+
+        # Handle line items
+        lineitems = []
+        for v0_lineitem in v0_mediaplan.get("lineitems", []):
+            lineitems.append(LineItem.from_v0_lineitem(v0_lineitem))
+
+        # Create new media plan
+        return cls(
+            meta=Meta(**meta_data),
+            campaign=campaign,
+            lineitems=lineitems
+        )
