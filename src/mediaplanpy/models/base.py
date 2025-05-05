@@ -27,7 +27,7 @@ class BaseModel(PydanticBaseModel):
     """
 
     # Schema version support
-    SCHEMA_VERSION: ClassVar[str] = "v1.0.0"
+    SCHEMA_VERSION: ClassVar[str] = "v0.0.0"
 
     # Model configuration
     model_config = ConfigDict(

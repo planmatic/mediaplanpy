@@ -37,7 +37,7 @@ def temp_workspace_file():
                 }
             },
             "schema_settings": {
-                "preferred_version": "v1.0.0",
+                "preferred_version": "v0.0.0",
                 "auto_migrate": False,
                 "offline_mode": True,
                 "repository_url": "https://example.com/schemas/",
@@ -91,7 +91,7 @@ def sample_media_plan():
     """Create a sample media plan for testing."""
     return {
         "meta": {
-            "schema_version": "v1.0.0",
+            "schema_version": "v0.0.0",
             "created_by": "test@example.com",
             "created_at": "2025-01-01T00:00:00Z"
         },
@@ -130,7 +130,7 @@ def test_load_workspace(temp_workspace_file):
     assert config["workspace_name"] == "Test Workspace"
     assert config["environment"] == "testing"
     assert config["storage"]["mode"] == "local"
-    assert config["schema_settings"]["preferred_version"] == "v1.0.0"
+    assert config["schema_settings"]["preferred_version"] == "v0.0.0"
 
 
 # Test validation of a valid workspace
@@ -184,7 +184,7 @@ def test_create_default_workspace():
 
         # Check schema settings
         assert "schema_settings" in config
-        assert config["schema_settings"]["preferred_version"] == "v1.0.0"
+        assert config["schema_settings"]["preferred_version"] == "v0.0.0"
 
 
 # Test resolving path variables
@@ -222,7 +222,7 @@ def test_get_config_sections(temp_workspace_file):
 
     # Get schema settings
     schema_settings = manager.get_schema_settings()
-    assert schema_settings["preferred_version"] == "v1.0.0"
+    assert schema_settings["preferred_version"] == "v0.0.0"
     assert schema_settings["offline_mode"] is True
 
 
@@ -278,7 +278,7 @@ def test_validate_media_plan(temp_workspace_file, sample_media_plan):
     # Check validation was called with the correct version
     assert mock_validator.validate.called
     assert mock_validator.validate.call_args[0][0] == media_plan
-    assert mock_validator.validate.call_args[0][1] == "v1.0.0"
+    assert mock_validator.validate.call_args[0][1] == "v0.0.0"
 
     # Check no errors were returned
     assert errors == []
@@ -293,7 +293,7 @@ def test_migrate_media_plan(temp_workspace_file):
     # Define the media plan directly in this test to ensure correct version
     media_plan = {
         "meta": {
-            "schema_version": "v1.0.0",  # Explicitly set to v1.0.0
+            "schema_version": "v0.0.0",  # Explicitly set to v0.0.0
             "created_by": "test@example.com",
             "created_at": "2025-01-01T00:00:00Z"
         },
@@ -324,7 +324,7 @@ def test_migrate_media_plan(temp_workspace_file):
     # Check migration was called with the correct versions
     assert mock_migrator.migrate.called
     assert mock_migrator.migrate.call_args[0][0] == media_plan
-    assert mock_migrator.migrate.call_args[0][1] == "v1.0.0"  # From version
+    assert mock_migrator.migrate.call_args[0][1] == "v0.0.0"  # From version
     assert mock_migrator.migrate.call_args[0][2] == "v1.1.0"  # To version
 
     # Check result has updated version

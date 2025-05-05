@@ -69,7 +69,7 @@ def sample_mediaplan():
     """Create a sample media plan for testing."""
     return MediaPlan(
         meta=Meta(
-            schema_version="v1.0.0",
+            schema_version="v0.0.0",
             created_by="test@example.com",
             created_at=datetime(2025, 1, 1, 12, 0, 0),
             comments="Test media plan"
@@ -437,7 +437,7 @@ class TestStorageFunctions:
 
         # Read media plan
         data = read_mediaplan(workspace_config, path)
-        assert data["meta"]["schema_version"] == "v1.0.0"
+        assert data["meta"]["schema_version"] == "v0.0.0"
         assert data["campaign"]["name"] == "Test Campaign"
         assert len(data["lineitems"]) == 1
 
@@ -465,7 +465,7 @@ class TestMediaPlanStorageIntegration:
         loaded_plan = MediaPlan.load_from_storage(manager, path)
 
         # Verify data
-        assert loaded_plan.meta.schema_version == "v1.0.0"
+        assert loaded_plan.meta.schema_version == "v0.0.0"
         assert loaded_plan.campaign.name == "Test Campaign"
         assert len(loaded_plan.lineitems) == 1
         assert loaded_plan.lineitems[0].id == "test_lineitem"

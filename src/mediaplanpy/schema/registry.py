@@ -104,8 +104,8 @@ class SchemaRegistry:
             # Fallback to default version info if everything fails
             logger.warning(f"Error loading schema versions: {str(e)}. Using default.")
             default_info = {
-                "current": "v1.0.0",
-                "supported": ["v1.0.0"],
+                "current": "v0.0.0",
+                "supported": ["v0.0.0"],
                 "deprecated": [],
                 "description": "Default schema version configuration"
             }
@@ -120,7 +120,7 @@ class SchemaRegistry:
             The current schema version string.
         """
         versions_info = self.load_versions_info()
-        return versions_info.get("current", "v1.0.0")
+        return versions_info.get("current", "v0.0.0")
 
     def get_supported_versions(self) -> List[str]:
         """
@@ -130,7 +130,7 @@ class SchemaRegistry:
             List of supported schema version strings.
         """
         versions_info = self.load_versions_info()
-        return versions_info.get("supported", ["v1.0.0"])
+        return versions_info.get("supported", ["v0.0.0"])
 
     def is_version_supported(self, version: str) -> bool:
         """

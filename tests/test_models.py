@@ -238,7 +238,7 @@ class TestMediaPlan:
         """Test creating a media plan."""
         media_plan = MediaPlan(
             meta=Meta(
-                schema_version="v1.0.0",
+                schema_version="v0.0.0",
                 created_by="test@example.com",
                 created_at=datetime(2025, 1, 1, 12, 0, 0),
                 comments="Test media plan"
@@ -275,7 +275,7 @@ class TestMediaPlan:
             ]
         )
 
-        assert media_plan.meta.schema_version == "v1.0.0"
+        assert media_plan.meta.schema_version == "v0.0.0"
         assert media_plan.meta.created_by == "test@example.com"
         assert media_plan.campaign.name == "Test Campaign"
         assert len(media_plan.lineitems) == 2
@@ -286,7 +286,7 @@ class TestMediaPlan:
         """Test adding a line item."""
         media_plan = MediaPlan(
             meta=Meta(
-                schema_version="v1.0.0",
+                schema_version="v0.0.0",
                 created_by="test@example.com"
             ),
             campaign=Campaign(
@@ -336,7 +336,7 @@ class TestMediaPlan:
         """Test adding a line item with invalid dates."""
         media_plan = MediaPlan(
             meta=Meta(
-                schema_version="v1.0.0",
+                schema_version="v0.0.0",
                 created_by="test@example.com"
             ),
             campaign=Campaign(
@@ -380,7 +380,7 @@ class TestMediaPlan:
         """Test calculating total budget."""
         media_plan = MediaPlan(
             meta=Meta(
-                schema_version="v1.0.0",
+                schema_version="v0.0.0",
                 created_by="test@example.com"
             ),
             campaign=Campaign(
@@ -436,7 +436,7 @@ class TestMediaPlan:
         )
 
         assert media_plan.meta.created_by == "test@example.com"
-        assert media_plan.meta.schema_version == "v1.0.0"  # Default version
+        assert media_plan.meta.schema_version == "v0.0.0"  # Default version
         assert media_plan.campaign.name == "Summer Campaign"
         assert media_plan.campaign.start_date == date(2025, 6, 1)
         assert media_plan.campaign.budget.total == Decimal("100000")

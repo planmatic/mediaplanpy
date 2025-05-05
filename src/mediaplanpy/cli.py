@@ -176,7 +176,7 @@ def handle_workspace_info(args):
 
         print("\nSchema Settings:")
         schema_settings = resolved.get('schema_settings', {})
-        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v1.0.0')}")
+        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v0.0.0')}")
         print(f"  Auto Migrate: {schema_settings.get('auto_migrate', False)}")
         print(f"  Offline Mode: {schema_settings.get('offline_mode', False)}")
         print(f"  Repository URL: {schema_settings.get('repository_url', 'default')}")

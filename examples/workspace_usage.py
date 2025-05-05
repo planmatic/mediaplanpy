@@ -49,7 +49,7 @@ def main():
         logger.info(f"Created workspace '{config['workspace_name']}'")
 
         # Customize schema settings
-        config['schema_settings']['preferred_version'] = "v1.0.0"
+        config['schema_settings']['preferred_version'] = "v0.0.0"
 
         # Save changes
         with open(workspace_file, 'w') as f:
