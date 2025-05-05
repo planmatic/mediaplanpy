@@ -119,7 +119,7 @@ class SchemaRegistry:
         Returns:
             The current schema version string.
         """
-        versions_info = self.load_versions_info()
+        versions_info = self.load_versions_info(force_refresh=True)
         return versions_info.get("current", "v0.0.0")
 
     def get_supported_versions(self) -> List[str]:
@@ -129,7 +129,7 @@ class SchemaRegistry:
         Returns:
             List of supported schema version strings.
         """
-        versions_info = self.load_versions_info()
+        versions_info = self.load_versions_info(force_refresh=True)
         return versions_info.get("supported", ["v0.0.0"])
 
     def is_version_supported(self, version: str) -> bool:
