@@ -18,6 +18,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.cell import Cell
 
 from mediaplanpy.exceptions import StorageError
+from mediaplanpy.workspace import WorkspaceManager
 
 logger = logging.getLogger("mediaplanpy.excel.exporter")
 
@@ -25,6 +26,7 @@ logger = logging.getLogger("mediaplanpy.excel.exporter")
 def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
                     template_path: Optional[str] = None,
                     include_documentation: bool = True,
+                    workspace_manager: Optional[WorkspaceManager] = None,
                     **kwargs) -> str:
     """
     Export a media plan to Excel format.
@@ -34,6 +36,7 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
         path: The path where to save the Excel file. If None, a default path is generated.
         template_path: Optional path to an Excel template file.
         include_documentation: Whether to include a documentation sheet.
+        workspace_manager: Optional WorkspaceManager for saving to workspace storage.
         **kwargs: Additional export options.
 
     Returns:
@@ -45,9 +48,8 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
     try:
         # Determine the path if not provided
         if not path:
-            # Generate default path based on media plan ID or campaign ID
-            campaign_id = media_plan.get("campaign", {}).get("id", "media_plan")
-            media_plan_id = media_plan.get("meta", {}).get("id", campaign_id)
+            # Generate default path based on media plan ID
+            media_plan_id = media_plan.get("meta", {}).get("id", "media_plan")
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"{media_plan_id}_{timestamp}.xlsx"
 
@@ -69,10 +71,37 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
         # Add validation and formatting
         _add_validation_and_formatting(workbook, schema_version)
 
-        # Save the workbook
-        workbook.save(path)
+        # Save the workbook to the storage or local path
+        if workspace_manager is not None:
+            # Make sure workspace is loaded
+            if not workspace_manager.is_loaded:
+                workspace_manager.load()
 
-        logger.info(f"Media plan exported to Excel at: {path}")
+            # Get storage backend
+            storage_backend = workspace_manager.get_storage_backend()
+
+            # Save to a temporary file first
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+                tmp_path = tmp.name
+                workbook.save(tmp_path)
+
+            # Read the content
+            with open(tmp_path, 'rb') as f:
+                content = f.read()
+
+            # Write to storage backend
+            storage_backend.write_file(path, content)
+
+            # Clean up temp file
+            os.unlink(tmp_path)
+
+            logger.info(f"Media plan exported to Excel in workspace storage: {path}")
+        else:
+            # Save locally
+            workbook.save(path)
+            logger.info(f"Media plan exported to Excel at: {path}")
+
         return path
 
     except Exception as e:
