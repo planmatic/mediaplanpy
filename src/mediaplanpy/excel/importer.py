@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime, date
 from typing import Dict, Any, List, Optional, Union, Tuple
 from decimal import Decimal
+import copy
 
 import openpyxl
 from openpyxl import Workbook
@@ -48,8 +49,11 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
         else:  # Default to v1.0.0
             media_plan = _import_v1_media_plan(workbook)
 
+        # Sanitize the data to avoid validation issues
+        sanitized_media_plan = _sanitize_media_plan_data(media_plan)
+
         logger.info(f"Media plan imported from Excel: {file_path}")
-        return media_plan
+        return sanitized_media_plan
 
     except Exception as e:
         raise StorageError(f"Failed to import media plan from Excel: {e}")
@@ -260,8 +264,7 @@ def _import_v0_media_plan(workbook: Workbook) -> Dict[str, Any]:
 
             # Process standard fields
             if "ID" in header_indices:
-                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices[
-                    "ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
+                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices["ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
 
             if "Channel" in header_indices:
                 line_item["channel"] = line_items_sheet.cell(row=row, column=header_indices["Channel"]).value or ""
@@ -390,7 +393,10 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             elif key_cell == "Audience Age End:":
                 campaign["audience_age_end"] = int(value_cell) if value_cell else None
             elif key_cell == "Audience Gender:":
-                campaign["audience_gender"] = value_cell or ""
+                # Handle empty strings for enum fields - leave as null/None
+                if value_cell and str(value_cell).strip():
+                    campaign["audience_gender"] = str(value_cell).strip()
+                # If empty or whitespace, don't set the field (will be handled in sanitization)
             elif key_cell == "Audience Interests:":
                 if value_cell:
                     # Split comma-separated interests
@@ -400,7 +406,10 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
                 else:
                     campaign["audience_interests"] = []
             elif key_cell == "Location Type:":
-                campaign["location_type"] = value_cell or ""
+                # Handle empty strings for enum fields - leave as null/None
+                if value_cell and str(value_cell).strip():
+                    campaign["location_type"] = str(value_cell).strip()
+                # If empty or whitespace, don't set the field (will be handled in sanitization)
             elif key_cell == "Locations:":
                 if value_cell:
                     # Split comma-separated locations
@@ -448,8 +457,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
 
             # Process standard fields
             if "ID" in header_indices:
-                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices[
-                    "ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
+                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices["ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
 
             if "Name" in header_indices:
                 line_item["name"] = line_items_sheet.cell(row=row, column=header_indices["Name"]).value or ""
@@ -464,8 +472,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
                 line_item["partner"] = line_items_sheet.cell(row=row, column=header_indices["Partner"]).value or ""
 
             if "Media Product" in header_indices:
-                line_item["media_product"] = line_items_sheet.cell(row=row,
-                                                                   column=header_indices["Media Product"]).value or ""
+                line_item["media_product"] = line_items_sheet.cell(row=row, column=header_indices["Media Product"]).value or ""
 
             if "Start Date" in header_indices:
                 start_date_cell = line_items_sheet.cell(row=row, column=header_indices["Start Date"]).value
@@ -489,16 +496,17 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
                 line_item["kpi"] = line_items_sheet.cell(row=row, column=header_indices["KPI"]).value or ""
 
             if "Location Type" in header_indices:
-                line_item["location_type"] = line_items_sheet.cell(row=row,
-                                                                   column=header_indices["Location Type"]).value or ""
+                # Handle empty strings for enum fields - leave as null/None
+                location_type = line_items_sheet.cell(row=row, column=header_indices["Location Type"]).value
+                if location_type and str(location_type).strip():
+                    line_item["location_type"] = str(location_type).strip()
+                # If empty or whitespace, don't set the field
 
             if "Location Name" in header_indices:
-                line_item["location_name"] = line_items_sheet.cell(row=row,
-                                                                   column=header_indices["Location Name"]).value or ""
+                line_item["location_name"] = line_items_sheet.cell(row=row, column=header_indices["Location Name"]).value or ""
 
             if "Target Audience" in header_indices:
-                line_item["target_audience"] = line_items_sheet.cell(row=row, column=header_indices[
-                    "Target Audience"]).value or ""
+                line_item["target_audience"] = line_items_sheet.cell(row=row, column=header_indices["Target Audience"]).value or ""
 
             if "Ad Format" in header_indices:
                 line_item["adformat"] = line_items_sheet.cell(row=row, column=header_indices["Ad Format"]).value or ""
@@ -523,3 +531,38 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             media_plan["lineitems"].append(line_item)
 
     return media_plan
+
+
+def _sanitize_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize media plan data to avoid common validation errors.
+
+    Args:
+        data: The media plan data to sanitize.
+
+    Returns:
+        Sanitized media plan data.
+    """
+    # Deep copy to avoid modifying the original
+    sanitized = copy.deepcopy(data)
+
+    # Handle campaign fields
+    if "campaign" in sanitized:
+        campaign = sanitized["campaign"]
+
+        # Convert empty strings to None for enum fields
+        if "audience_gender" in campaign and (campaign["audience_gender"] == "" or campaign["audience_gender"] is None):
+            # Set a default valid value for audience_gender
+            campaign["audience_gender"] = "Any"
+
+        if "location_type" in campaign and (campaign["location_type"] == "" or campaign["location_type"] is None):
+            campaign["location_type"] = "Country"  # Default to Country
+
+    # Handle lineitems
+    if "lineitems" in sanitized:
+        for line_item in sanitized["lineitems"]:
+            # Handle location_type field
+            if "location_type" in line_item and (line_item["location_type"] == "" or line_item["location_type"] is None):
+                line_item["location_type"] = "Country"  # Default to Country
+
+    return sanitized

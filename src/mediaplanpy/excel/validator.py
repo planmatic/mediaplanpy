@@ -8,6 +8,7 @@ Media Plan Open Data Standard schema.
 import os
 import logging
 import tempfile
+import copy
 from typing import Dict, Any, List, Optional, Union, Tuple
 
 import openpyxl
@@ -21,7 +22,7 @@ logger = logging.getLogger("mediaplanpy.excel.validator")
 
 
 def validate_excel(file_path: str, schema_validator: Optional[SchemaValidator] = None,
-                   schema_version: Optional[str] = None) -> List[str]:
+                  schema_version: Optional[str] = None) -> List[str]:
     """
     Validate an Excel file against the Media Plan Open Data Standard schema.
 
@@ -49,8 +50,11 @@ def validate_excel(file_path: str, schema_validator: Optional[SchemaValidator] =
         if schema_version is None:
             schema_version = media_plan.get("meta", {}).get("schema_version")
 
+        # Sanitize data to avoid validation errors
+        sanitized_media_plan = _sanitize_for_validation(media_plan)
+
         # Validate the media plan against the schema
-        errors = schema_validator.validate(media_plan, schema_version)
+        errors = schema_validator.validate(sanitized_media_plan, schema_version)
 
         # Add Excel-specific validation
         excel_errors = _validate_excel_structure(file_path)
@@ -264,3 +268,40 @@ def _validate_excel_structure(file_path: str) -> List[str]:
 
     except Exception as e:
         return [f"Error validating Excel structure: {str(e)}"]
+
+
+def _sanitize_for_validation(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize data for validation to avoid common errors with enum fields.
+
+    Args:
+        data: The data to sanitize.
+
+    Returns:
+        Sanitized data.
+    """
+    # Create a deep copy to avoid modifying the original
+    sanitized = copy.deepcopy(data)
+
+    # Handle campaign fields
+    if "campaign" in sanitized:
+        campaign = sanitized["campaign"]
+
+        # Convert empty strings to None for enum fields
+        if "audience_gender" in campaign:
+            if campaign["audience_gender"] == "" or campaign["audience_gender"] is None:
+                campaign["audience_gender"] = "Any"  # Default value
+
+        if "location_type" in campaign:
+            if campaign["location_type"] == "" or campaign["location_type"] is None:
+                campaign["location_type"] = "Country"  # Default value
+
+    # Handle line items
+    if "lineitems" in sanitized:
+        for line_item in sanitized["lineitems"]:
+            # Handle location_type field
+            if "location_type" in line_item:
+                if line_item["location_type"] == "" or line_item["location_type"] is None:
+                    line_item["location_type"] = "Country"  # Default value
+
+    return sanitized

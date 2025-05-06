@@ -38,6 +38,7 @@ def sample_mediaplan_v1():
             budget_total=Decimal("100000"),
             audience_age_start=18,
             audience_age_end=34,
+            audience_gender="Any",  # Set a valid value
             location_type="Country",
             locations=["United States"]
         ),
@@ -79,13 +80,13 @@ class TestExcelExport:
                 os.unlink(tmp_path)
 
     def test_export_with_default_path(self, sample_mediaplan_v1):
-        """Test exporting with a default path based on campaign ID."""
+        """Test exporting with a default path based on media plan ID."""
         try:
             # Export without specifying path
             exported_path = sample_mediaplan_v1.export_to_excel()
 
-            # Check the path includes campaign ID
-            assert sample_mediaplan_v1.campaign.id in exported_path
+            # Check the path includes media plan ID rather than campaign ID
+            assert sample_mediaplan_v1.meta.id in exported_path
             assert exported_path.endswith(".xlsx")
 
             # Check file exists

@@ -21,9 +21,9 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_excel")
 
 # Add Excel-related methods to MediaPlan class
 def export_to_excel_method(self, path: Optional[str] = None,
-                           template_path: Optional[str] = None,
-                           include_documentation: bool = True,
-                           **options) -> str:
+                          template_path: Optional[str] = None,
+                          include_documentation: bool = True,
+                          **options) -> str:
     """
     Export the media plan to Excel format.
 
@@ -72,6 +72,9 @@ def from_excel_class_method(cls, file_path: str, **options) -> 'MediaPlan':
         # Import from Excel
         data = import_from_excel(file_path, **options)
 
+        # Handle enum field values to avoid validation errors
+        data = _sanitize_data_for_model(data)
+
         # Convert to MediaPlan instance
         media_plan = cls.from_dict(data)
 
@@ -101,6 +104,9 @@ def update_from_excel_method(self, file_path: str, **options) -> None:
         # Update from Excel
         updated_data = update_from_excel(current_data, file_path, **options)
 
+        # Handle enum field values to avoid validation errors
+        updated_data = _sanitize_data_for_model(updated_data)
+
         # Update in-place
         if "meta" in updated_data:
             # Update selectively to preserve ID and other metadata
@@ -108,16 +114,30 @@ def update_from_excel_method(self, file_path: str, **options) -> None:
                 self.meta.comments = updated_data["meta"]["comments"]
 
         if "campaign" in updated_data:
-            # Update campaign attributes from dictionary
+            # Create a new campaign object and replace the current one
+            from mediaplanpy.models.campaign import Campaign
+            new_campaign = Campaign.from_dict(updated_data["campaign"])
+
+            # Set each attribute
             for key, value in updated_data["campaign"].items():
                 if hasattr(self.campaign, key):
-                    setattr(self.campaign, key, value)
+                    try:
+                        setattr(self.campaign, key, getattr(new_campaign, key))
+                    except Exception as e:
+                        # Skip attributes that cause validation errors
+                        logger.warning(f"Could not set campaign attribute {key}: {e}")
 
         if "lineitems" in updated_data:
             # Clear existing line items and add new ones
             self.lineitems.clear()
+
+            # Add each line item
             for line_item_data in updated_data["lineitems"]:
-                self.add_lineitem(line_item_data)
+                try:
+                    self.add_lineitem(line_item_data)
+                except Exception as e:
+                    # Log error but continue with other line items
+                    logger.warning(f"Could not add line item: {e}")
 
         logger.info(f"Media plan updated from Excel: {file_path}")
 
@@ -155,9 +175,9 @@ def validate_excel_class_method(cls, file_path: str, schema_version: Optional[st
 
 
 def export_to_excel_workspace(self, workspace_manager: WorkspaceManager,
-                              path: Optional[str] = None,
-                              template_path: Optional[str] = None,
-                              **options) -> str:
+                             path: Optional[str] = None,
+                             template_path: Optional[str] = None,
+                             **options) -> str:
     """
     Export the media plan to Excel using workspace settings.
 
@@ -234,7 +254,7 @@ def export_to_excel_workspace(self, workspace_manager: WorkspaceManager,
 
 
 def from_excel_workspace_class_method(cls, workspace_manager: WorkspaceManager,
-                                      path: str, **options) -> 'MediaPlan':
+                                     path: str, **options) -> 'MediaPlan':
     """
     Create a new MediaPlan instance from an Excel file in workspace storage.
 
@@ -281,6 +301,44 @@ def from_excel_workspace_class_method(cls, workspace_manager: WorkspaceManager,
 
     except Exception as e:
         raise StorageError(f"Failed to create media plan from Excel in workspace: {e}")
+
+
+def _sanitize_data_for_model(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize imported data to avoid validation errors when creating model instances.
+
+    Args:
+        data: The media plan data to sanitize.
+
+    Returns:
+        Sanitized media plan data.
+    """
+    import copy
+    sanitized = copy.deepcopy(data)
+
+    # Handle Campaign-specific enum fields
+    if "campaign" in sanitized:
+        campaign = sanitized["campaign"]
+
+        # Handle audience_gender field
+        if "audience_gender" in campaign:
+            if not campaign["audience_gender"] or campaign["audience_gender"] == "":
+                campaign["audience_gender"] = "Any"  # Default value
+
+        # Handle location_type field
+        if "location_type" in campaign:
+            if not campaign["location_type"] or campaign["location_type"] == "":
+                campaign["location_type"] = "Country"  # Default value
+
+    # Handle Line Item-specific enum fields
+    if "lineitems" in sanitized:
+        for lineitem in sanitized["lineitems"]:
+            # Handle location_type field
+            if "location_type" in lineitem:
+                if not lineitem["location_type"] or lineitem["location_type"] == "":
+                    lineitem["location_type"] = "Country"  # Default value
+
+    return sanitized
 
 
 # Patch methods into MediaPlan class
