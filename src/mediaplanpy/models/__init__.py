@@ -13,6 +13,9 @@ from mediaplanpy.models.mediaplan import MediaPlan, Meta
 # Import storage integration (which patches MediaPlan with storage methods)
 import mediaplanpy.models.mediaplan_storage
 
+# Import Excel integration (which patches MediaPlan with Excel methods)
+import mediaplanpy.models.mediaplan_excel
+
 __all__ = [
     'BaseModel',
     'LineItem',

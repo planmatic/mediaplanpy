@@ -95,6 +95,41 @@ def setup_argparse():
     schema_migrate_parser.add_argument("--output", help="Output file path (defaults to input with version suffix)")
     schema_migrate_parser.add_argument("--workspace", help="Path to workspace.json")
 
+    # Excel commands
+    excel_parser = subparsers.add_parser("excel", help="Excel operations")
+    excel_subparsers = excel_parser.add_subparsers(dest="excel_command")
+
+    # excel export
+    excel_export_parser = excel_subparsers.add_parser("export", help="Export media plan to Excel")
+    excel_export_parser.add_argument("--file", help="Path to media plan JSON file")
+    excel_export_parser.add_argument("--workspace", help="Path to workspace.json")
+    excel_export_parser.add_argument("--path", help="Path to media plan in workspace storage")
+    excel_export_parser.add_argument("--campaign-id", help="Campaign ID to load from workspace storage")
+    excel_export_parser.add_argument("--output", help="Output path for Excel file")
+    excel_export_parser.add_argument("--template", help="Path to Excel template file")
+    excel_export_parser.add_argument("--no-docs", action="store_true", help="Exclude documentation sheet")
+
+    # excel import
+    excel_import_parser = excel_subparsers.add_parser("import", help="Import media plan from Excel")
+    excel_import_parser.add_argument("file", help="Path to Excel file")
+    excel_import_parser.add_argument("--output", help="Output path for JSON file")
+    excel_import_parser.add_argument("--workspace", help="Path to workspace.json")
+
+    # excel update
+    excel_update_parser = excel_subparsers.add_parser("update", help="Update media plan from Excel")
+    excel_update_parser.add_argument("file", help="Path to Excel file with updates")
+    excel_update_parser.add_argument("--target", help="Path to media plan JSON file to update")
+    excel_update_parser.add_argument("--workspace", help="Path to workspace.json")
+    excel_update_parser.add_argument("--path", help="Path to media plan in workspace storage")
+    excel_update_parser.add_argument("--campaign-id", help="Campaign ID to load from workspace storage")
+    excel_update_parser.add_argument("--output", help="Output path for updated JSON file")
+
+    # excel validate
+    excel_validate_parser = excel_subparsers.add_parser("validate", help="Validate Excel file against schema")
+    excel_validate_parser.add_argument("file", help="Path to Excel file")
+    excel_validate_parser.add_argument("--version", help="Schema version to validate against")
+    excel_validate_parser.add_argument("--report", help="Output path for validation report")
+
     return parser
 
 
@@ -372,6 +407,196 @@ def handle_schema_migrate(args):
     return 0
 
 
+def handle_excel_export(args):
+    """Handle the 'excel export' command."""
+    try:
+        from mediaplanpy.models import MediaPlan
+
+        # Load the media plan from file
+        if args.file:
+            media_plan = MediaPlan.from_file(args.file)
+        elif args.path and args.workspace:
+            # Load workspace
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            # Load from storage
+            media_plan = MediaPlan.load_from_storage(manager, path=args.path)
+        elif args.campaign_id and args.workspace:
+            # Load workspace
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            # Load by campaign ID
+            media_plan = MediaPlan.load_from_storage(manager, campaign_id=args.campaign_id)
+        else:
+            print("❌ Error: You must specify either --file, or both --workspace and (--path or --campaign-id)")
+            return 1
+
+        # Determine output path
+        if args.output:
+            output_path = args.output
+        else:
+            # Default to campaign ID
+            output_path = f"{media_plan.campaign.id}.xlsx"
+
+        # Export to Excel
+        if args.workspace:
+            # Use workspace-based export
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            result_path = media_plan.export_to_excel_workspace(
+                manager,
+                path=output_path,
+                template_path=args.template,
+                include_documentation=not args.no_docs
+            )
+        else:
+            # Use direct export
+            result_path = media_plan.export_to_excel(
+                path=output_path,
+                template_path=args.template,
+                include_documentation=not args.no_docs
+            )
+
+        print(f"✅ Media plan exported to Excel: {result_path}")
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error exporting media plan to Excel: {e}")
+        return 1
+
+
+def handle_excel_import(args):
+    """Handle the 'excel import' command."""
+    try:
+        from mediaplanpy.models import MediaPlan
+
+        # Import from Excel
+        media_plan = MediaPlan.from_excel(args.file)
+
+        # Determine output path
+        if args.output:
+            output_path = args.output
+        else:
+            # Default to campaign ID
+            output_path = f"{media_plan.campaign.id}.json"
+
+        # Save the media plan
+        if args.workspace:
+            # Use workspace-based save
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            result_path = media_plan.save_to_storage(manager, path=output_path)
+        else:
+            # Use direct save
+            media_plan.save(output_path)
+            result_path = output_path
+
+        print(f"✅ Media plan imported from Excel and saved to: {result_path}")
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error importing media plan from Excel: {e}")
+        return 1
+
+
+def handle_excel_update(args):
+    """Handle the 'excel update' command."""
+    try:
+        from mediaplanpy.models import MediaPlan
+
+        # Load the media plan from file
+        if args.target:
+            media_plan = MediaPlan.from_file(args.target)
+        elif args.path and args.workspace:
+            # Load workspace
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            # Load from storage
+            media_plan = MediaPlan.load_from_storage(manager, path=args.path)
+        elif args.campaign_id and args.workspace:
+            # Load workspace
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            # Load by campaign ID
+            media_plan = MediaPlan.load_from_storage(manager, campaign_id=args.campaign_id)
+        else:
+            print("❌ Error: You must specify either --target, or both --workspace and (--path or --campaign-id)")
+            return 1
+
+        # Update from Excel
+        media_plan.update_from_excel(args.file)
+
+        # Determine output path
+        if args.output:
+            output_path = args.output
+        elif args.target:
+            # Use the same file
+            output_path = args.target
+        else:
+            # Default to campaign ID
+            output_path = f"{media_plan.campaign.id}.json"
+
+        # Save the updated media plan
+        if args.workspace:
+            # Use workspace-based save
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            result_path = media_plan.save_to_storage(manager, path=output_path)
+        else:
+            # Use direct save
+            media_plan.save(output_path)
+            result_path = output_path
+
+        print(f"✅ Media plan updated from Excel and saved to: {result_path}")
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error updating media plan from Excel: {e}")
+        return 1
+
+
+def handle_excel_validate(args):
+    """Handle the 'excel validate' command."""
+    try:
+        from mediaplanpy.models import MediaPlan
+        from mediaplanpy.excel.validator import create_validation_report
+
+        # Validate Excel file
+        errors = MediaPlan.validate_excel(args.file, schema_version=args.version)
+
+        if errors:
+            print(f"❌ Excel file validation failed with {len(errors)} errors:")
+            for i, error in enumerate(errors, 1):
+                print(f"  {i}. {error}")
+
+            # Create validation report if requested
+            if args.report:
+                report_path = create_validation_report(args.file, errors, args.report)
+                print(f"Validation report saved to: {report_path}")
+
+            return 1
+        else:
+            print(f"✅ Excel file validated successfully: {args.file}")
+
+            # Create validation report if requested
+            if args.report:
+                report_path = create_validation_report(args.file, [], args.report)
+                print(f"Validation report saved to: {report_path}")
+
+            return 0
+
+    except Exception as e:
+        print(f"❌ Error validating Excel file: {e}")
+        return 1
+
+
 def main():
     """Main entry point for the CLI."""
     parser = setup_argparse()
@@ -414,6 +639,24 @@ def main():
             return handle_schema_validate(args)
         elif args.schema_command == "migrate":
             return handle_schema_migrate(args)
+
+    # Handle excel commands
+    elif args.command == "excel":
+        if not args.excel_command:
+            # If no excel subcommand, print excel help
+            for action in parser._actions:
+                if action.dest == 'excel_command':
+                    action.choices['export'].print_help()
+                    return 1
+
+        if args.excel_command == "export":
+            return handle_excel_export(args)
+        elif args.excel_command == "import":
+            return handle_excel_import(args)
+        elif args.excel_command == "update":
+            return handle_excel_update(args)
+        elif args.excel_command == "validate":
+            return handle_excel_validate(args)
 
     # If we reach here, no command was handled
     parser.print_help()

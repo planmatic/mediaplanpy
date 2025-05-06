@@ -68,6 +68,15 @@ from mediaplanpy.storage import (
     JsonFormatHandler
 )
 
+# Import Excel module
+from mediaplanpy.excel import (
+    export_to_excel,
+    import_from_excel,
+    update_from_excel,
+    validate_excel,
+    ExcelFormatHandler
+)
+
 __all__ = [
     # Workspace
     'WorkspaceManager',
@@ -113,6 +122,13 @@ __all__ = [
     'get_storage_backend',
     'get_format_handler_instance',
     'JsonFormatHandler',
+
+    # Excel
+    'export_to_excel',
+    'import_from_excel',
+    'update_from_excel',
+    'validate_excel',
+    'ExcelFormatHandler',
 
     # Version
     '__version__'
