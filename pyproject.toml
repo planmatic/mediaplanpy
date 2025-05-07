@@ -74,3 +74,6 @@ disallow_incomplete_defs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
+
+[tool.setuptools.package-data]
+"mediaplanpy.workspace" = ["schemas/*.json"]
