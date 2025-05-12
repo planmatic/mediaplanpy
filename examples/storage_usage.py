@@ -130,7 +130,7 @@ def main():
 
         # Example 1: Save with automatic path generation
         logger.info("Example 1: Saving with automatic path generation")
-        saved_path = media_plan.save_to_storage(manager)
+        saved_path = media_plan.save(manager)
         logger.info(f"Media plan automatically saved to: {saved_path}")
         logger.info(f"The saved path is based on the campaign_id: {media_plan.campaign.id}")
 
@@ -147,7 +147,7 @@ def main():
 
         # Example 3: Save with automatic path but specify format
         logger.info("Example 3: Saving with automatic path but specifying format")
-        saved_path = media_plan.save_to_storage(
+        saved_path = media_plan.save(
             manager,
             format_name="json",
             indent=4  # Custom JSON formatting option
@@ -182,14 +182,14 @@ def main():
         )
 
         # Save it and check that the ID is sanitized in the path
-        saved_path = complex_plan.save_to_storage(manager)
+        saved_path = complex_plan.save_to_workspace(manager)
         logger.info(f"Complex ID media plan saved to: {saved_path}")
         logger.info(f"Notice how special/campaign/2025 was sanitized to 'special_campaign_2025'")
 
         # Example 5: Save to a specific folder
         logger.info("Example 5: Save to a specific folder")
         folder_path = "campaigns/fall_2025/"
-        saved_path = media_plan.save_to_storage(
+        saved_path = media_plan.save(
             manager,
             path=f"{folder_path}{media_plan.campaign.id}.json"
         )
@@ -262,7 +262,7 @@ def main():
         migrated_plan = MediaPlan.from_v0_mediaplan(v0_media_plan)
 
         # Save the migrated plan
-        migrated_path = migrated_plan.save_to_storage(manager)
+        migrated_path = migrated_plan.save_to_workspace(manager)
         logger.info(f"Migrated media plan saved to: {migrated_path}")
         logger.info(f"Migrated plan ID: {migrated_plan.meta.id}")
         logger.info(f"Migrated plan schema version: {migrated_plan.meta.schema_version}")

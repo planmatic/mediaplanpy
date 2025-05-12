@@ -176,13 +176,13 @@ def main():
 
         # Save to file
         media_plan_file = output_dir / "example_media_plan_v1.json"
-        media_plan.save(media_plan_file)
+        media_plan.export_to_json(media_plan_file)
         logger.info(f"Saved media plan to {media_plan_file}")
 
         # 7. Load the media plan from file
         logger.info("Loading media plan from file")
 
-        loaded_plan = MediaPlan.from_file(media_plan_file)
+        loaded_plan = MediaPlan.import_from_json(media_plan_file)
         logger.info(f"Loaded media plan with ID: {loaded_plan.meta.id}")
         logger.info(f"Loaded plan has {len(loaded_plan.lineitems)} line items")
 
@@ -202,7 +202,7 @@ def main():
 
         # 9. Save the modified plan
         modified_plan_file = output_dir / "modified_media_plan_v1.json"
-        loaded_plan.save(modified_plan_file)
+        loaded_plan.export_to_json(modified_plan_file)
         logger.info(f"Saved modified media plan to {modified_plan_file}")
 
         # 10. Demonstrate migration from v0.0.0 to v1.0.0
@@ -272,7 +272,7 @@ def main():
 
         # Save the migrated plan
         migrated_plan_file = output_dir / "migrated_media_plan_v1.json"
-        v1_migrated_plan.save(migrated_plan_file)
+        v1_migrated_plan.export_to_json(migrated_plan_file)
         logger.info(f"Saved migrated plan to {migrated_plan_file}")
 
     except ValidationError as e:

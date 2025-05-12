@@ -414,7 +414,7 @@ def handle_excel_export(args):
 
         # Load the media plan from file
         if args.file:
-            media_plan = MediaPlan.from_file(args.file)
+            media_plan = MediaPlan.import_from_json(args.file)
         elif args.path and args.workspace:
             # Load workspace
             manager = WorkspaceManager(args.workspace)
@@ -446,7 +446,7 @@ def handle_excel_export(args):
             manager = WorkspaceManager(args.workspace)
             manager.load()
 
-            result_path = media_plan.export_to_excel_workspace(
+            result_path = media_plan.export_to_excel(
                 manager,
                 path=output_path,
                 template_path=args.template,
@@ -454,7 +454,7 @@ def handle_excel_export(args):
             )
         else:
             # Use direct export
-            result_path = media_plan.export_to_excel(
+            result_path = media_plan.export_to_excel_path(
                 path=output_path,
                 template_path=args.template,
                 include_documentation=not args.no_docs
@@ -474,7 +474,7 @@ def handle_excel_import(args):
         from mediaplanpy.models import MediaPlan
 
         # Import from Excel
-        media_plan = MediaPlan.from_excel(args.file)
+        media_plan = MediaPlan.import_from_excel_path(args.file)
 
         # Determine output path
         if args.output:
@@ -489,10 +489,10 @@ def handle_excel_import(args):
             manager = WorkspaceManager(args.workspace)
             manager.load()
 
-            result_path = media_plan.save_to_storage(manager, path=output_path)
+            result_path = media_plan.save(manager, path=output_path)
         else:
             # Use direct save
-            media_plan.save(output_path)
+            media_plan.export_to_json(output_path)
             result_path = output_path
 
         print(f"✅ Media plan imported from Excel and saved to: {result_path}")
@@ -510,7 +510,7 @@ def handle_excel_update(args):
 
         # Load the media plan from file
         if args.target:
-            media_plan = MediaPlan.from_file(args.target)
+            media_plan = MediaPlan.import_from_json(args.target)
         elif args.path and args.workspace:
             # Load workspace
             manager = WorkspaceManager(args.workspace)
@@ -548,10 +548,10 @@ def handle_excel_update(args):
             manager = WorkspaceManager(args.workspace)
             manager.load()
 
-            result_path = media_plan.save_to_storage(manager, path=output_path)
+            result_path = media_plan.save(manager, path=output_path)
         else:
             # Use direct save
-            media_plan.save(output_path)
+            media_plan.export_to_json(output_path)
             result_path = output_path
 
         print(f"✅ Media plan updated from Excel and saved to: {result_path}")

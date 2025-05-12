@@ -342,9 +342,9 @@ def _sanitize_data_for_model(data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # Patch methods into MediaPlan class
-MediaPlan.export_to_excel = export_to_excel_method
-MediaPlan.from_excel = classmethod(from_excel_class_method)
-MediaPlan.update_from_excel = update_from_excel_method
+MediaPlan.export_to_excel = export_to_excel_workspace
+MediaPlan.export_to_excel_path = export_to_excel_method
+MediaPlan.import_from_excel = classmethod(from_excel_workspace_class_method)
+MediaPlan.import_from_excel_path = classmethod(from_excel_class_method)
+MediaPlan.update_from_excel_path = update_from_excel_method
 MediaPlan.validate_excel = classmethod(validate_excel_class_method)
-MediaPlan.export_to_excel_workspace = export_to_excel_workspace
-MediaPlan.from_excel_workspace = classmethod(from_excel_workspace_class_method)

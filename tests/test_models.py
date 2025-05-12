@@ -653,10 +653,10 @@ class TestMediaPlan:
             tmp_path = tmp.name
 
         try:
-            media_plan.save(tmp_path)
+            media_plan.export_to_json(tmp_path)
 
             # Load from the file
-            loaded_plan = MediaPlan.from_file(tmp_path)
+            loaded_plan = MediaPlan.import_from_json(tmp_path)
 
             # Verify data was preserved
             assert loaded_plan.meta.created_by == "test@example.com"

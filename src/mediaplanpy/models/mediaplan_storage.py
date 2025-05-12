@@ -22,7 +22,7 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_storage")
 
 
 # Add storage-related methods to MediaPlan class
-def save_to_storage(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
+def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
                     format_name: Optional[str] = None, **format_options) -> str:
     """
     Save the media plan to a storage location.
@@ -137,5 +137,5 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
 
 # Patch methods into MediaPlan class
-MediaPlan.save_to_storage = save_to_storage
+MediaPlan.save = classmethod(save)
 MediaPlan.load = classmethod(load)

@@ -175,7 +175,7 @@ def save_and_load_with_workspace(workspace, media_plan, output_dir):
             updated_workspace.load()
 
             # Save the media plan
-            saved_path = media_plan.save_to_storage(updated_workspace)
+            saved_path = media_plan.save(updated_workspace)
             logger.info(f"Saved media plan to: {saved_path}")
 
             # Load the media plan by campaign ID

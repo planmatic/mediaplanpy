@@ -158,7 +158,7 @@ class BaseModel(PydanticBaseModel):
             raise ValidationError(f"Invalid JSON: {str(e)}")
 
     @classmethod
-    def from_file(cls, file_path: str) -> "BaseModel":
+    def import_from_json(cls, file_path: str) -> "BaseModel":
         """
         Create a model instance from a JSON file.
 
@@ -181,7 +181,7 @@ class BaseModel(PydanticBaseModel):
         except Exception as e:
             raise ValidationError(f"Failed to load from file {file_path}: {str(e)}")
 
-    def save(self, file_path: str, indent: int = 2) -> None:
+    def export_to_json(self, file_path: str, indent: int = 2) -> None:
         """
         Save the model to a JSON file.
 

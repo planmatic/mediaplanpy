@@ -68,7 +68,7 @@ class TestExcelExport:
 
         try:
             # Export to Excel
-            exported_path = sample_mediaplan_v1.export_to_excel(tmp_path)
+            exported_path = sample_mediaplan_v1.export_to_excel_path(tmp_path)
 
             # Check file exists
             assert os.path.exists(exported_path)
@@ -83,7 +83,7 @@ class TestExcelExport:
         """Test exporting with a default path based on media plan ID."""
         try:
             # Export without specifying path
-            exported_path = sample_mediaplan_v1.export_to_excel()
+            exported_path = sample_mediaplan_v1.export_to_excel_path()
 
             # Check the path includes media plan ID rather than campaign ID
             assert sample_mediaplan_v1.meta.id in exported_path
@@ -107,7 +107,7 @@ class TestExcelExport:
 
         try:
             # Export to Excel without documentation
-            exported_path = sample_mediaplan_v1.export_to_excel(tmp_path, include_documentation=False)
+            exported_path = sample_mediaplan_v1.export_to_excel_path(tmp_path, include_documentation=False)
 
             # Check file exists
             assert os.path.exists(exported_path)
@@ -133,10 +133,10 @@ class TestExcelImport:
 
         try:
             # Export to Excel
-            sample_mediaplan_v1.export_to_excel(tmp_path)
+            sample_mediaplan_v1.export_to_excel_path(tmp_path)
 
             # Import from Excel
-            imported_plan = MediaPlan.from_excel(tmp_path)
+            imported_plan = MediaPlan.import_from_excel_path(tmp_path)
 
             # Check imported data
             assert imported_plan.meta.schema_version == "v1.0.0"
@@ -157,7 +157,7 @@ class TestExcelImport:
 
         try:
             # Export to Excel
-            sample_mediaplan_v1.export_to_excel(tmp_path)
+            sample_mediaplan_v1.export_to_excel_path(tmp_path)
 
             # Modify the Excel file
             import openpyxl
@@ -178,7 +178,7 @@ class TestExcelImport:
             updated_plan = copy.deepcopy(sample_mediaplan_v1)
 
             # Update from Excel
-            updated_plan.update_from_excel(tmp_path)
+            updated_plan.update_from_excel_path(tmp_path)
 
             # Check updates
             assert updated_plan.campaign.name == "Updated Campaign Name"
@@ -200,7 +200,7 @@ class TestExcelValidation:
 
         try:
             # Export to Excel
-            sample_mediaplan_v1.export_to_excel(tmp_path)
+            sample_mediaplan_v1.export_to_excel_path(tmp_path)
 
             # Validate Excel
             errors = MediaPlan.validate_excel(tmp_path)
