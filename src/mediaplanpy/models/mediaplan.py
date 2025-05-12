@@ -111,6 +111,8 @@ class MediaPlan(BaseModel):
         """
         Add a line item to the media plan.
 
+        The line item's ID will be automatically generated if not provided.
+
         Args:
             line_item: The line item to add, either as a LineItem instance
                       or a dictionary of parameters.
@@ -123,7 +125,14 @@ class MediaPlan(BaseModel):
         """
         # Convert dict to LineItem if necessary
         if isinstance(line_item, dict):
+            # If dict doesn't have an ID, generate one
+            if 'id' not in line_item or not line_item['id']:
+                line_item['id'] = f"li_{uuid.uuid4().hex[:8]}"
             line_item = LineItem.from_dict(line_item)
+        else:
+            # If LineItem instance doesn't have an ID, generate one
+            if not line_item.id:
+                line_item.id = f"li_{uuid.uuid4().hex[:8]}"
 
         # Validate the line item
         try:
