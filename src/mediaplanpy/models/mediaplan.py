@@ -112,6 +112,8 @@ class MediaPlan(BaseModel):
         Add a line item to the media plan.
 
         The line item's ID will be automatically generated if not provided.
+        Start and end dates will be inherited from the campaign if not provided.
+        Cost total will default to 0 if not provided.
 
         Args:
             line_item: The line item to add, either as a LineItem instance
@@ -123,14 +125,43 @@ class MediaPlan(BaseModel):
         Raises:
             ValidationError: If the line item fails validation.
         """
+        from datetime import date
+        from decimal import Decimal
+
         # Convert dict to LineItem if necessary
         if isinstance(line_item, dict):
-            # If dict doesn't have an ID, generate one
-            if 'id' not in line_item or not line_item['id']:
-                line_item['id'] = f"li_{uuid.uuid4().hex[:8]}"
-            line_item = LineItem.from_dict(line_item)
+            # Create a copy to avoid modifying the original
+            line_item_data = line_item.copy()
+
+            # Generate ID if not provided
+            if 'id' not in line_item_data or not line_item_data['id']:
+                line_item_data['id'] = f"li_{uuid.uuid4().hex[:8]}"
+
+            # Inherit start date from campaign if not provided
+            if 'start_date' not in line_item_data or not line_item_data['start_date']:
+                line_item_data['start_date'] = self.campaign.start_date
+
+            # Inherit end date from campaign if not provided
+            if 'end_date' not in line_item_data or not line_item_data['end_date']:
+                line_item_data['end_date'] = self.campaign.end_date
+
+            # Set default cost_total to 0 if not provided
+            if 'cost_total' not in line_item_data or line_item_data['cost_total'] is None:
+                line_item_data['cost_total'] = Decimal('0')
+
+            # Convert string dates to date objects if necessary
+            for date_field in ['start_date', 'end_date']:
+                if isinstance(line_item_data.get(date_field), str):
+                    line_item_data[date_field] = date.fromisoformat(line_item_data[date_field])
+
+            # Convert cost_total to Decimal if necessary
+            if isinstance(line_item_data.get('cost_total'), (int, float, str)):
+                line_item_data['cost_total'] = Decimal(str(line_item_data['cost_total']))
+
+            line_item = LineItem.from_dict(line_item_data)
         else:
-            # If LineItem instance doesn't have an ID, generate one
+            # For LineItem instances, the required fields must already be set
+            # due to Pydantic validation, but we can still generate an ID if needed
             if not line_item.id:
                 line_item.id = f"li_{uuid.uuid4().hex[:8]}"
 
