@@ -291,7 +291,7 @@ def from_excel_workspace_class_method(cls, workspace_manager: WorkspaceManager,
             tmp_path = tmp.name
 
         # Import from the temp file
-        media_plan = cls.from_excel(tmp_path, **options)
+        media_plan = cls.import_from_excel_path(tmp_path, **options)
 
         # Clean up
         os.unlink(tmp_path)
