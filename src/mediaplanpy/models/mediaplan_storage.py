@@ -137,5 +137,5 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
 
 # Patch methods into MediaPlan class
-MediaPlan.save = classmethod(save)
+MediaPlan.save = save
 MediaPlan.load = classmethod(load)

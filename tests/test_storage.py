@@ -475,7 +475,7 @@ class TestMediaPlanStorageIntegration:
 
         # Save media plan
         path = "test_integration_v1.json"
-        sample_mediaplan_v1.save_to_workspace(manager, path)
+        sample_mediaplan_v1.save(manager, path)
 
         # Verify file exists
         assert os.path.exists(os.path.join(base_path, path))
@@ -504,7 +504,7 @@ class TestMediaPlanStorageIntegration:
         base_path = manager.get_resolved_config()["storage"]["local"]["base_path"]
 
         # Test auto path generation with media plan ID
-        saved_path = sample_mediaplan_v1.save_to_workspace(manager)
+        saved_path = sample_mediaplan_v1.save(manager)
         expected_path = f"{sample_mediaplan_v1.campaign.id}.json"
 
         # Verify file exists at the expected path
