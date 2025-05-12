@@ -78,8 +78,8 @@ def save_to_storage(self, workspace_manager: WorkspaceManager, path: Optional[st
     return path
 
 
-def load_from_storage(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
-                      campaign_id: Optional[str] = None, format_name: Optional[str] = None) -> 'MediaPlan':
+def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
+         campaign_id: Optional[str] = None, format_name: Optional[str] = None) -> 'MediaPlan':
     """
     Load a media plan from a storage location.
 
@@ -138,4 +138,4 @@ def load_from_storage(cls, workspace_manager: WorkspaceManager, path: Optional[s
 
 # Patch methods into MediaPlan class
 MediaPlan.save_to_storage = save_to_storage
-MediaPlan.load_from_storage = classmethod(load_from_storage)
+MediaPlan.load = classmethod(load)

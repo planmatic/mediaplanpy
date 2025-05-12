@@ -421,14 +421,14 @@ def handle_excel_export(args):
             manager.load()
 
             # Load from storage
-            media_plan = MediaPlan.load_from_storage(manager, path=args.path)
+            media_plan = MediaPlan.load(manager, path=args.path)
         elif args.campaign_id and args.workspace:
             # Load workspace
             manager = WorkspaceManager(args.workspace)
             manager.load()
 
             # Load by campaign ID
-            media_plan = MediaPlan.load_from_storage(manager, campaign_id=args.campaign_id)
+            media_plan = MediaPlan.load(manager, campaign_id=args.campaign_id)
         else:
             print("❌ Error: You must specify either --file, or both --workspace and (--path or --campaign-id)")
             return 1
@@ -517,14 +517,14 @@ def handle_excel_update(args):
             manager.load()
 
             # Load from storage
-            media_plan = MediaPlan.load_from_storage(manager, path=args.path)
+            media_plan = MediaPlan.load(manager, path=args.path)
         elif args.campaign_id and args.workspace:
             # Load workspace
             manager = WorkspaceManager(args.workspace)
             manager.load()
 
             # Load by campaign ID
-            media_plan = MediaPlan.load_from_storage(manager, campaign_id=args.campaign_id)
+            media_plan = MediaPlan.load(manager, campaign_id=args.campaign_id)
         else:
             print("❌ Error: You must specify either --target, or both --workspace and (--path or --campaign-id)")
             return 1

@@ -179,7 +179,7 @@ def save_and_load_with_workspace(workspace, media_plan, output_dir):
             logger.info(f"Saved media plan to: {saved_path}")
 
             # Load the media plan by campaign ID
-            loaded_plan = MediaPlan.load_from_storage(
+            loaded_plan = MediaPlan.load(
                 updated_workspace,
                 campaign_id=media_plan.campaign.id
             )

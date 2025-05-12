@@ -136,7 +136,7 @@ def main():
 
         # Example 2: Load with campaign_id
         logger.info("Example 2: Loading with campaign_id")
-        loaded_plan = MediaPlan.load_from_storage(
+        loaded_plan = MediaPlan.load(
             manager,
             campaign_id="fall_2025_campaign"
         )
@@ -291,7 +291,7 @@ def main():
             logger.info(f"Found media plan with ID '{target_id}' in file: {found_file}")
 
             # Load it directly from the file path
-            found_plan = MediaPlan.load_from_storage(manager, path=found_file)
+            found_plan = MediaPlan.load(manager, path=found_file)
             logger.info(f"Successfully loaded media plan: {found_plan.meta.name or found_plan.campaign.name}")
         else:
             logger.info(f"Could not find a media plan with ID: {target_id}")

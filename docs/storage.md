@@ -83,10 +83,10 @@ saved_path = media_plan.save_to_storage(manager)
 media_plan.save_to_storage(manager, "campaigns/my_campaign.json")
 
 # Load from storage using campaign ID
-loaded_plan = MediaPlan.load_from_storage(manager, campaign_id="fall_2025_campaign")
+loaded_plan = MediaPlan.load(manager, campaign_id="fall_2025_campaign")
 
 # Or load from a specific path
-loaded_plan = MediaPlan.load_from_storage(manager, "campaigns/my_campaign.json")
+loaded_plan = MediaPlan.load(manager, "campaigns/my_campaign.json")
 ```
 
 #### Automatic Path Generation

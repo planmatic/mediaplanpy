@@ -481,7 +481,7 @@ class TestMediaPlanStorageIntegration:
         assert os.path.exists(os.path.join(base_path, path))
 
         # Load media plan
-        loaded_plan = MediaPlan.load_from_storage(manager, path)
+        loaded_plan = MediaPlan.load(manager, path)
 
         # Verify v1.0.0 data structure
         assert loaded_plan.meta.schema_version == "v1.0.0"
@@ -512,7 +512,7 @@ class TestMediaPlanStorageIntegration:
         assert saved_path == expected_path
 
         # Load by campaign ID
-        loaded_plan = MediaPlan.load_from_storage(
+        loaded_plan = MediaPlan.load(
             manager,
             campaign_id=sample_mediaplan_v1.campaign.id
         )
