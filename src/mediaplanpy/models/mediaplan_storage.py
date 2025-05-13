@@ -96,24 +96,28 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
 
 def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
-         campaign_id: Optional[str] = None, format_name: Optional[str] = None) -> 'MediaPlan':
+         media_plan_id: Optional[str] = None, campaign_id: Optional[str] = None,
+         format_name: Optional[str] = None) -> 'MediaPlan':
     """
     Load a media plan from a storage location.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
-        path: The path to the media plan file. Required if campaign_id is not provided.
-        campaign_id: The campaign ID to load. If provided and path is None, will try to
-                    load from a default path based on campaign_id.
+        path: The path to the media plan file. Required if neither media_plan_id nor campaign_id is provided.
+        media_plan_id: The media plan ID to load. If provided and path is None, will try to
+                       load from a default path based on media_plan_id. Takes precedence over campaign_id.
+        campaign_id: The campaign ID to load (deprecated, kept for backward compatibility).
+                     If provided and path/media_plan_id are None, will try to load from
+                     a default path based on campaign_id.
         format_name: Optional format name to use. If not specified, inferred from path
-                    or defaults to "json".
+                     or defaults to "json".
 
     Returns:
         A MediaPlan instance.
 
     Raises:
         StorageError: If the media plan cannot be loaded.
-        ValueError: If neither path nor campaign_id is provided.
+        ValueError: If neither path, media_plan_id, nor campaign_id is provided.
     """
     # Check if workspace is loaded
     if not workspace_manager.is_loaded:
@@ -122,25 +126,49 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     # Get resolved workspace config
     workspace_config = workspace_manager.get_resolved_config()
 
-    # Generate default path if not provided but campaign_id is
-    if not path and campaign_id:
-        # Default format is json if not specified
-        default_format = format_name or "json"
-        # Get format extension
-        format_handler = get_format_handler_instance(default_format)
-        extension = format_handler.get_file_extension()
-        if extension.startswith('.'):
-            extension = extension[1:]
+    # Generate default path if not provided but media_plan_id or campaign_id is
+    if not path:
+        if media_plan_id:
+            # Use media plan ID (new preferred approach)
+            # Default format is json if not specified
+            default_format = format_name or "json"
+            # Get format extension
+            format_handler = get_format_handler_instance(default_format)
+            extension = format_handler.get_file_extension()
+            if extension.startswith('.'):
+                extension = extension[1:]
 
-        # Sanitize campaign ID for use as a filename
-        safe_campaign_id = campaign_id.replace('/', '_').replace('\\', '_')
+            # Sanitize media plan ID for use as a filename
+            safe_media_plan_id = media_plan_id.replace('/', '_').replace('\\', '_')
 
-        # Generate path: campaign_id.extension
-        path = f"{safe_campaign_id}.{extension}"
+            # Generate path: media_plan_id.extension
+            path = f"{safe_media_plan_id}.{extension}"
+
+            logger.info(f"Loading media plan by ID: {media_plan_id}")
+
+        elif campaign_id:
+            # Use campaign ID (backward compatibility)
+            logger.warning("Loading by campaign_id is deprecated. Consider using media_plan_id instead.")
+
+            # Default format is json if not specified
+            default_format = format_name or "json"
+            # Get format extension
+            format_handler = get_format_handler_instance(default_format)
+            extension = format_handler.get_file_extension()
+            if extension.startswith('.'):
+                extension = extension[1:]
+
+            # Sanitize campaign ID for use as a filename
+            safe_campaign_id = campaign_id.replace('/', '_').replace('\\', '_')
+
+            # Generate path: campaign_id.extension (old approach)
+            path = f"{safe_campaign_id}.{extension}"
+
+            logger.info(f"Loading media plan by campaign ID (deprecated): {campaign_id}")
 
     # Validate we have a path
     if not path:
-        raise ValueError("Either path or campaign_id must be provided")
+        raise ValueError("Either path, media_plan_id, or campaign_id must be provided")
 
     # Read from storage
     data = storage_read_mediaplan(workspace_config, path, format_name)
@@ -151,7 +179,6 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     logger.info(f"Media plan loaded from {path}")
 
     return media_plan
-
 
 # Patch methods into MediaPlan class
 MediaPlan.save = save
