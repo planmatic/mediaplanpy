@@ -22,17 +22,24 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_storage")
 
 
 # Add storage-related methods to MediaPlan class
+import uuid
+from datetime import datetime
+
+
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
-                    format_name: Optional[str] = None, **format_options) -> str:
+         format_name: Optional[str] = None, overwrite: bool = False,
+         **format_options) -> str:
     """
     Save the media plan to a storage location.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
         path: The path where the media plan should be saved. If None or empty,
-              a default path is generated based on the campaign ID.
+              a default path is generated based on the media plan ID.
         format_name: Optional format name to use. If not specified, inferred from path
                     or defaults to "json".
+        overwrite: If False (default), saves with a new media plan ID. If True,
+                  preserves the existing media plan ID.
         **format_options: Additional format-specific options.
 
     Returns:
@@ -48,6 +55,16 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     # Get resolved workspace config
     workspace_config = workspace_manager.get_resolved_config()
 
+    # Handle media plan ID based on overwrite parameter
+    if not overwrite:
+        # Generate a new media plan ID
+        new_id = f"mediaplan_{uuid.uuid4().hex[:8]}"
+        self.meta.id = new_id
+        logger.info(f"Generated new media plan ID: {new_id}")
+
+    # Update created_at timestamp regardless of overwrite value
+    self.meta.created_at = datetime.now()
+
     # Generate default path if not provided
     if not path:
         # Default format is json if not specified
@@ -58,13 +75,13 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         if extension.startswith('.'):
             extension = extension[1:]
 
-        # Use campaign ID as filename
-        campaign_id = self.campaign.id
-        # Sanitize campaign ID for use as a filename
-        campaign_id = campaign_id.replace('/', '_').replace('\\', '_')
+        # Use media plan ID as filename (changed from campaign ID)
+        mediaplan_id = self.meta.id
+        # Sanitize media plan ID for use as a filename
+        mediaplan_id = mediaplan_id.replace('/', '_').replace('\\', '_')
 
-        # Generate path: campaign_id.extension
-        path = f"{campaign_id}.{extension}"
+        # Generate path: mediaplan_id.extension
+        path = f"{mediaplan_id}.{extension}"
 
     # Convert model to dictionary
     data = self.to_dict()
