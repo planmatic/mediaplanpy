@@ -38,7 +38,7 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
     """
     try:
         # Load the workbook
-        workbook = openpyxl.load_workbook(file_path)
+        workbook = openpyxl.load_workbook(file_path, data_only=True)
 
         # Determine schema version
         schema_version = _detect_schema_version(workbook)
