@@ -7,6 +7,7 @@ and loading from storage backends.
 
 import os
 import logging
+import os
 from typing import Dict, Any, Optional, Union, Type, ClassVar
 
 from mediaplanpy.exceptions import StorageError, FileReadError, FileWriteError
@@ -28,7 +29,7 @@ from datetime import datetime
 
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
-         **format_options) -> str:
+         include_parquet: bool = True, **format_options) -> str:
     """
     Save the media plan to a storage location.
 
@@ -40,6 +41,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
                     or defaults to "json".
         overwrite: If False (default), saves with a new media plan ID. If True,
                   preserves the existing media plan ID.
+        include_parquet: If True (default), also saves a Parquet file for v1.0.0+ schemas.
         **format_options: Additional format-specific options.
 
     Returns:
@@ -91,8 +93,60 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     logger.info(f"Media plan saved to {path}")
 
+    # Also save Parquet file for v1.0.0+ schemas
+    if include_parquet and self._should_save_parquet():
+        parquet_path = self._get_parquet_path(path)
+
+        # Create separate options for Parquet
+        parquet_options = {k: v for k, v in format_options.items()
+                           if k in ['compression']}
+
+        # Write Parquet file
+        storage_write_mediaplan(
+            workspace_config, data, parquet_path,
+            format_name="parquet", **parquet_options
+        )
+        logger.info(f"Also saved Parquet file: {parquet_path}")
+
     # Return the path where the media plan was saved
     return path
+
+
+def _should_save_parquet(self) -> bool:
+    """
+    Check if Parquet should be saved (v1.0.0+).
+
+    Returns:
+        True if the schema version is v1.0.0 or higher.
+    """
+    version = self.meta.schema_version
+    if not version:
+        return False
+
+    # Simple version comparison for v1.0.0+
+    # This assumes version format vX.Y.Z
+    if version.startswith('v'):
+        try:
+            major = int(version.split('.')[0][1:])
+            return major >= 1
+        except (ValueError, IndexError):
+            return False
+
+    return False
+
+
+def _get_parquet_path(self, json_path: str) -> str:
+    """
+    Get Parquet path from JSON path.
+
+    Args:
+        json_path: The JSON file path.
+
+    Returns:
+        The corresponding Parquet file path.
+    """
+    base, _ = os.path.splitext(json_path)
+    return f"{base}.parquet"
 
 
 def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
@@ -183,3 +237,5 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 # Patch methods into MediaPlan class
 MediaPlan.save = save
 MediaPlan.load = classmethod(load)
+MediaPlan._should_save_parquet = _should_save_parquet
+MediaPlan._get_parquet_path = _get_parquet_path
