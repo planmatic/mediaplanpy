@@ -502,21 +502,21 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], schema_ve
                     sheet.cell(row=row_idx, column=col_idx, value=value)
 
         # Add a totals row if there are cost fields
-        cost_fields = [field for field, _ in active_fields if field.startswith("cost")]
-        if cost_fields and len(line_items) > 0:
-            totals_row = len(line_items) + 2
-
-            # Add "Total" label
-            total_cell = sheet.cell(row=totals_row, column=1, value="Total")
-            total_cell.font = Font(bold=True)
-
-            # Calculate and add totals for cost fields
-            for col_idx, (field_name, _) in enumerate(active_fields, 1):
-                if field_name in cost_fields:
-                    total = sum(item.get(field_name, 0) or 0 for item in line_items)
-                    total_cell = sheet.cell(row=totals_row, column=col_idx, value=total)
-                    total_cell.style = "currency_style"
-                    total_cell.font = Font(bold=True)
+        # cost_fields = [field for field, _ in active_fields if field.startswith("cost")]
+        # if cost_fields and len(line_items) > 0:
+        #     totals_row = len(line_items) + 2
+        #
+        #     # Add "Total" label
+        #     total_cell = sheet.cell(row=totals_row, column=1, value="Total")
+        #     total_cell.font = Font(bold=True)
+        #
+        #     # Calculate and add totals for cost fields
+        #     for col_idx, (field_name, _) in enumerate(active_fields, 1):
+        #         if field_name in cost_fields:
+        #             total = sum(item.get(field_name, 0) or 0 for item in line_items)
+        #             total_cell = sheet.cell(row=totals_row, column=col_idx, value=total)
+        #             total_cell.style = "currency_style"
+        #             total_cell.font = Font(bold=True)
 
 
 def _populate_documentation_sheet(sheet, schema_version: str) -> None:
@@ -528,13 +528,15 @@ def _populate_documentation_sheet(sheet, schema_version: str) -> None:
         schema_version: The schema version being used.
     """
     # Set column widths
-    sheet.column_dimensions["A"].width = 20
-    sheet.column_dimensions["B"].width = 50
+    sheet.column_dimensions["A"].width = 25
+    sheet.column_dimensions["B"].width = 15
+    sheet.column_dimensions["C"].width = 50
+    sheet.column_dimensions["D"].width = 15
 
     # Add title
     sheet['A1'] = "Media Plan Excel Documentation"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:B1')
+    sheet.merge_cells('A1:D1')
 
     # Add documentation content
     row = 2
@@ -548,28 +550,165 @@ def _populate_documentation_sheet(sheet, schema_version: str) -> None:
     row += 2
     sheet[f'A{row}'] = "Instructions:"
     sheet[f'B{row}'] = "This Excel file contains a media plan following the Media Plan Open Data Standard."
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
     sheet[f'B{row}'] = "Use the tabs to navigate through different sections of the media plan."
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 2
     sheet[f'A{row}'] = "Sheets:"
     sheet[f'B{row}'] = "Metadata: Contains information about the media plan itself."
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
     sheet[f'B{row}'] = "Campaign: Contains campaign details and settings."
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
     sheet[f'B{row}'] = "Line Items: Contains all line items in the campaign."
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    # Add Line Items field documentation for v1.0.0
+    if schema_version.startswith("v1"):
+        row += 2
+        sheet[f'A{row}'] = "Line Items Column Reference"
+        sheet[f'A{row}'].font = Font(bold=True, size=12)
+        sheet.merge_cells(f'A{row}:D{row}')
+
+        row += 1
+        sheet[f'A{row}'] = "Column Name"
+        sheet[f'B{row}'] = "Data Type"
+        sheet[f'C{row}'] = "Description"
+        sheet[f'D{row}'] = "Required"
+        for col in ['A', 'B', 'C', 'D']:
+            sheet[f'{col}{row}'].style = "header_style"
+
+        # Define all fields with their properties
+        fields_documentation = [
+            # Required fields
+            ("ID", "Text", "Unique identifier for the line item", "Yes"),
+            ("Name", "Text", "Descriptive name for the line item", "Yes"),
+            ("Start Date", "Date", "Start date of the line item (YYYY-MM-DD)", "Yes"),
+            ("End Date", "Date", "End date of the line item (YYYY-MM-DD)", "Yes"),
+            ("Cost Total", "Currency", "Total cost for the line item", "Yes"),
+
+            # Channel-related fields
+            (
+            "Channel", "Text", "Primary channel category (e.g., Social, Search, Display, Video, Audio, TV, OOH, Print)",
+            "No"),
+            ("Channel Custom", "Text", "Custom channel label if standard category doesn't apply", "No"),
+            ("Vehicle", "Text", "Vehicle or platform where ads will run (e.g., Facebook, Google, YouTube)", "No"),
+            ("Vehicle Custom", "Text", "Custom vehicle label if standard name doesn't apply", "No"),
+            ("Partner", "Text", "Partner or publisher (e.g., Meta, Google, Amazon)", "No"),
+            ("Partner Custom", "Text", "Custom partner name if standard name doesn't apply", "No"),
+            ("Media Product", "Text", "Media product offering (e.g., Feed Ads, Search Ads, Pre-roll)", "No"),
+            ("Media Product Custom", "Text", "Custom media product if standard name doesn't apply", "No"),
+
+            # Location fields
+            ("Location Type", "Text", "Type of location targeting (Country or State)", "No"),
+            ("Location Name", "Text", "Name of targeted location (e.g., US, NY, UK)", "No"),
+
+            # Audience and format fields
+            ("Target Audience", "Text", "Description of target audience", "No"),
+            ("Ad Format", "Text", "Format of the advertisement (e.g., Banner, Video, Audio, Text)", "No"),
+            ("Ad Format Custom", "Text", "Custom ad format if standard format doesn't apply", "No"),
+
+            # KPI fields
+            ("KPI", "Text", "Key Performance Indicator (e.g., CPM, CPC, CPA, CTR, CPV, CPL, ROAS)", "No"),
+            ("KPI Custom", "Text", "Custom KPI if standard KPI doesn't apply", "No"),
+
+            # Cost breakdown fields
+            ("Cost Media", "Currency", "Cost of media placement", "No"),
+            ("Cost Buying", "Currency", "Cost of buying or trading desk fees", "No"),
+            ("Cost Platform", "Currency", "Cost of platform or tech fees", "No"),
+            ("Cost Data", "Currency", "Cost of data", "No"),
+            ("Cost Creative", "Currency", "Cost of creative production", "No"),
+
+            # Metric fields
+            ("Impressions", "Number", "Number of impressions", "No"),
+            ("Clicks", "Number", "Number of clicks", "No"),
+            ("Views", "Number", "Number of views (for video)", "No"),
+        ]
+
+        # Add custom dimension fields
+        for i in range(1, 11):
+            fields_documentation.append(
+                (f"Dim Custom {i}", "Text", f"Custom dimension field {i} for additional categorization", "No")
+            )
+
+        # Add custom cost fields
+        for i in range(1, 11):
+            fields_documentation.append(
+                (f"Cost Custom {i}", "Currency", f"Custom cost field {i} for additional cost tracking", "No")
+            )
+
+        # Add custom metric fields
+        for i in range(1, 11):
+            fields_documentation.append(
+                (f"Metric Custom {i}", "Number", f"Custom metric field {i} for additional performance tracking", "No")
+            )
+
+        # Populate the field documentation
+        for field_name, data_type, description, required in fields_documentation:
+            row += 1
+            sheet[f'A{row}'] = field_name
+            sheet[f'B{row}'] = data_type
+            sheet[f'C{row}'] = description
+            sheet[f'D{row}'] = required
+
+            # Apply alternating row colors for readability
+            if row % 2 == 0:
+                for col in ['A', 'B', 'C', 'D']:
+                    sheet[f'{col}{row}'].fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
+
+    # Add validation information
+    row += 2
+    sheet[f'A{row}'] = "Data Validation:"
+    sheet[f'B{row}'] = "Some fields have data validation to ensure consistent data entry."
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Channel: Dropdown list of standard channels"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- KPI: Dropdown list of standard KPIs"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Location Type: Country or State"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Date fields: Must be in YYYY-MM-DD format"
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 2
-    sheet[f'A{row}'] = "Validation:"
-    sheet[f'B{row}'] = "Some fields have data validation to ensure consistent data entry."
+    sheet[f'A{row}'] = "Custom Fields:"
+    sheet[f'B{row}'] = "Custom fields allow for extensibility while maintaining standard structure."
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Use 'Custom' fields when standard options don't fit your needs"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Dim Custom fields: For additional categorization dimensions"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Cost Custom fields: For tracking additional cost types"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Metric Custom fields: For tracking additional performance metrics"
+    sheet.merge_cells(f'B{row}:D{row}')
 
     row += 2
     sheet[f'A{row}'] = "Support:"
     sheet[f'B{row}'] = "For more information, see: https://github.com/laurent-colard-l5i/mediaplanschema"
-
+    sheet.merge_cells(f'B{row}:D{row}')
 
 def _add_validation_and_formatting(workbook: Workbook, schema_version: str) -> None:
     """
