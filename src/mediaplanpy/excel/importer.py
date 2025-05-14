@@ -327,7 +327,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
         "lineitems": []
     }
 
-    # Import metadata
+    # Import metadata (keep existing implementation)
     if "Metadata" in workbook.sheetnames:
         metadata_sheet = workbook["Metadata"]
         for row in range(1, 20):  # Check first 20 rows
@@ -357,12 +357,12 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
     if "created_at" not in media_plan["meta"]:
         media_plan["meta"]["created_at"] = datetime.now().isoformat()
 
-    # Import campaign data
+    # Import campaign data (keep existing implementation)
     if "Campaign" in workbook.sheetnames:
         campaign_sheet = workbook["Campaign"]
         campaign = media_plan["campaign"]
 
-        for row in range(1, 30):  # Check first 30 rows
+        for row in range(1, 30):
             key_cell = campaign_sheet.cell(row=row, column=1).value
             value_cell = campaign_sheet.cell(row=row, column=2).value
 
@@ -373,13 +373,11 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             elif key_cell == "Objective:":
                 campaign["objective"] = value_cell or ""
             elif key_cell == "Start Date:":
-                # Handle date value
                 if isinstance(value_cell, date):
                     campaign["start_date"] = value_cell.isoformat()
                 else:
                     campaign["start_date"] = str(value_cell) if value_cell else ""
             elif key_cell == "End Date:":
-                # Handle date value
                 if isinstance(value_cell, date):
                     campaign["end_date"] = value_cell.isoformat()
                 else:
@@ -393,33 +391,27 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             elif key_cell == "Audience Age End:":
                 campaign["audience_age_end"] = int(value_cell) if value_cell else None
             elif key_cell == "Audience Gender:":
-                # Handle empty strings for enum fields - leave as null/None
                 if value_cell and str(value_cell).strip():
                     campaign["audience_gender"] = str(value_cell).strip()
-                # If empty or whitespace, don't set the field (will be handled in sanitization)
             elif key_cell == "Audience Interests:":
                 if value_cell:
-                    # Split comma-separated interests
                     campaign["audience_interests"] = [
                         interest.strip() for interest in str(value_cell).split(",")
                     ]
                 else:
                     campaign["audience_interests"] = []
             elif key_cell == "Location Type:":
-                # Handle empty strings for enum fields - leave as null/None
                 if value_cell and str(value_cell).strip():
                     campaign["location_type"] = str(value_cell).strip()
-                # If empty or whitespace, don't set the field (will be handled in sanitization)
             elif key_cell == "Locations:":
                 if value_cell:
-                    # Split comma-separated locations
                     campaign["locations"] = [
                         location.strip() for location in str(value_cell).split(",")
                     ]
                 else:
                     campaign["locations"] = []
 
-    # Ensure required campaign fields
+    # Ensure required campaign fields (keep existing)
     if "id" not in media_plan["campaign"]:
         media_plan["campaign"]["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
     if "name" not in media_plan["campaign"]:
@@ -429,23 +421,83 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
     if "start_date" not in media_plan["campaign"]:
         media_plan["campaign"]["start_date"] = datetime.now().strftime("%Y-%m-%d")
     if "end_date" not in media_plan["campaign"]:
-        # Default to end of year
         end_date = datetime(datetime.now().year, 12, 31).strftime("%Y-%m-%d")
         media_plan["campaign"]["end_date"] = end_date
     if "budget_total" not in media_plan["campaign"]:
         media_plan["campaign"]["budget_total"] = 0
 
-    # Import line items
+    # Import line items with comprehensive field mapping
     if "Line Items" in workbook.sheetnames:
         line_items_sheet = workbook["Line Items"]
 
         # Get headers
         headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-        # Map column indices to headers
-        header_indices = {}
+        # Create comprehensive field mapping
+        field_mapping = {
+            # Required fields
+            "ID": "id",
+            "Name": "name",
+            "Start Date": "start_date",
+            "End Date": "end_date",
+            "Cost Total": "cost_total",
+
+            # Channel-related fields
+            "Channel": "channel",
+            "Channel Custom": "channel_custom",
+            "Vehicle": "vehicle",
+            "Vehicle Custom": "vehicle_custom",
+            "Partner": "partner",
+            "Partner Custom": "partner_custom",
+            "Media Product": "media_product",
+            "Media Product Custom": "media_product_custom",
+
+            # Location fields
+            "Location Type": "location_type",
+            "Location Name": "location_name",
+
+            # Audience and format fields
+            "Target Audience": "target_audience",
+            "Ad Format": "adformat",
+            "Ad Format Custom": "adformat_custom",
+
+            # KPI fields
+            "KPI": "kpi",
+            "KPI Custom": "kpi_custom",
+
+            # Cost breakdown fields
+            "Cost Media": "cost_media",
+            "Cost Buying": "cost_buying",
+            "Cost Platform": "cost_platform",
+            "Cost Data": "cost_data",
+            "Cost Creative": "cost_creative",
+
+            # Metric fields
+            "Impressions": "metric_impressions",
+            "Clicks": "metric_clicks",
+            "Views": "metric_views",
+        }
+
+        # Add custom dimension fields
+        for i in range(1, 11):
+            field_mapping[f"Dim Custom {i}"] = f"dim_custom{i}"
+            field_mapping[f"Dim Custom{i}"] = f"dim_custom{i}"  # Alternative format
+
+        # Add custom cost fields
+        for i in range(1, 11):
+            field_mapping[f"Cost Custom {i}"] = f"cost_custom{i}"
+            field_mapping[f"Cost Custom{i}"] = f"cost_custom{i}"  # Alternative format
+
+        # Add custom metric fields
+        for i in range(1, 11):
+            field_mapping[f"Metric Custom {i}"] = f"metric_custom{i}"
+            field_mapping[f"Metric Custom{i}"] = f"metric_custom{i}"  # Alternative format
+
+        # Map column indices to field names
+        header_to_field = {}
         for col_idx, header in enumerate(headers, 1):
-            header_indices[header] = col_idx
+            if header in field_mapping:
+                header_to_field[col_idx] = field_mapping[header]
 
         # Process line items (skip header row)
         for row in range(2, line_items_sheet.max_row + 1):
@@ -455,83 +507,54 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
 
             line_item = {}
 
-            # Process standard fields
-            if "ID" in header_indices:
-                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices["ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
+            # Process all mapped fields
+            for col_idx, field_name in header_to_field.items():
+                cell_value = line_items_sheet.cell(row=row, column=col_idx).value
 
-            if "Name" in header_indices:
-                line_item["name"] = line_items_sheet.cell(row=row, column=header_indices["Name"]).value or ""
+                if cell_value is not None:
+                    # Handle different field types
+                    if field_name in ["id", "name"] and not cell_value:
+                        # Generate ID if missing
+                        if field_name == "id":
+                            line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
+                        continue
 
-            if "Channel" in header_indices:
-                line_item["channel"] = line_items_sheet.cell(row=row, column=header_indices["Channel"]).value or ""
+                    elif field_name in ["start_date", "end_date"]:
+                        # Handle date fields
+                        if isinstance(cell_value, date):
+                            line_item[field_name] = cell_value.isoformat()
+                        else:
+                            line_item[field_name] = str(cell_value) if cell_value else ""
 
-            if "Vehicle" in header_indices:
-                line_item["vehicle"] = line_items_sheet.cell(row=row, column=header_indices["Vehicle"]).value or ""
+                    elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
+                        # Handle numeric fields
+                        try:
+                            line_item[field_name] = float(cell_value)
+                        except (ValueError, TypeError):
+                            # Skip invalid numeric values
+                            pass
 
-            if "Partner" in header_indices:
-                line_item["partner"] = line_items_sheet.cell(row=row, column=header_indices["Partner"]).value or ""
+                    elif field_name == "location_type":
+                        # Handle enum field with validation
+                        if cell_value and str(cell_value).strip():
+                            line_item[field_name] = str(cell_value).strip()
 
-            if "Media Product" in header_indices:
-                line_item["media_product"] = line_items_sheet.cell(row=row, column=header_indices["Media Product"]).value or ""
+                    else:
+                        # Handle string fields
+                        line_item[field_name] = str(cell_value).strip() if str(cell_value).strip() else ""
 
-            if "Start Date" in header_indices:
-                start_date_cell = line_items_sheet.cell(row=row, column=header_indices["Start Date"]).value
-                if isinstance(start_date_cell, date):
-                    line_item["start_date"] = start_date_cell.isoformat()
-                else:
-                    line_item["start_date"] = str(start_date_cell) if start_date_cell else ""
-
-            if "End Date" in header_indices:
-                end_date_cell = line_items_sheet.cell(row=row, column=header_indices["End Date"]).value
-                if isinstance(end_date_cell, date):
-                    line_item["end_date"] = end_date_cell.isoformat()
-                else:
-                    line_item["end_date"] = str(end_date_cell) if end_date_cell else ""
-
-            if "Cost Total" in header_indices:
-                cost_cell = line_items_sheet.cell(row=row, column=header_indices["Cost Total"]).value
-                line_item["cost_total"] = float(cost_cell) if cost_cell else 0
-
-            if "KPI" in header_indices:
-                line_item["kpi"] = line_items_sheet.cell(row=row, column=header_indices["KPI"]).value or ""
-
-            if "Location Type" in header_indices:
-                # Handle empty strings for enum fields - leave as null/None
-                location_type = line_items_sheet.cell(row=row, column=header_indices["Location Type"]).value
-                if location_type and str(location_type).strip():
-                    line_item["location_type"] = str(location_type).strip()
-                # If empty or whitespace, don't set the field
-
-            if "Location Name" in header_indices:
-                line_item["location_name"] = line_items_sheet.cell(row=row, column=header_indices["Location Name"]).value or ""
-
-            if "Target Audience" in header_indices:
-                line_item["target_audience"] = line_items_sheet.cell(row=row, column=header_indices["Target Audience"]).value or ""
-
-            if "Ad Format" in header_indices:
-                line_item["adformat"] = line_items_sheet.cell(row=row, column=header_indices["Ad Format"]).value or ""
-
-            # Metrics
-            if "Impressions" in header_indices:
-                impressions_cell = line_items_sheet.cell(row=row, column=header_indices["Impressions"]).value
-                if impressions_cell:
-                    line_item["metric_impressions"] = float(impressions_cell)
-
-            if "Clicks" in header_indices:
-                clicks_cell = line_items_sheet.cell(row=row, column=header_indices["Clicks"]).value
-                if clicks_cell:
-                    line_item["metric_clicks"] = float(clicks_cell)
-
-            if "Views" in header_indices:
-                views_cell = line_items_sheet.cell(row=row, column=header_indices["Views"]).value
-                if views_cell:
-                    line_item["metric_views"] = float(views_cell)
+            # Ensure required fields have defaults
+            if "id" not in line_item:
+                line_item["id"] = f"li_{uuid.uuid4().hex[:8]}"
+            if "name" not in line_item:
+                line_item["name"] = line_item.get("id", "")
+            if "cost_total" not in line_item:
+                line_item["cost_total"] = 0
 
             # Add line item to list
             media_plan["lineitems"].append(line_item)
 
     return media_plan
-
 
 def _sanitize_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
     """

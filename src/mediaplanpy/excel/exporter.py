@@ -333,36 +333,24 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], schema_ve
         line_items: List of line item data.
         schema_version: The schema version being used.
     """
-    # Define headers based on schema version
     if schema_version.startswith("v0.0.0"):
+        # Keep existing v0.0.0 implementation
         headers = [
             "ID", "Channel", "Platform", "Publisher", "Start Date", "End Date",
             "Budget", "KPI", "Creative IDs"
         ]
-    else:
-        # v1.0.0 headers
-        headers = [
-            "ID", "Name", "Channel", "Vehicle", "Partner", "Media Product",
-            "Start Date", "End Date", "Cost Total", "KPI",
-            "Location Type", "Location Name", "Target Audience", "Ad Format"
-        ]
-        # Additional metric columns
-        metric_headers = ["Impressions", "Clicks", "Views"]
-        headers.extend(metric_headers)
 
-    # Set column widths
-    for col_idx, header in enumerate(headers, 1):
-        sheet.column_dimensions[get_column_letter(col_idx)].width = 15
+        # Set column widths
+        for col_idx, header in enumerate(headers, 1):
+            sheet.column_dimensions[get_column_letter(col_idx)].width = 15
 
-    # Add headers
-    for col_idx, header in enumerate(headers, 1):
-        cell = sheet.cell(row=1, column=col_idx, value=header)
-        cell.style = "header_style"
+        # Add headers
+        for col_idx, header in enumerate(headers, 1):
+            cell = sheet.cell(row=1, column=col_idx, value=header)
+            cell.style = "header_style"
 
-    # Add line item data
-    for row_idx, line_item in enumerate(line_items, 2):
-        if schema_version.startswith("v0.0.0"):
-            # v0.0.0 structure
+        # Add line item data
+        for row_idx, line_item in enumerate(line_items, 2):
             col_idx = 1
             sheet.cell(row=row_idx, column=col_idx, value=line_item.get("id", ""))
             col_idx += 1
@@ -391,7 +379,6 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], schema_ve
             sheet.cell(row=row_idx, column=col_idx, value=line_item.get("kpi", ""))
             col_idx += 1
 
-            # Creative IDs may be a list or a string
             creative_ids = line_item.get("creative_ids", [])
             if isinstance(creative_ids, list):
                 creative_ids_str = ", ".join(creative_ids)
@@ -399,75 +386,137 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], schema_ve
                 creative_ids_str = str(creative_ids) if creative_ids else ""
             sheet.cell(row=row_idx, column=col_idx, value=creative_ids_str)
 
-        else:
-            # v1.0.0 structure
-            col_idx = 1
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("id", ""))
-            col_idx += 1
+    else:
+        # v1.0.0 implementation with dynamic field detection
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("name", ""))
-            col_idx += 1
+        # Define field order and header mapping based on schema
+        field_order = [
+            # Required fields
+            ("id", "ID"),
+            ("name", "Name"),
+            ("start_date", "Start Date"),
+            ("end_date", "End Date"),
+            ("cost_total", "Cost Total"),
 
-            # Use channel or channel_custom
-            channel = line_item.get("channel", line_item.get("channel_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=channel)
-            col_idx += 1
+            # Channel-related fields
+            ("channel", "Channel"),
+            ("channel_custom", "Channel Custom"),
+            ("vehicle", "Vehicle"),
+            ("vehicle_custom", "Vehicle Custom"),
+            ("partner", "Partner"),
+            ("partner_custom", "Partner Custom"),
+            ("media_product", "Media Product"),
+            ("media_product_custom", "Media Product Custom"),
 
-            # Use vehicle or vehicle_custom
-            vehicle = line_item.get("vehicle", line_item.get("vehicle_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=vehicle)
-            col_idx += 1
+            # Location fields
+            ("location_type", "Location Type"),
+            ("location_name", "Location Name"),
 
-            # Use partner or partner_custom
-            partner = line_item.get("partner", line_item.get("partner_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=partner)
-            col_idx += 1
+            # Target/format fields
+            ("target_audience", "Target Audience"),
+            ("adformat", "Ad Format"),
+            ("adformat_custom", "Ad Format Custom"),
 
-            # Use media_product or media_product_custom
-            media_product = line_item.get("media_product", line_item.get("media_product_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=media_product)
-            col_idx += 1
+            # KPI fields
+            ("kpi", "KPI"),
+            ("kpi_custom", "KPI Custom"),
+        ]
 
-            start_date_cell = sheet.cell(row=row_idx, column=col_idx, value=line_item.get("start_date", ""))
-            start_date_cell.style = "date_style"
-            col_idx += 1
+        # Add custom dimension fields
+        for i in range(1, 11):
+            field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
 
-            end_date_cell = sheet.cell(row=row_idx, column=col_idx, value=line_item.get("end_date", ""))
-            end_date_cell.style = "date_style"
-            col_idx += 1
+        # Add cost breakdown fields
+        field_order.extend([
+            ("cost_media", "Cost Media"),
+            ("cost_buying", "Cost Buying"),
+            ("cost_platform", "Cost Platform"),
+            ("cost_data", "Cost Data"),
+            ("cost_creative", "Cost Creative"),
+        ])
 
-            cost_cell = sheet.cell(row=row_idx, column=col_idx, value=line_item.get("cost_total", 0))
-            cost_cell.style = "currency_style"
-            col_idx += 1
+        # Add custom cost fields
+        for i in range(1, 11):
+            field_order.append((f"cost_custom{i}", f"Cost Custom {i}"))
 
-            # Use kpi or kpi_custom
-            kpi = line_item.get("kpi", line_item.get("kpi_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=kpi)
-            col_idx += 1
+        # Add metric fields
+        field_order.extend([
+            ("metric_impressions", "Impressions"),
+            ("metric_clicks", "Clicks"),
+            ("metric_views", "Views"),
+        ])
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("location_type", ""))
-            col_idx += 1
+        # Add custom metric fields
+        for i in range(1, 11):
+            field_order.append((f"metric_custom{i}", f"Metric Custom {i}"))
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("location_name", ""))
-            col_idx += 1
+        # Determine which fields are actually present in any line item
+        fields_present = set()
+        for line_item in line_items:
+            fields_present.update(line_item.keys())
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("target_audience", ""))
-            col_idx += 1
+        # Filter field order to only include present fields (always include required fields)
+        required_fields = {"id", "name", "start_date", "end_date", "cost_total"}
+        active_fields = []
+        for field_name, header_name in field_order:
+            if field_name in required_fields or field_name in fields_present:
+                active_fields.append((field_name, header_name))
 
-            # Use adformat or adformat_custom
-            adformat = line_item.get("adformat", line_item.get("adformat_custom", ""))
-            sheet.cell(row=row_idx, column=col_idx, value=adformat)
-            col_idx += 1
+        # Set column widths
+        for col_idx in range(1, len(active_fields) + 1):
+            width = 15
+            # Wider columns for certain fields
+            field_name = active_fields[col_idx - 1][0]
+            if field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
+                width = 25
+            elif field_name in ["partner", "partner_custom", "vehicle", "vehicle_custom"]:
+                width = 20
+            sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
-            # Add metrics
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("metric_impressions", ""))
-            col_idx += 1
+        # Add headers
+        for col_idx, (field_name, header_name) in enumerate(active_fields, 1):
+            cell = sheet.cell(row=1, column=col_idx, value=header_name)
+            cell.style = "header_style"
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("metric_clicks", ""))
-            col_idx += 1
+        # Add line item data
+        for row_idx, line_item in enumerate(line_items, 2):
+            for col_idx, (field_name, header_name) in enumerate(active_fields, 1):
+                value = line_item.get(field_name)
 
-            sheet.cell(row=row_idx, column=col_idx, value=line_item.get("metric_views", ""))
-            col_idx += 1
+                # Skip None values
+                if value is None:
+                    continue
+
+                # Apply appropriate formatting based on field type
+                if field_name in ["start_date", "end_date"]:
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+                    cell.style = "date_style"
+                elif field_name.startswith("cost") or field_name.startswith("metric") or field_name == "cost_total":
+                    # Numeric fields
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+                    if field_name.startswith("cost"):
+                        cell.style = "currency_style"
+                    # Metrics remain as regular numbers
+                else:
+                    # String fields
+                    sheet.cell(row=row_idx, column=col_idx, value=value)
+
+        # Add a totals row if there are cost fields
+        cost_fields = [field for field, _ in active_fields if field.startswith("cost")]
+        if cost_fields and len(line_items) > 0:
+            totals_row = len(line_items) + 2
+
+            # Add "Total" label
+            total_cell = sheet.cell(row=totals_row, column=1, value="Total")
+            total_cell.font = Font(bold=True)
+
+            # Calculate and add totals for cost fields
+            for col_idx, (field_name, _) in enumerate(active_fields, 1):
+                if field_name in cost_fields:
+                    total = sum(item.get(field_name, 0) or 0 for item in line_items)
+                    total_cell = sheet.cell(row=totals_row, column=col_idx, value=total)
+                    total_cell.style = "currency_style"
+                    total_cell.font = Font(bold=True)
 
 
 def _populate_documentation_sheet(sheet, schema_version: str) -> None:
