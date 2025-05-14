@@ -424,7 +424,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
         end_date = datetime(datetime.now().year, 12, 31).strftime("%Y-%m-%d")
         media_plan["campaign"]["end_date"] = end_date
     if "budget_total" not in media_plan["campaign"]:
-        media_plan["campaign"]["budget_total"] = 0
+        media_plan["campaign"]["budget_total"] = 100000
 
     # Import line items with comprehensive field mapping
     if "Line Items" in workbook.sheetnames:
