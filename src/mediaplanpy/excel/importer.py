@@ -548,6 +548,10 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
                 line_item["id"] = f"li_{uuid.uuid4().hex[:8]}"
             if "name" not in line_item:
                 line_item["name"] = line_item.get("id", "")
+            if "start_date" not in line_item:
+                line_item["start_date"] = media_plan["campaign"]["start_date"]
+            if "end_date" not in line_item:
+                line_item["end_date"] = media_plan["campaign"]["end_date"]
             if "cost_total" not in line_item:
                 line_item["cost_total"] = 0
 
