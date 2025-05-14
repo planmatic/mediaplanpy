@@ -241,8 +241,8 @@ def export_to_excel_workspace(self, workspace_manager: WorkspaceManager,
 
         # Write to storage backend
         if not path:
-            # Default path based on campaign ID
-            path = f"{self.campaign.id}.xlsx"
+            # Default path based on plan ID
+            path = f"{self.meta.id}.xlsx"
 
         storage_backend.write_file(path, content)
 
