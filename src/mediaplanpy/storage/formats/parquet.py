@@ -161,7 +161,7 @@ class ParquetFormatHandler(FormatHandler):
             pa.field("meta_id", pa.string()),
             pa.field("meta_schema_version", pa.string()),
             pa.field("meta_created_by", pa.string()),
-            pa.field("meta_created_at", pa.timestamp('ms')),
+            pa.field("meta_created_at", pa.timestamp('ns')),
             pa.field("meta_name", pa.string()),
             pa.field("meta_comments", pa.string()),
         ])
