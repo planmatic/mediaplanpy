@@ -15,9 +15,6 @@ from mediaplanpy.exceptions import StorageError
 class FormatHandler(abc.ABC):
     """
     Abstract base class for format handlers.
-
-    A format handler is responsible for serializing and deserializing
-    media plans to/from a specific file format, such as JSON or Parquet.
     """
 
     # Format name (used for registration and lookup)
@@ -28,6 +25,9 @@ class FormatHandler(abc.ABC):
 
     # Media types for this format
     media_types: list = []
+
+    # Whether this format requires binary mode
+    is_binary: bool = False  # Add this attribute
 
     @classmethod
     def get_file_extension(cls) -> str:

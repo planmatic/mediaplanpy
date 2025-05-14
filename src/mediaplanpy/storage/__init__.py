@@ -87,16 +87,6 @@ def write_mediaplan(workspace_config: Dict[str, Any], data: Dict[str, Any], path
                     format_name: Optional[str] = None, **format_options) -> None:
     """
     Write a media plan to storage.
-
-    Args:
-        workspace_config: The resolved workspace configuration dictionary.
-        data: The media plan data as a dictionary.
-        path: The path where the media plan should be written.
-        format_name: Optional format name to use. If not specified, inferred from path.
-        **format_options: Additional format-specific options.
-
-    Raises:
-        StorageError: If the media plan cannot be written.
     """
     # Get storage backend
     backend = get_storage_backend(workspace_config)
@@ -108,8 +98,11 @@ def write_mediaplan(workspace_config: Dict[str, Any], data: Dict[str, Any], path
         format_handler = get_format_handler_instance(path, **format_options)
 
     try:
+        # Check if format requires binary mode
+        mode = 'wb' if getattr(format_handler, 'is_binary', False) else 'w'
+
         # Write file content
-        with backend.open_file(path, 'w') as f:
+        with backend.open_file(path, mode) as f:
             format_handler.serialize_to_file(data, f)
     except Exception as e:
         raise StorageError(f"Failed to write media plan to {path}: {e}")

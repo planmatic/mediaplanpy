@@ -24,13 +24,12 @@ logger = logging.getLogger("mediaplanpy.storage.formats.parquet")
 class ParquetFormatHandler(FormatHandler):
     """
     Handler for Parquet format.
-
-    Serializes and deserializes media plans to/from Parquet format.
     """
 
     format_name = "parquet"
     file_extension = "parquet"
     media_types = ["application/x-parquet"]
+    is_binary = True  # Add this
 
     def __init__(self, compression: str = "snappy", **kwargs):
         """
