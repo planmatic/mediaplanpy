@@ -17,7 +17,7 @@ def print_json(data):
 
 
 # Initialize and load workspace
-workspace_path = "workspace.json"  # Change to your workspace path
+workspace_path = r"C:\mediaplanpy_testing\20250515\1\workspace\workspace_settings.json"  # Change to your workspace path
 workspace = WorkspaceManager(workspace_path)
 workspace.load()
 
@@ -57,7 +57,7 @@ if recent_plans:
 # Example 4: Get line items for a specific channel and analyze with pandas
 print("\n=== Analyze social media line items with pandas ===")
 social_items_df = workspace.list_lineitems(
-    filters={'lineitem_channel': 'social'},
+    filters={'lineitem_name': 'social'},
     return_dataframe=True
 )
 
