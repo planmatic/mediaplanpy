@@ -2,8 +2,12 @@
     "$schema": "http://json-schema.org/draft-07/schema#",
     "title": "Media Plan PY Workspace Configuration",
     "type": "object",
-    "required": ["workspace_name", "storage"],
+    "required": ["workspace_id", "workspace_name", "storage"],
     "properties": {
+        "workspace_id": {
+            "type": "string",
+            "description": "Unique identifier for this workspace"
+        },
         "workspace_name": {
             "type": "string",
             "description": "Name of this workspace configuration"

@@ -54,6 +54,10 @@ def validate_workspace(config: Dict[str, Any]) -> List[str]:
     errors.extend(validate_database_config(config))
     errors.extend(validate_schema_settings(config))
 
+    # Validate workspace_id existence
+    if "workspace_id" not in config:
+        errors.append("Missing required field: workspace_id")
+
     return errors
 
 

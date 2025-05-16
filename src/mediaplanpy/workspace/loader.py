@@ -9,7 +9,8 @@ import os
 import json
 import logging
 import pathlib
-from typing import Dict, Any, Optional, Union, List
+import uuid
+from typing import Dict, Any, Optional, Union, List, Tuple
 
 from mediaplanpy.exceptions import (
     WorkspaceError,
@@ -122,6 +123,22 @@ class WorkspaceManager:
             self._schema_migrator = SchemaMigrator(registry=self.schema_registry)
         return self._schema_migrator
 
+    def _get_default_workspace_directory(self) -> str:
+        """
+        Get the default directory for workspace files.
+
+        Returns:
+            The platform-specific default directory path.
+        """
+        if os.name == 'nt':  # Windows
+            return os.path.join("C:", os.sep, "mediaplanpy")
+        else:  # macOS/Linux
+            home = os.environ.get('HOME')
+            if home:
+                return os.path.join(home, "mediaplanpy")
+            else:
+                return os.path.join(os.getcwd(), "mediaplanpy")
+
     def locate_workspace_file(self) -> str:
         """
         Find the workspace.json file by checking several locations in order.
@@ -168,37 +185,216 @@ class WorkspaceManager:
             f"No workspace.json file found. Searched the following locations:\n  - {search_paths_str}"
         )
 
-    def load(self, workspace_path: Optional[str] = None) -> Dict[str, Any]:
+    def create(self, settings_path_name: Optional[str] = None,
+               settings_file_name: Optional[str] = None,
+               storage_path_name: Optional[str] = None,
+               workspace_name: str = "Default",
+               overwrite: bool = False,
+               **kwargs) -> Tuple[str, str]:
         """
-        Load the workspace configuration.
+        Create a new workspace configuration.
 
         Args:
-            workspace_path: Optional explicit path to workspace.json.
-                           Overrides the path provided at initialization.
+            settings_path_name: Folder where settings file is saved. Default is C:/mediaplanpy
+            settings_file_name: Filename for settings. Default is {workspace_id}_settings.json
+            storage_path_name: Folder for local storage. Default is C:/mediaplanpy/{workspace_id}
+            workspace_name: Name of the workspace
+            overwrite: Whether to overwrite an existing file
+            **kwargs: Additional configuration options
 
         Returns:
-            The loaded workspace configuration as a dictionary.
+            tuple: (workspace_id, settings_file_path)
 
         Raises:
-            WorkspaceNotFoundError: If no workspace.json can be found.
-            WorkspaceError: If the workspace.json cannot be read or parsed.
+            WorkspaceError: If creation fails
         """
+        # Generate a unique workspace ID
+        workspace_id = f"workspace_{uuid.uuid4().hex[:8]}"
+
+        # Set default paths
+        default_dir = self._get_default_workspace_directory()
+        if settings_path_name is None:
+            settings_path_name = default_dir
+
+        if settings_file_name is None:
+            settings_file_name = f"{workspace_id}_settings.json"
+
+        if storage_path_name is None:
+            storage_path_name = os.path.join(default_dir, workspace_id)
+
+        # Create the settings file path
+        settings_file_path = os.path.join(settings_path_name, settings_file_name)
+
+        # Check if file exists
+        if os.path.exists(settings_file_path) and not overwrite:
+            raise WorkspaceError(f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
+
+        # Create default configuration
+        config = {
+            "workspace_id": workspace_id,
+            "workspace_name": workspace_name,
+            "environment": "development",
+            "storage": {
+                "mode": "local",
+                "local": {
+                    "base_path": storage_path_name,
+                    "create_if_missing": True
+                }
+            },
+            "schema_settings": {
+                "preferred_version": "v1.0.0",
+                "auto_migrate": False,
+                "offline_mode": False,
+                "repository_url": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/",
+                "local_cache_dir": "${user_home}/.mediaplanpy/schemas"
+            },
+            "database": {
+                "enabled": False
+            },
+            "google_sheets": {
+                "enabled": False
+            },
+            "logging": {
+                "level": "INFO"
+            }
+        }
+
+        # Override with any provided config options
+        for key, value in kwargs.items():
+            if key in config:
+                if isinstance(config[key], dict) and isinstance(value, dict):
+                    config[key].update(value)
+                else:
+                    config[key] = value
+
+        # Create settings directory if it doesn't exist
+        try:
+            os.makedirs(settings_path_name, exist_ok=True)
+        except Exception as e:
+            raise WorkspaceError(f"Failed to create settings directory: {e}")
+
+        # Write the configuration to file
+        try:
+            with open(settings_file_path, 'w') as f:
+                json.dump(config, f, indent=2)
+
+            logger.info(f"Created workspace '{workspace_name}' with ID '{workspace_id}' at {settings_file_path}")
+
+            # Set the workspace path and config
+            self.workspace_path = settings_file_path
+            self.config = config
+            self._resolved_config = None  # Reset resolved config
+
+            return workspace_id, settings_file_path
+        except Exception as e:
+            raise WorkspaceError(f"Failed to create workspace: {e}")
+
+    def load(self, workspace_path: Optional[str] = None,
+             workspace_id: Optional[str] = None,
+             config_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Load a workspace configuration.
+
+        Args:
+            workspace_path: Path to workspace settings file
+            workspace_id: Workspace ID to locate settings file
+            config_dict: Configuration dictionary to use directly
+
+        Returns:
+            The loaded workspace configuration
+
+        Raises:
+            WorkspaceNotFoundError: If workspace cannot be found
+            WorkspaceValidationError: If configuration is invalid
+            WorkspaceError: If loading fails
+        """
+        # Reset resolved config
+        self._resolved_config = None
+
+        # Use config_dict if provided
+        if config_dict is not None:
+            # Validate the configuration
+            errors = validate_workspace(config_dict)
+            if errors:
+                raise WorkspaceValidationError("\n".join(errors))
+
+            self.config = config_dict
+            self.workspace_path = None  # No file path
+            logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from provided dictionary")
+            return self.config
+
+        # If workspace_id is provided, locate the settings file
+        if workspace_id is not None:
+            default_dir = self._get_default_workspace_directory()
+
+            # Check default directory first
+            settings_paths = [
+                os.path.join(default_dir, f"{workspace_id}_settings.json"),
+                os.path.join(default_dir, f"{workspace_id}.json")
+            ]
+
+            # Check current directory
+            settings_paths.extend([
+                os.path.join(os.getcwd(), f"{workspace_id}_settings.json"),
+                os.path.join(os.getcwd(), f"{workspace_id}.json")
+            ])
+
+            # Check user directories
+            if os.name == 'nt':  # Windows
+                user_profile = os.environ.get('USERPROFILE')
+                if user_profile:
+                    settings_paths.extend([
+                        os.path.join(user_profile, '.mediaplanpy', f"{workspace_id}_settings.json"),
+                        os.path.join(user_profile, '.mediaplanpy', f"{workspace_id}.json")
+                    ])
+            else:  # macOS/Linux
+                home = os.environ.get('HOME')
+                if home:
+                    settings_paths.extend([
+                        os.path.join(home, '.config', 'mediaplanpy', f"{workspace_id}_settings.json"),
+                        os.path.join(home, '.config', 'mediaplanpy', f"{workspace_id}.json")
+                    ])
+
+            # Check each path
+            workspace_path_found = None
+            for path in settings_paths:
+                if os.path.exists(path):
+                    workspace_path_found = path
+                    break
+
+            if workspace_path_found is None:
+                search_paths_str = "\n  - ".join(settings_paths)
+                raise WorkspaceNotFoundError(
+                    f"No settings file found for workspace ID '{workspace_id}'. "
+                    f"Searched in these locations:\n  - {search_paths_str}"
+                )
+
+            # Use the found path
+            workspace_path = workspace_path_found
+
+        # If workspace_path provided or found by ID, use it
         if workspace_path:
             self.workspace_path = workspace_path
+        else:
+            # Fall back to existing logic to locate workspace file
+            self.workspace_path = self.locate_workspace_file()
 
+        # Load the configuration from file
         try:
-            file_path = self.locate_workspace_file()
-            with open(file_path, 'r') as f:
+            with open(self.workspace_path, 'r') as f:
                 self.config = json.load(f)
-                logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {file_path}")
-                return self.config
-        except WorkspaceNotFoundError:
-            # Re-raise WorkspaceNotFoundError without wrapping it
-            raise
+
+            # Validate the configuration
+            errors = validate_workspace(self.config)
+            if errors:
+                raise WorkspaceValidationError("\n".join(errors))
+
+            logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {self.workspace_path}")
+            return self.config
         except FileNotFoundError:
             raise WorkspaceNotFoundError(f"Workspace file not found at {self.workspace_path}")
         except json.JSONDecodeError as e:
-            raise WorkspaceError(f"Failed to parse workspace.json: {e}")
+            raise WorkspaceError(f"Failed to parse workspace settings: {e}")
         except Exception as e:
             raise WorkspaceError(f"Error loading workspace: {e}")
 
@@ -312,6 +508,8 @@ class WorkspaceManager:
         """
         Create a default workspace.json file.
 
+        DEPRECATED: Use create() method instead.
+
         Args:
             path: Path where the workspace.json should be created.
             overwrite: Whether to overwrite an existing file.
@@ -322,7 +520,13 @@ class WorkspaceManager:
         Raises:
             WorkspaceError: If the file exists and overwrite is False, or if creation fails.
         """
+        logger.warning("create_default_workspace is deprecated. Use create() method instead.")
+
+        # Generate workspace ID
+        workspace_id = f"workspace_{uuid.uuid4().hex[:8]}"
+
         default_config = {
+            "workspace_id": workspace_id,
             "workspace_name": "Default",
             "environment": "development",
             "storage": {
@@ -368,6 +572,12 @@ class WorkspaceManager:
                 json.dump(default_config, f, indent=2)
 
             logger.info(f"Created default workspace configuration at {path}")
+
+            # Set the workspace path and config
+            self.workspace_path = str(file_path)
+            self.config = default_config
+            self._resolved_config = None  # Reset resolved config
+
             return default_config
         except Exception as e:
             raise WorkspaceError(f"Failed to create workspace.json: {e}")
