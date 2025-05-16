@@ -57,7 +57,7 @@ def main():
         # Create a media plan to save with v1.0.0 schema
         logger.info("Creating a new media plan with v1.0.0 schema")
 
-        media_plan = MediaPlan.create_new(
+        media_plan = MediaPlan.create(
             created_by="example@agency.com",
             campaign_name="Fall 2025 Campaign",
             campaign_objective="Increase brand awareness for new product line",
@@ -156,7 +156,7 @@ def main():
 
         # Example 4: Create another media plan with a complex ID
         logger.info("Example 4: Create a media plan with a complex ID")
-        complex_plan = MediaPlan.create_new(
+        complex_plan = MediaPlan.create(
             created_by="example@agency.com",
             campaign_name="Special Campaign",
             campaign_objective="Testing complex IDs",

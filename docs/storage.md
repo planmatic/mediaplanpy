@@ -70,7 +70,7 @@ manager = WorkspaceManager("path/to/workspace.json")
 manager.load()
 
 # Create a media plan
-media_plan = MediaPlan.create_new(
+media_plan = MediaPlan.create(
     campaign_id="fall_2025_campaign",
     # other required parameters...
 )

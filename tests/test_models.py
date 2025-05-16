@@ -604,7 +604,7 @@ class TestMediaPlan:
 
     def test_create_new(self):
         """Test creating a new media plan with v1.0.0 schema."""
-        media_plan = MediaPlan.create_new(
+        media_plan = MediaPlan.create(
             created_by="test@example.com",
             campaign_name="Summer Campaign",
             campaign_objective="awareness",
@@ -637,7 +637,7 @@ class TestMediaPlan:
 
     def test_save_and_load(self):
         """Test saving and loading a media plan."""
-        media_plan = MediaPlan.create_new(
+        media_plan = MediaPlan.create(
             created_by="test@example.com",
             campaign_name="Test Campaign",
             campaign_objective="awareness",

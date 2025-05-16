@@ -79,7 +79,7 @@ def create_v1_media_plan(workspace):
     """Create a v1.0.0 media plan using workspace settings."""
     try:
         # Create a media plan with v1.0.0 schema
-        media_plan = MediaPlan.create_new(
+        media_plan = MediaPlan.create(
             created_by="example@agency.com",
             mediaplan_id="workspace_example_plan",  # v1.0.0 requires this
             media_plan_name="Workspace Example Plan",  # v1.0.0 supports this

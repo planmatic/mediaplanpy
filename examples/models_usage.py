@@ -39,7 +39,7 @@ def main():
 
     try:
         # Create a new media plan using the factory method
-        media_plan = MediaPlan.create_new(
+        media_plan = MediaPlan.create(
             created_by="example@agency.com",
             campaign_name="Summer 2025 Campaign",
             campaign_objective="Increase brand awareness for new product line",

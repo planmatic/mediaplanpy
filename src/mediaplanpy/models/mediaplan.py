@@ -285,15 +285,15 @@ class MediaPlan(BaseModel):
         return MediaPlan.from_dict(migrated_data)
 
     @classmethod
-    def create_new(cls,
-                   created_by: str,
-                   campaign_name: str,
-                   campaign_objective: str,
-                   campaign_start_date: Union[str, date],
-                   campaign_end_date: Union[str, date],
-                   campaign_budget: Union[str, int, float, Decimal],
-                   schema_version: Optional[str] = None,
-                   **kwargs) -> "MediaPlan":
+    def create(cls,
+               created_by: str,
+               campaign_name: str,
+               campaign_objective: str,
+               campaign_start_date: Union[str, date],
+               campaign_end_date: Union[str, date],
+               campaign_budget: Union[str, int, float, Decimal],
+               schema_version: Optional[str] = None,
+               **kwargs) -> "MediaPlan":
         """
         Create a new media plan with the required fields.
 
