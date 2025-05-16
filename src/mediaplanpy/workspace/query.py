@@ -1,9 +1,8 @@
 """
-Query functions for media plans in a workspace.
+Updated workspace query module to support mediaplans subdirectory.
 
-This module provides methods for querying and analyzing media plans
-across a workspace, with functionality to list campaigns, media plans,
-and line items with filtering capabilities.
+This module updates the query methods to look for Parquet files
+in the mediaplans subdirectory of the workspace storage.
 """
 
 import logging
@@ -15,6 +14,9 @@ import io
 
 logger = logging.getLogger("mediaplanpy.workspace.query")
 
+# Define constants
+MEDIAPLANS_SUBDIR = "mediaplans"
+
 
 def _get_parquet_files(self):
     """
@@ -24,8 +26,32 @@ def _get_parquet_files(self):
         List of paths to Parquet files in the workspace.
     """
     storage_backend = self.get_storage_backend()
-    files = storage_backend.list_files("", "*.parquet")
-    return files
+
+    # First look in the mediaplans subdirectory
+    mediaplans_files = []
+    try:
+        mediaplans_files = storage_backend.list_files(MEDIAPLANS_SUBDIR, "*.parquet")
+        # Prepend the subdirectory path if needed
+        mediaplans_files = [
+            f if f.startswith(MEDIAPLANS_SUBDIR) else os.path.join(MEDIAPLANS_SUBDIR, f)
+            for f in mediaplans_files
+        ]
+    except Exception as e:
+        logger.warning(f"Error listing files in mediaplans subdirectory: {e}")
+
+    # Also look in the root directory for backward compatibility
+    root_files = []
+    try:
+        root_files = storage_backend.list_files("", "*.parquet")
+        # Filter out any files in the mediaplans subdirectory (already counted)
+        root_files = [f for f in root_files if not f.startswith(MEDIAPLANS_SUBDIR)]
+    except Exception as e:
+        logger.warning(f"Error listing files in root directory: {e}")
+
+    # Combine both lists
+    all_files = mediaplans_files + root_files
+
+    return all_files
 
 
 def _load_workspace_data(self, filters=None):

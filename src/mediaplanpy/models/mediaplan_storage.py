@@ -1,8 +1,8 @@
 """
-Integration of MediaPlan models with storage functionality.
+Updated MediaPlan storage integration with subdirectory support.
 
-This module enhances the MediaPlan model with methods for saving to
-and loading from storage backends.
+This module updates the MediaPlan storage methods to save and load
+media plans from a 'mediaplans' subdirectory within the storage location.
 """
 
 import os
@@ -21,6 +21,8 @@ from mediaplanpy.workspace import WorkspaceManager
 
 logger = logging.getLogger("mediaplanpy.models.mediaplan_storage")
 
+# Define constants
+MEDIAPLANS_SUBDIR = "mediaplans"
 
 # Add storage-related methods to MediaPlan class
 import uuid
@@ -82,11 +84,26 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         # Sanitize media plan ID for use as a filename
         mediaplan_id = mediaplan_id.replace('/', '_').replace('\\', '_')
 
-        # Generate path: mediaplan_id.extension
-        path = f"{mediaplan_id}.{extension}"
+        # Generate path: mediaplans/mediaplan_id.extension
+        path = os.path.join(MEDIAPLANS_SUBDIR, f"{mediaplan_id}.{extension}")
+
+    # If path doesn't already include the mediaplans subdirectory, add it
+    if not path.startswith(MEDIAPLANS_SUBDIR):
+        path = os.path.join(MEDIAPLANS_SUBDIR, os.path.basename(path))
 
     # Convert model to dictionary
     data = self.to_dict()
+
+    # Get storage backend to create subdirectory
+    try:
+        from mediaplanpy.storage import get_storage_backend
+        storage_backend = get_storage_backend(workspace_config)
+
+        # Create mediaplans subdirectory if needed
+        if hasattr(storage_backend, 'create_directory'):
+            storage_backend.create_directory(MEDIAPLANS_SUBDIR)
+    except Exception as e:
+        logger.warning(f"Could not ensure mediaplans directory exists: {e}")
 
     # Write to storage
     storage_write_mediaplan(workspace_config, data, path, format_name, **format_options)
@@ -195,8 +212,8 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             # Sanitize media plan ID for use as a filename
             safe_media_plan_id = media_plan_id.replace('/', '_').replace('\\', '_')
 
-            # Generate path: media_plan_id.extension
-            path = f"{safe_media_plan_id}.{extension}"
+            # Generate path: mediaplans/media_plan_id.extension
+            path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_media_plan_id}.{extension}")
 
             logger.info(f"Loading media plan by ID: {media_plan_id}")
 
@@ -215,8 +232,8 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             # Sanitize campaign ID for use as a filename
             safe_campaign_id = campaign_id.replace('/', '_').replace('\\', '_')
 
-            # Generate path: campaign_id.extension (old approach)
-            path = f"{safe_campaign_id}.{extension}"
+            # Generate path: mediaplans/campaign_id.extension (old approach)
+            path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_campaign_id}.{extension}")
 
             logger.info(f"Loading media plan by campaign ID (deprecated): {campaign_id}")
 
@@ -224,15 +241,49 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     if not path:
         raise ValueError("Either path, media_plan_id, or campaign_id must be provided")
 
+    # If path doesn't already include the mediaplans subdirectory, try both locations
+    if not path.startswith(MEDIAPLANS_SUBDIR):
+        # First try in the mediaplans subdirectory
+        mediaplans_path = os.path.join(MEDIAPLANS_SUBDIR, os.path.basename(path))
+
+        try:
+            # Get storage backend to check if file exists in new location
+            from mediaplanpy.storage import get_storage_backend
+            storage_backend = get_storage_backend(workspace_config)
+
+            if storage_backend.exists(mediaplans_path):
+                path = mediaplans_path
+            # Otherwise, keep the original path (for backward compatibility)
+        except Exception as e:
+            logger.warning(f"Error checking mediaplans subdirectory: {e}")
+
     # Read from storage
-    data = storage_read_mediaplan(workspace_config, path, format_name)
+    try:
+        data = storage_read_mediaplan(workspace_config, path, format_name)
 
-    # Create MediaPlan instance from dictionary
-    media_plan = cls.from_dict(data)
+        # Create MediaPlan instance from dictionary
+        media_plan = cls.from_dict(data)
 
-    logger.info(f"Media plan loaded from {path}")
+        logger.info(f"Media plan loaded from {path}")
+        return media_plan
+    except FileReadError:
+        # Try legacy path as fallback if path was already modified
+        if path.startswith(MEDIAPLANS_SUBDIR):
+            legacy_path = os.path.basename(path)
+            try:
+                data = storage_read_mediaplan(workspace_config, legacy_path, format_name)
 
-    return media_plan
+                # Create MediaPlan instance from dictionary
+                media_plan = cls.from_dict(data)
+
+                logger.warning(f"Media plan loaded from legacy path {legacy_path}. Future saves will use new path structure.")
+                return media_plan
+            except Exception:
+                # If legacy path also failed, re-raise original error
+                pass
+
+        # If all attempts failed, raise appropriate error
+        raise StorageError(f"Failed to read media plan from {path}")
 
 # Patch methods into MediaPlan class
 MediaPlan.save = save

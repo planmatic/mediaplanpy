@@ -1,8 +1,8 @@
 """
-Local file storage backend for mediaplanpy.
+Updated LocalStorageBackend with directory creation support.
 
-This module provides a storage backend for storing media plans
-on the local filesystem.
+This module updates the LocalStorageBackend class to implement the
+create_directory method for the local filesystem.
 """
 
 import os
@@ -99,6 +99,32 @@ class LocalStorageBackend(StorageBackend):
             The joined path.
         """
         return os.path.join(*parts)
+
+    def create_directory(self, path: str) -> None:
+        """
+        Create a directory at the specified path if it doesn't exist.
+
+        Args:
+            path: The path to the directory to create.
+
+        Raises:
+            StorageError: If the directory cannot be created.
+        """
+        try:
+            # Resolve the path relative to base path
+            full_path = self.resolve_path(path)
+
+            # Create directory if it doesn't exist
+            if not os.path.exists(full_path):
+                os.makedirs(full_path, exist_ok=True)
+                logger.debug(f"Created directory: {full_path}")
+            elif not os.path.isdir(full_path):
+                raise StorageError(f"Path exists but is not a directory: {full_path}")
+
+        except Exception as e:
+            if not isinstance(e, StorageError):
+                raise StorageError(f"Failed to create directory {path}: {e}")
+            raise
 
     def exists(self, path: str) -> bool:
         """
