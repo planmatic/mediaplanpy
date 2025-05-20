@@ -146,18 +146,6 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
 
     Returns:
         List of dictionaries or DataFrame, each row representing a unique campaign.
-
-    Examples:
-        # List all campaigns
-        campaigns = workspace.list_campaigns()
-
-        # List campaigns with budget over $50,000
-        campaigns = workspace.list_campaigns(filters={
-            'campaign_budget_total': {'min': 50000}
-        })
-
-        # Get campaigns as DataFrame for analysis
-        campaigns_df = workspace.list_campaigns(return_dataframe=True)
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
@@ -168,9 +156,8 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     if all_data.empty:
         return [] if not return_dataframe else all_data
 
-    # Get unique campaigns
+    # Get unique campaigns - ONLY using campaign_id for deduplication
     campaign_cols = [col for col in all_data.columns if col.startswith('campaign_')]
-    # Use meta_id to deduplicate records (one record per media plan)
     campaigns_df = all_data[campaign_cols].drop_duplicates(subset=['campaign_id'])
 
     # Add statistics if requested
@@ -230,10 +217,6 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
         stats_df.reset_index(drop=True, inplace=True)
         campaigns_df = pd.concat([campaigns_df, stats_df], axis=1)
 
-    # Drop meta_id column if it was added
-    if 'meta_id' in campaigns_df.columns:
-        campaigns_df = campaigns_df.drop(columns=['meta_id'])
-
     # Return as requested format
     if return_dataframe:
         return campaigns_df
@@ -253,18 +236,6 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
 
     Returns:
         List of dictionaries or DataFrame, each row representing a unique media plan.
-
-    Examples:
-        # List all media plans
-        plans = workspace.list_mediaplans()
-
-        # List media plans created in May 2025
-        import datetime
-        start_date = datetime.datetime(2025, 5, 1)
-        end_date = datetime.datetime(2025, 5, 31)
-        plans = workspace.list_mediaplans(filters={
-            'meta_created_at': {'min': start_date, 'max': end_date}
-        })
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
@@ -368,19 +339,6 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
 
     Returns:
         List of dictionaries or DataFrame, each row representing a line item.
-
-    Examples:
-        # Get line items for a specific campaign
-        items = workspace.list_lineitems(filters={'campaign_id': 'cmp-001'})
-
-        # Get line items in social media channels with regex match on name
-        items = workspace.list_lineitems(filters={
-            'lineitem_channel': 'social',
-            'lineitem_name': {'regex': '.*Instagram.*'}
-        })
-
-        # Get first 100 line items as DataFrame
-        items_df = workspace.list_lineitems(limit=100, return_dataframe=True)
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
