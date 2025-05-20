@@ -171,7 +171,7 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     # Get unique campaigns
     campaign_cols = [col for col in all_data.columns if col.startswith('campaign_')]
     # Use meta_id to deduplicate records (one record per media plan)
-    campaigns_df = all_data[campaign_cols + ['meta_id']].drop_duplicates(subset=['campaign_id', 'meta_id'])
+    campaigns_df = all_data[campaign_cols].drop_duplicates(subset=['campaign_id'])
 
     # Add statistics if requested
     if include_stats:
