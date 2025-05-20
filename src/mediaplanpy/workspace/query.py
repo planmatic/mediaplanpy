@@ -1,8 +1,9 @@
 """
-Updated workspace query module to support mediaplans subdirectory.
+Updated workspace query module to support mediaplans subdirectory and handle placeholder records.
 
 This module updates the query methods to look for Parquet files
-in the mediaplans subdirectory of the workspace storage.
+in the mediaplans subdirectory of the workspace storage and properly handle
+placeholder records for empty media plans.
 """
 
 import logging
@@ -169,32 +170,57 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
 
     # Get unique campaigns
     campaign_cols = [col for col in all_data.columns if col.startswith('campaign_')]
-    campaigns_df = all_data[campaign_cols].drop_duplicates(subset=['campaign_id'])
+    # Use meta_id to deduplicate records (one record per media plan)
+    campaigns_df = all_data[campaign_cols + ['meta_id']].drop_duplicates(subset=['campaign_id', 'meta_id'])
 
     # Add statistics if requested
     if include_stats:
         stats_list = []
-        for campaign_id in campaigns_df['campaign_id']:
+        for idx, row in campaigns_df.iterrows():
+            campaign_id = row['campaign_id']
             campaign_data = all_data[all_data['campaign_id'] == campaign_id]
-            stats = {
-                'stat_media_plan_count': campaign_data['meta_id'].nunique(),
-                'stat_lineitem_count': len(campaign_data),
-                'stat_total_cost': campaign_data['lineitem_cost_total'].sum(),
-                'stat_last_updated': campaign_data['meta_created_at'].max(),
-            }
+
+            # Count line items (exclude placeholder records)
+            if 'is_placeholder' in campaign_data.columns:
+                actual_lineitems = campaign_data[~campaign_data['is_placeholder']]
+                stats = {
+                    'stat_media_plan_count': campaign_data['meta_id'].nunique(),
+                    'stat_lineitem_count': len(actual_lineitems),  # Exclude placeholders
+                    'stat_total_cost': actual_lineitems['lineitem_cost_total'].sum(),
+                    'stat_last_updated': campaign_data['meta_created_at'].max(),
+                }
+            else:
+                stats = {
+                    'stat_media_plan_count': campaign_data['meta_id'].nunique(),
+                    'stat_lineitem_count': len(campaign_data),
+                    'stat_total_cost': campaign_data['lineitem_cost_total'].sum(),
+                    'stat_last_updated': campaign_data['meta_created_at'].max(),
+                }
 
             # Add date stats if available
             if 'lineitem_start_date' in campaign_data.columns:
-                stats['stat_min_start_date'] = campaign_data['lineitem_start_date'].min()
-            if 'lineitem_end_date' in campaign_data.columns:
-                stats['stat_max_end_date'] = campaign_data['lineitem_end_date'].max()
+                non_null_start_dates = campaign_data['lineitem_start_date'].dropna()
+                if not non_null_start_dates.empty:
+                    stats['stat_min_start_date'] = non_null_start_dates.min()
 
-            # Calculate dimension counts
+            if 'lineitem_end_date' in campaign_data.columns:
+                non_null_end_dates = campaign_data['lineitem_end_date'].dropna()
+                if not non_null_end_dates.empty:
+                    stats['stat_max_end_date'] = non_null_end_dates.max()
+
+            # Calculate dimension counts (only for actual line items)
+            lineitem_data = campaign_data
+            if 'is_placeholder' in lineitem_data.columns:
+                lineitem_data = lineitem_data[~lineitem_data['is_placeholder']]
+
             for dim in ['channel', 'vehicle', 'partner', 'media_product',
                         'adformat', 'kpi', 'location_name']:
                 col = f'lineitem_{dim}'
-                if col in campaign_data.columns:
-                    stats[f'stat_distinct_{dim}_count'] = campaign_data[col].nunique()
+                if col in lineitem_data.columns:
+                    # Count distinct non-empty values
+                    non_empty_values = lineitem_data[col].dropna().astype(str)
+                    non_empty_values = non_empty_values[non_empty_values != '']
+                    stats[f'stat_distinct_{dim}_count'] = len(non_empty_values.unique())
 
             stats_list.append(stats)
 
@@ -203,6 +229,10 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
         campaigns_df.reset_index(drop=True, inplace=True)
         stats_df.reset_index(drop=True, inplace=True)
         campaigns_df = pd.concat([campaigns_df, stats_df], axis=1)
+
+    # Drop meta_id column if it was added
+    if 'meta_id' in campaigns_df.columns:
+        campaigns_df = campaigns_df.drop(columns=['meta_id'])
 
     # Return as requested format
     if return_dataframe:
@@ -257,32 +287,59 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
         for plan_id in plans_df['meta_id']:
             plan_data = all_data[all_data['meta_id'] == plan_id]
 
+            # Filter out placeholder records for statistics
+            lineitem_data = plan_data
+            if 'is_placeholder' in lineitem_data.columns:
+                lineitem_data = lineitem_data[~lineitem_data['is_placeholder']]
+
+            # Count of actual line items (0 if all are placeholders)
+            lineitem_count = len(lineitem_data)
+
             # Calculate basic statistics
             stats = {
-                'stat_lineitem_count': len(plan_data),
-                'stat_total_cost': plan_data['lineitem_cost_total'].sum(),
-                'stat_avg_cost_per_item': plan_data['lineitem_cost_total'].mean(),
+                'stat_lineitem_count': lineitem_count,
+                'stat_total_cost': lineitem_data['lineitem_cost_total'].sum() if lineitem_count > 0 else 0,
+                'stat_avg_cost_per_item': lineitem_data['lineitem_cost_total'].mean() if lineitem_count > 0 else 0,
             }
 
-            # Add date stats if available
-            if 'lineitem_start_date' in plan_data.columns:
-                stats['stat_min_start_date'] = plan_data['lineitem_start_date'].min()
-            if 'lineitem_end_date' in plan_data.columns:
-                stats['stat_max_end_date'] = plan_data['lineitem_end_date'].max()
+            # Add date stats if available and there are actual line items
+            if lineitem_count > 0:
+                if 'lineitem_start_date' in lineitem_data.columns:
+                    non_null_start_dates = lineitem_data['lineitem_start_date'].dropna()
+                    if not non_null_start_dates.empty:
+                        stats['stat_min_start_date'] = non_null_start_dates.min()
 
-            # Calculate dimension counts
-            for dim in ['channel', 'vehicle', 'partner', 'media_product',
-                        'adformat', 'kpi', 'location_name']:
-                col = f'lineitem_{dim}'
-                if col in plan_data.columns:
-                    stats[f'stat_distinct_{dim}_count'] = plan_data[col].nunique()
+                if 'lineitem_end_date' in lineitem_data.columns:
+                    non_null_end_dates = lineitem_data['lineitem_end_date'].dropna()
+                    if not non_null_end_dates.empty:
+                        stats['stat_max_end_date'] = non_null_end_dates.max()
 
-            # Calculate metric sums
-            for metric in ['cost_media', 'cost_platform', 'cost_creative',
-                           'metric_impressions', 'metric_clicks', 'metric_views']:
-                col = f'lineitem_{metric}'
-                if col in plan_data.columns and not plan_data[col].isna().all():
-                    stats[f'stat_sum_{metric}'] = plan_data[col].sum()
+                # Calculate dimension counts
+                for dim in ['channel', 'vehicle', 'partner', 'media_product',
+                            'adformat', 'kpi', 'location_name']:
+                    col = f'lineitem_{dim}'
+                    if col in lineitem_data.columns:
+                        # Count distinct non-empty values
+                        non_empty_values = lineitem_data[col].dropna().astype(str)
+                        non_empty_values = non_empty_values[non_empty_values != '']
+                        stats[f'stat_distinct_{dim}_count'] = len(non_empty_values.unique())
+
+                # Calculate metric sums
+                for metric in ['cost_media', 'cost_platform', 'cost_creative',
+                            'metric_impressions', 'metric_clicks', 'metric_views']:
+                    col = f'lineitem_{metric}'
+                    if col in lineitem_data.columns and not lineitem_data[col].isna().all():
+                        stats[f'stat_sum_{metric}'] = lineitem_data[col].sum()
+            else:
+                # For empty media plans with no line items, set dimension counts to 0
+                for dim in ['channel', 'vehicle', 'partner', 'media_product',
+                            'adformat', 'kpi', 'location_name']:
+                    stats[f'stat_distinct_{dim}_count'] = 0
+
+                # Set metric sums to 0
+                for metric in ['cost_media', 'cost_platform', 'cost_creative',
+                            'metric_impressions', 'metric_clicks', 'metric_views']:
+                    stats[f'stat_sum_{metric}'] = 0
 
             stats_list.append(stats)
 
@@ -333,6 +390,12 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
     all_data = self._load_workspace_data(filters)
     if all_data.empty:
         return [] if not return_dataframe else all_data
+
+    # Filter out placeholder records (these represent media plans with no line items)
+    if 'is_placeholder' in all_data.columns:
+        all_data = all_data[all_data['is_placeholder'] == False]
+        # Drop the is_placeholder column as it's no longer needed
+        all_data = all_data.drop(columns=['is_placeholder'])
 
     # Apply limit if specified
     if limit is not None and limit > 0:

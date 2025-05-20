@@ -236,6 +236,9 @@ class ParquetFormatHandler(FormatHandler):
         for i in range(1, 11):
             fields.append(pa.field(f"lineitem_metric_custom{i}", pa.float64()))
 
+        # Add is_placeholder field to indicate placeholder records for media plans with no line items
+        fields.append(pa.field("is_placeholder", pa.bool_()))
+
         return pa.schema(fields)
 
     def _flatten_media_plan(self, data: Dict[str, Any]) -> pd.DataFrame:
@@ -246,17 +249,49 @@ class ParquetFormatHandler(FormatHandler):
             data: The media plan data to flatten.
 
         Returns:
-            A pandas DataFrame with one row per line item.
+            A pandas DataFrame with one row per line item, or a single placeholder row if no line items.
         """
         meta = data.get("meta", {})
         campaign = data.get("campaign", {})
         lineitems = data.get("lineitems", [])
 
-        # If no line items, create empty DataFrame with all columns
+        # If no line items, create a placeholder row with meta and campaign info only
         if not lineitems:
-            return self._create_empty_dataframe()
+            # Create a placeholder row
+            row = {}
 
-        # Create rows with denormalized data
+            # Add meta fields with prefix
+            for key, value in meta.items():
+                row[f"meta_{key}"] = self._convert_value(value)
+
+            # Add campaign fields with prefix
+            for key, value in campaign.items():
+                row[f"campaign_{key}"] = self._convert_value(value)
+
+            # Add a placeholder marker
+            row["is_placeholder"] = True
+
+            # Create a DataFrame with the placeholder row
+            df = pd.DataFrame([row])
+
+            # Ensure all expected columns exist (fill missing with None)
+            all_columns = self._get_all_columns()
+            for col in all_columns:
+                if col not in df.columns:
+                    df[col] = None
+
+            # Reorder columns for consistency and include is_placeholder
+            columns = all_columns.copy()
+            if "is_placeholder" not in columns:
+                columns.append("is_placeholder")
+            df = df[columns]
+
+            # Apply explicit data types
+            df = self._apply_data_types(df)
+
+            return df
+
+        # Create rows with denormalized data for actual line items
         rows = []
         for lineitem in lineitems:
             row = {}
@@ -273,6 +308,9 @@ class ParquetFormatHandler(FormatHandler):
             for key, value in lineitem.items():
                 row[f"lineitem_{key}"] = self._convert_value(value)
 
+            # Mark as not a placeholder
+            row["is_placeholder"] = False
+
             rows.append(row)
 
         df = pd.DataFrame(rows)
@@ -283,8 +321,11 @@ class ParquetFormatHandler(FormatHandler):
             if col not in df.columns:
                 df[col] = None
 
-        # Reorder columns for consistency
-        df = df[all_columns]
+        # Reorder columns for consistency and include is_placeholder
+        columns = all_columns.copy()
+        if "is_placeholder" not in columns:
+            columns.append("is_placeholder")
+        df = df[columns]
 
         # Apply explicit data types
         df = self._apply_data_types(df)
@@ -344,6 +385,10 @@ class ParquetFormatHandler(FormatHandler):
         # Timestamp columns
         if 'meta_created_at' in df.columns:
             df['meta_created_at'] = pd.to_datetime(df['meta_created_at'], errors='coerce')
+
+        # Boolean columns
+        if 'is_placeholder' in df.columns:
+            df['is_placeholder'] = df['is_placeholder'].fillna(False).astype(bool)
 
         return df
 
@@ -439,4 +484,6 @@ class ParquetFormatHandler(FormatHandler):
             An empty pandas DataFrame with all columns.
         """
         columns = self._get_all_columns()
+        # Add is_placeholder column
+        columns.append("is_placeholder")
         return pd.DataFrame(columns=columns)
