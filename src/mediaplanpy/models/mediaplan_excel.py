@@ -7,84 +7,239 @@ and importing from Excel format.
 
 import os
 import logging
+import tempfile
 from typing import Dict, Any, Optional, Union, List
 
 from mediaplanpy.exceptions import StorageError, ValidationError
 from mediaplanpy.models.mediaplan import MediaPlan
-from mediaplanpy.excel.exporter import export_to_excel
-from mediaplanpy.excel.importer import import_from_excel, update_from_excel
+from mediaplanpy.excel import exporter, importer
 from mediaplanpy.excel.validator import validate_excel
 from mediaplanpy.workspace import WorkspaceManager
 
 logger = logging.getLogger("mediaplanpy.models.mediaplan_excel")
 
+# Constants for directory structure
+EXPORTS_SUBDIR = "exports"
+IMPORTS_SUBDIR = "imports"
 
-# Add Excel-related methods to MediaPlan class
-def export_to_excel_method(self, path: Optional[str] = None,
-                          template_path: Optional[str] = None,
-                          include_documentation: bool = True,
-                          **options) -> str:
+def export_to_excel_method(self, workspace_manager=None, file_path=None, file_name=None,
+                  template_path=None, include_documentation=True,
+                  overwrite=False, **format_options) -> str:
     """
     Export the media plan to Excel format.
 
     Args:
-        path: Optional path to save the Excel file. If None, a default path is generated.
+        workspace_manager: Optional WorkspaceManager for saving to workspace storage.
+                          If provided, this takes precedence over file_path.
+        file_path: Optional path where to save the file. Required if workspace_manager
+                  is not provided.
+        file_name: Optional filename. If None, generates based on media plan ID.
         template_path: Optional path to an Excel template file.
         include_documentation: Whether to include a documentation sheet.
-        **options: Additional export options.
+        overwrite: Whether to overwrite existing files.
+        **format_options: Additional format-specific options.
 
     Returns:
-        The path where the Excel file was saved.
+        The complete path to the exported file.
 
     Raises:
-        StorageError: If the export fails.
+        ValueError: If neither workspace_manager nor file_path is provided.
+        StorageError: If export fails or file exists and overwrite=False.
     """
-    try:
-        # Convert model to dictionary
-        data = self.to_dict()
+    # Validate that at least one storage location is provided
+    if workspace_manager is None and file_path is None:
+        raise ValueError("Either workspace_manager or file_path must be provided")
 
-        # Export to Excel
-        exported_path = export_to_excel(data, path, template_path, include_documentation, **options)
+    # Generate default filename if not provided
+    if file_name is None:
+        media_plan_id = self.meta.id
+        file_name = f"{media_plan_id}.xlsx"
 
-        logger.info(f"Media plan exported to Excel: {exported_path}")
-        return exported_path
+    # Convert model to dictionary
+    data = self.to_dict()
 
-    except Exception as e:
-        raise StorageError(f"Failed to export media plan to Excel: {e}")
+    if workspace_manager is not None:
+        # Use workspace storage (takes precedence)
+        # Make sure workspace is loaded
+        if not workspace_manager.is_loaded:
+            workspace_manager.load()
 
+        # Get Excel config from workspace
+        excel_config = workspace_manager.get_excel_config()
 
-def from_excel_class_method(cls, file_path: str, **options) -> 'MediaPlan':
+        # If template_path not provided, check workspace settings
+        if template_path is None and "template_path" in excel_config:
+            template_path = excel_config["template_path"]
+
+        # Get storage backend
+        storage_backend = workspace_manager.get_storage_backend()
+
+        # Create exports directory if it doesn't exist
+        try:
+            if hasattr(storage_backend, 'create_directory'):
+                storage_backend.create_directory(EXPORTS_SUBDIR)
+        except Exception as e:
+            logger.warning(f"Could not create exports directory: {e}")
+
+        # Full path in workspace storage
+        full_path = os.path.join(EXPORTS_SUBDIR, file_name)
+
+        # Check if file exists and handle overwrite flag
+        if storage_backend.exists(full_path) and not overwrite:
+            raise StorageError(
+                f"File {full_path} already exists. Set overwrite=True to replace it."
+            )
+
+        try:
+            # Export to Excel using the workspace manager
+            result_path = exporter.export_to_excel(
+                data,
+                path=full_path,
+                template_path=template_path,
+                include_documentation=include_documentation,
+                workspace_manager=workspace_manager,
+                **format_options
+            )
+
+            logger.info(f"Media plan exported to Excel in workspace storage: {result_path}")
+            return result_path
+        except Exception as e:
+            raise StorageError(f"Failed to export media plan to Excel: {e}")
+    else:
+        # Use local file system
+        # Ensure directory exists
+        if not os.path.exists(file_path):
+            try:
+                os.makedirs(file_path, exist_ok=True)
+            except Exception as e:
+                raise StorageError(f"Failed to create directory {file_path}: {e}")
+
+        # Full path in local file system
+        full_path = os.path.join(file_path, file_name)
+
+        # Check if file exists and handle overwrite flag
+        if os.path.exists(full_path) and not overwrite:
+            raise StorageError(
+                f"File {full_path} already exists. Set overwrite=True to replace it."
+            )
+
+        try:
+            # Export to Excel directly
+            result_path = exporter.export_to_excel(
+                data,
+                path=full_path,
+                template_path=template_path,
+                include_documentation=include_documentation,
+                **format_options
+            )
+
+            logger.info(f"Media plan exported to Excel at: {result_path}")
+            return result_path
+        except Exception as e:
+            raise StorageError(f"Failed to export media plan to Excel: {e}")
+
+@classmethod
+def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=None,
+                     **format_options):
     """
-    Create a new MediaPlan instance from an Excel file.
+    Import a media plan from an Excel file.
 
     Args:
-        file_path: Path to the Excel file.
-        **options: Additional import options.
+        file_name: Name of the file to import.
+        workspace_manager: Optional WorkspaceManager for loading from workspace storage.
+                          If provided, this takes precedence over file_path.
+        file_path: Optional path to the file. Required if workspace_manager
+                  is not provided.
+        **format_options: Additional format-specific options.
 
     Returns:
         A new MediaPlan instance.
 
     Raises:
-        ValidationError: If the Excel file is invalid.
-        StorageError: If the import fails.
+        ValueError: If neither workspace_manager nor file_path is provided.
+        StorageError: If import fails or file doesn't exist.
     """
-    try:
-        # Import from Excel
-        data = import_from_excel(file_path, **options)
+    # Validate that at least one storage location is provided
+    if workspace_manager is None and file_path is None:
+        raise ValueError("Either workspace_manager or file_path must be provided")
 
-        # Handle enum field values to avoid validation errors
-        data = _sanitize_data_for_model(data)
+    if workspace_manager is not None:
+        # Use workspace storage (takes precedence)
+        # Make sure workspace is loaded
+        if not workspace_manager.is_loaded:
+            workspace_manager.load()
 
-        # Convert to MediaPlan instance
-        media_plan = cls.from_dict(data)
+        # Get storage backend
+        storage_backend = workspace_manager.get_storage_backend()
 
-        logger.info(f"Media plan created from Excel: {file_path}")
-        return media_plan
+        # Check imports directory first
+        imports_path = os.path.join(IMPORTS_SUBDIR, file_name)
 
-    except Exception as e:
-        raise StorageError(f"Failed to create media plan from Excel: {e}")
+        # Check if file exists in imports directory
+        if storage_backend.exists(imports_path):
+            full_path = imports_path
+        else:
+            # Try root directory as fallback
+            if not storage_backend.exists(file_name):
+                raise StorageError(f"File not found: neither {imports_path} nor {file_name} exists")
 
+            # Use root path
+            full_path = file_name
+            logger.warning(f"Found file in root directory instead of imports directory")
 
+        try:
+            # Create a temporary file to work with
+            with tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False) as tmp:
+                tmp_path = tmp.name
+
+            try:
+                # Read content and write to temp file
+                content = storage_backend.read_file(full_path, binary=True)
+                with open(tmp_path, 'wb') as f:
+                    f.write(content)
+
+                # Import from the temp file
+                data = importer.import_from_excel(tmp_path, **format_options)
+
+                # Create MediaPlan instance
+                result = cls.from_dict(data)
+
+                # Clean up
+                os.unlink(tmp_path)
+
+                logger.info(f"Media plan imported from Excel in workspace storage: {full_path}")
+                return result
+            except Exception as e:
+                # Clean up temp file in case of error
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                raise e
+        except Exception as e:
+            if not isinstance(e, StorageError):
+                raise StorageError(f"Failed to import media plan from Excel: {e}")
+            raise
+    else:
+        # Use local file system
+        # Full path in local file system
+        full_path = os.path.join(file_path, file_name)
+
+        # Check if file exists
+        if not os.path.exists(full_path):
+            raise StorageError(f"File not found: {full_path}")
+
+        try:
+            # Import from Excel and create MediaPlan instance
+            data = importer.import_from_excel(full_path, **format_options)
+            result = cls.from_dict(data)
+
+            logger.info(f"Media plan imported from Excel at: {full_path}")
+            return result
+        except Exception as e:
+            raise StorageError(f"Failed to import media plan from Excel: {e}")
+
+# Keep existing methods for update_from_excel_path and validate_excel
 def update_from_excel_method(self, file_path: str, **options) -> None:
     """
     Update the media plan from an Excel file.
@@ -102,7 +257,7 @@ def update_from_excel_method(self, file_path: str, **options) -> None:
         current_data = self.to_dict()
 
         # Update from Excel
-        updated_data = update_from_excel(current_data, file_path, **options)
+        updated_data = importer.update_from_excel(current_data, file_path, **options)
 
         # Handle enum field values to avoid validation errors
         updated_data = _sanitize_data_for_model(updated_data)
@@ -174,135 +329,6 @@ def validate_excel_class_method(cls, file_path: str, schema_version: Optional[st
         raise ValidationError(f"Failed to validate Excel file: {e}")
 
 
-def export_to_excel_workspace(self, workspace_manager: WorkspaceManager,
-                             path: Optional[str] = None,
-                             template_path: Optional[str] = None,
-                             **options) -> str:
-    """
-    Export the media plan to Excel using workspace settings.
-
-    Args:
-        workspace_manager: The WorkspaceManager instance.
-        path: Optional path to save the Excel file. If None, a default path is generated.
-        template_path: Optional path to an Excel template file. If None, uses the workspace default.
-        **options: Additional export options.
-
-    Returns:
-        The path where the Excel file was saved.
-
-    Raises:
-        StorageError: If the export fails.
-    """
-    try:
-        # Check if workspace is loaded
-        if not workspace_manager.is_loaded:
-            workspace_manager.load()
-
-        # Get excel settings from workspace
-        excel_config = workspace_manager.get_excel_config()
-
-        # If template_path not provided, check workspace settings
-        if template_path is None and "template_path" in excel_config:
-            template_path = excel_config["template_path"]
-
-        # Determine path (storage-relative)
-        if not path and "default_export_path" in excel_config:
-            # Use workspace default export path
-            path = excel_config["default_export_path"]
-
-            # Check if we need to add campaign ID or timestamp
-            if "{campaign_id}" in path:
-                path = path.replace("{campaign_id}", self.campaign.id)
-            if "{timestamp}" in path:
-                from datetime import datetime
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                path = path.replace("{timestamp}", timestamp)
-
-        # Convert model to dictionary
-        data = self.to_dict()
-
-        # Export to Excel
-        storage_backend = workspace_manager.get_storage_backend()
-
-        # Export to a temp file first
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        # Export to the temp file
-        export_to_excel(data, tmp_path, template_path, **options)
-
-        # Read the content
-        with open(tmp_path, "rb") as f:
-            content = f.read()
-
-        # Clean up temp file
-        os.unlink(tmp_path)
-
-        # Write to storage backend
-        if not path:
-            # Default path based on plan ID
-            path = f"{self.meta.id}.xlsx"
-
-        storage_backend.write_file(path, content)
-
-        logger.info(f"Media plan exported to Excel in workspace: {path}")
-        return path
-
-    except Exception as e:
-        raise StorageError(f"Failed to export media plan to Excel in workspace: {e}")
-
-
-def from_excel_workspace_class_method(cls, workspace_manager: WorkspaceManager,
-                                     path: str, **options) -> 'MediaPlan':
-    """
-    Create a new MediaPlan instance from an Excel file in workspace storage.
-
-    Args:
-        workspace_manager: The WorkspaceManager instance.
-        path: Path to the Excel file in the workspace storage.
-        **options: Additional import options.
-
-    Returns:
-        A new MediaPlan instance.
-
-    Raises:
-        ValidationError: If the Excel file is invalid.
-        StorageError: If the import fails.
-    """
-    try:
-        # Check if workspace is loaded
-        if not workspace_manager.is_loaded:
-            workspace_manager.load()
-
-        # Get storage backend
-        storage_backend = workspace_manager.get_storage_backend()
-
-        # Check if file exists
-        if not storage_backend.exists(path):
-            raise StorageError(f"Excel file not found in workspace: {path}")
-
-        # Read content to a temp file
-        content = storage_backend.read_file(path, binary=True)
-
-        import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        # Import from the temp file
-        media_plan = cls.import_from_excel_path(tmp_path, **options)
-
-        # Clean up
-        os.unlink(tmp_path)
-
-        logger.info(f"Media plan created from Excel in workspace: {path}")
-        return media_plan
-
-    except Exception as e:
-        raise StorageError(f"Failed to create media plan from Excel in workspace: {e}")
-
-
 def _sanitize_data_for_model(data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Sanitize imported data to avoid validation errors when creating model instances.
@@ -340,11 +366,22 @@ def _sanitize_data_for_model(data: Dict[str, Any]) -> Dict[str, Any]:
 
     return sanitized
 
-
 # Patch methods into MediaPlan class
-MediaPlan.export_to_excel = export_to_excel_workspace
-MediaPlan.export_to_excel_path = export_to_excel_method
-MediaPlan.import_from_excel = classmethod(from_excel_workspace_class_method)
-MediaPlan.import_from_excel_path = classmethod(from_excel_class_method)
-MediaPlan.update_from_excel_path = update_from_excel_method
-MediaPlan.validate_excel = classmethod(validate_excel_class_method)
+def patch_mediaplan_excel_methods():
+    """
+    Add the Excel import/export methods to the MediaPlan class.
+    """
+    # Export to Excel
+    MediaPlan.export_to_excel = export_to_excel_method
+
+    # Import from Excel
+    MediaPlan.import_from_excel = import_from_excel_method
+
+    # Keep existing methods
+    MediaPlan.update_from_excel_path = update_from_excel_method
+    MediaPlan.validate_excel = validate_excel_class_method
+
+    logger.debug("Added standardized Excel methods to MediaPlan class")
+
+# Apply patches when this module is imported
+patch_mediaplan_excel_methods()
