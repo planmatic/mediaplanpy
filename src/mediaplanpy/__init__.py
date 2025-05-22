@@ -33,7 +33,9 @@ from mediaplanpy.exceptions import (
     FileReadError,
     FileWriteError,
     S3Error,
-    DatabaseError
+    DatabaseError,
+    WorkspaceInactiveError,
+    FeatureDisabledError
 )
 
 # Import schema module
@@ -96,6 +98,8 @@ __all__ = [
     'FileWriteError',
     'S3Error',
     'DatabaseError',
+    'WorkspaceInactiveError',
+    'FeatureDisabledError',
 
     # Schema
     'get_current_version',

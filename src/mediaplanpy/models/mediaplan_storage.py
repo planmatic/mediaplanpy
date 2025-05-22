@@ -51,7 +51,11 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     Raises:
         StorageError: If the media plan cannot be saved.
+        WorkspaceInactiveError: If the workspace is inactive.
     """
+    # Check if workspace is active
+    workspace_manager.check_workspace_active("media plan save")
+
     # Check if workspace is loaded
     if not workspace_manager.is_loaded:
         workspace_manager.load()

@@ -24,6 +24,16 @@ from mediaplanpy.schema import SchemaRegistry, SchemaValidator, SchemaMigrator
 logger = logging.getLogger("mediaplanpy.workspace.loader")
 
 
+class WorkspaceInactiveError(WorkspaceError):
+    """Exception raised when trying to perform restricted operations on an inactive workspace."""
+    pass
+
+
+class FeatureDisabledError(WorkspaceError):
+    """Exception raised when trying to use a disabled feature."""
+    pass
+
+
 class WorkspaceManager:
     """
     Manages workspace configuration for the mediaplanpy package.
@@ -122,6 +132,54 @@ class WorkspaceManager:
         if self._schema_migrator is None:
             self._schema_migrator = SchemaMigrator(registry=self.schema_registry)
         return self._schema_migrator
+
+    def check_workspace_active(self, operation: str, allow_warnings: bool = False) -> None:
+        """
+        Check if the workspace is active for the given operation.
+
+        Args:
+            operation: Name of the operation being attempted.
+            allow_warnings: If True, show warning for inactive workspace instead of error.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+            WorkspaceInactiveError: If workspace is inactive and allow_warnings is False.
+        """
+        if not self.is_loaded:
+            raise WorkspaceError("No workspace configuration loaded. Call load() first.")
+
+        workspace_status = self.config.get('workspace_status', 'active')
+
+        if workspace_status == 'inactive':
+            message = f"Workspace '{self.config.get('workspace_name', 'Unknown')}' is inactive. Cannot perform operation: {operation}"
+
+            if allow_warnings:
+                logger.warning(message)
+            else:
+                raise WorkspaceInactiveError(message)
+
+    def check_excel_enabled(self, operation: str) -> None:
+        """
+        Check if Excel functionality is enabled for the given operation.
+
+        Args:
+            operation: Name of the Excel operation being attempted.
+
+        Raises:
+            WorkspaceError: If no configuration is loaded.
+            FeatureDisabledError: If Excel functionality is disabled.
+        """
+        if not self.is_loaded:
+            raise WorkspaceError("No workspace configuration loaded. Call load() first.")
+
+        excel_config = self.config.get('excel', {})
+        excel_enabled = excel_config.get('enabled', True)  # Default to True for backward compatibility
+
+        if not excel_enabled:
+            raise FeatureDisabledError(
+                f"Excel functionality is disabled in workspace '{self.config.get('workspace_name', 'Unknown')}'. "
+                f"Cannot perform operation: {operation}"
+            )
 
     def _get_default_workspace_directory(self) -> str:
         """
@@ -233,6 +291,7 @@ class WorkspaceManager:
         config = {
             "workspace_id": workspace_id,
             "workspace_name": workspace_name,
+            "workspace_status": "active",
             "environment": "development",
             "storage": {
                 "mode": "local",
@@ -250,6 +309,9 @@ class WorkspaceManager:
             },
             "database": {
                 "enabled": False
+            },
+            "excel": {
+                "enabled": True
             },
             "google_sheets": {
                 "enabled": False
@@ -321,6 +383,13 @@ class WorkspaceManager:
             self.config = config_dict
             self.workspace_path = None  # No file path
             logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from provided dictionary")
+
+            # Check workspace status and show warning if inactive
+            try:
+                self.check_workspace_active("load", allow_warnings=True)
+            except WorkspaceInactiveError:
+                pass  # This won't be raised when allow_warnings=True
+
             return self.config
 
         # If workspace_id is provided, locate the settings file
@@ -390,6 +459,13 @@ class WorkspaceManager:
                 raise WorkspaceValidationError("\n".join(errors))
 
             logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {self.workspace_path}")
+
+            # Check workspace status and show warning if inactive
+            try:
+                self.check_workspace_active("load", allow_warnings=True)
+            except WorkspaceInactiveError:
+                pass  # This won't be raised when allow_warnings=True
+
             return self.config
         except FileNotFoundError:
             raise WorkspaceNotFoundError(f"Workspace file not found at {self.workspace_path}")
@@ -503,84 +579,6 @@ class WorkspaceManager:
         # TODO: Implement config reference resolution with ${config.section.key}
 
         return path
-
-    def create_default_workspace(self, path: str, overwrite: bool = False) -> Dict[str, Any]:
-        """
-        Create a default workspace.json file.
-
-        DEPRECATED: Use create() method instead.
-
-        Args:
-            path: Path where the workspace.json should be created.
-            overwrite: Whether to overwrite an existing file.
-
-        Returns:
-            The created default configuration.
-
-        Raises:
-            WorkspaceError: If the file exists and overwrite is False, or if creation fails.
-        """
-        logger.warning("create_default_workspace is deprecated. Use create() method instead.")
-
-        # Generate workspace ID
-        workspace_id = f"workspace_{uuid.uuid4().hex[:8]}"
-
-        default_config = {
-            "workspace_id": workspace_id,
-            "workspace_name": "Default",
-            "environment": "development",
-            "storage": {
-                "mode": "local",
-                "local": {
-                    "base_path": "${user_documents}/mediaplanpy",
-                    "create_if_missing": True
-                }
-            },
-            "schema_settings": {
-                "preferred_version": "v1.0.0",
-                "auto_migrate": False,
-                "offline_mode": False,
-                "repository_url": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/",
-                "local_cache_dir": "${user_home}/.mediaplanpy/schemas"
-            },
-            "database": {
-                "enabled": False
-            },
-            "google_sheets": {
-                "enabled": False
-            },
-            "logging": {
-                "level": "INFO"
-            }
-        }
-
-        file_path = pathlib.Path(path)
-
-        # Check if parent directory exists, create if not
-        if not file_path.parent.exists():
-            try:
-                file_path.parent.mkdir(parents=True)
-            except Exception as e:
-                raise WorkspaceError(f"Failed to create directory for workspace.json: {e}")
-
-        # Check if file exists
-        if file_path.exists() and not overwrite:
-            raise WorkspaceError(f"Workspace file already exists at {path}. Use overwrite=True to replace it.")
-
-        try:
-            with open(file_path, 'w') as f:
-                json.dump(default_config, f, indent=2)
-
-            logger.info(f"Created default workspace configuration at {path}")
-
-            # Set the workspace path and config
-            self.workspace_path = str(file_path)
-            self.config = default_config
-            self._resolved_config = None  # Reset resolved config
-
-            return default_config
-        except Exception as e:
-            raise WorkspaceError(f"Failed to create workspace.json: {e}")
 
     def get_storage_config(self) -> Dict[str, Any]:
         """

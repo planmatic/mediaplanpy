@@ -25,6 +25,16 @@ class WorkspaceValidationError(WorkspaceError):
     pass
 
 
+class WorkspaceInactiveError(WorkspaceError):
+    """Exception raised when trying to perform restricted operations on an inactive workspace."""
+    pass
+
+
+class FeatureDisabledError(WorkspaceError):
+    """Exception raised when trying to use a disabled feature."""
+    pass
+
+
 class SchemaError(MediaPlanError):
     """Base exception for schema-related errors."""
     pass

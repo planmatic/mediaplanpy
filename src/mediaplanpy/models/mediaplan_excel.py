@@ -45,10 +45,17 @@ def export_to_excel_method(self, workspace_manager=None, file_path=None, file_na
     Raises:
         ValueError: If neither workspace_manager nor file_path is provided.
         StorageError: If export fails or file exists and overwrite=False.
+        WorkspaceInactiveError: If workspace is inactive (warning only).
+        FeatureDisabledError: If Excel functionality is disabled.
     """
     # Validate that at least one storage location is provided
     if workspace_manager is None and file_path is None:
         raise ValueError("Either workspace_manager or file_path must be provided")
+
+    # Check workspace status and Excel availability if workspace_manager is provided
+    if workspace_manager is not None:
+        workspace_manager.check_workspace_active("Excel export", allow_warnings=True)
+        workspace_manager.check_excel_enabled("Excel export")
 
     # Generate default filename if not provided
     if file_name is None:
@@ -158,10 +165,17 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
     Raises:
         ValueError: If neither workspace_manager nor file_path is provided.
         StorageError: If import fails or file doesn't exist.
+        WorkspaceInactiveError: If workspace is inactive.
+        FeatureDisabledError: If Excel functionality is disabled.
     """
     # Validate that at least one storage location is provided
     if workspace_manager is None and file_path is None:
         raise ValueError("Either workspace_manager or file_path must be provided")
+
+    # Check workspace status and Excel availability if workspace_manager is provided
+    if workspace_manager is not None:
+        workspace_manager.check_workspace_active("Excel import")
+        workspace_manager.check_excel_enabled("Excel import")
 
     if workspace_manager is not None:
         # Use workspace storage (takes precedence)

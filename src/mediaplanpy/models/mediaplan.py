@@ -293,6 +293,7 @@ class MediaPlan(BaseModel):
                campaign_end_date: Union[str, date],
                campaign_budget: Union[str, int, float, Decimal],
                schema_version: Optional[str] = None,
+               workspace_manager: Optional['WorkspaceManager'] = None,
                **kwargs) -> "MediaPlan":
         """
         Create a new media plan with the required fields.
@@ -305,6 +306,7 @@ class MediaPlan(BaseModel):
             campaign_end_date: End date (string YYYY-MM-DD or date object)
             campaign_budget: Total budget amount
             schema_version: Version of the schema to use, defaults to current version
+            workspace_manager: Optional WorkspaceManager for workspace status checking
             **kwargs: Additional fields to set on the media plan
 
         Returns:
@@ -312,7 +314,12 @@ class MediaPlan(BaseModel):
 
         Raises:
             ValidationError: If the provided parameters fail validation.
+            WorkspaceInactiveError: If workspace is inactive.
         """
+        # Check workspace status if workspace_manager is provided
+        if workspace_manager is not None:
+            workspace_manager.check_workspace_active("media plan creation")
+
         # Convert date strings to date objects if necessary
         if isinstance(campaign_start_date, str):
             campaign_start_date = date.fromisoformat(campaign_start_date)
