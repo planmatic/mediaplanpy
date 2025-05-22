@@ -289,8 +289,109 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         # If all attempts failed, raise appropriate error
         raise StorageError(f"Failed to read media plan from {path}")
 
+
+def delete(self, workspace_manager: 'WorkspaceManager',
+           dry_run: bool = False) -> Dict[str, Any]:
+    """
+    Delete the media plan files from workspace storage.
+
+    This method removes both JSON and Parquet files associated with this media plan
+    from the workspace storage. The files are located in the 'mediaplans' subdirectory.
+
+    Args:
+        workspace_manager: The WorkspaceManager instance.
+        dry_run: If True, shows what would be deleted without actually deleting files.
+
+    Returns:
+        Dictionary containing:
+        - deleted_files: List of files that were (or would be) deleted
+        - errors: List of any errors encountered
+        - mediaplan_id: The media plan ID
+        - dry_run: Whether this was a dry run
+        - files_found: Total number of files found
+        - files_deleted: Total number of files successfully deleted
+
+    Raises:
+        WorkspaceError: If no configuration is loaded.
+        WorkspaceInactiveError: If the workspace is inactive.
+        StorageError: If deletion fails due to storage backend issues.
+    """
+    # Check if workspace is active (deletion is a restricted operation)
+    workspace_manager.check_workspace_active("media plan deletion")
+
+    # Check if workspace is loaded
+    if not workspace_manager.is_loaded:
+        workspace_manager.load()
+
+    # Get resolved workspace config and storage backend
+    workspace_config = workspace_manager.get_resolved_config()
+
+    try:
+        from mediaplanpy.storage import get_storage_backend
+        storage_backend = get_storage_backend(workspace_config)
+    except Exception as e:
+        raise StorageError(f"Failed to get storage backend: {e}")
+
+    # Initialize result dictionary
+    result = {
+        "deleted_files": [],
+        "errors": [],
+        "mediaplan_id": self.meta.id,
+        "dry_run": dry_run,
+        "files_found": 0,
+        "files_deleted": 0
+    }
+
+    # Define file extensions to look for
+    extensions = ["json", "parquet"]
+
+    # Sanitize media plan ID for use as filename
+    safe_mediaplan_id = self.meta.id.replace('/', '_').replace('\\', '_')
+
+    for extension in extensions:
+        # Construct the file path in mediaplans subdirectory
+        file_path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_mediaplan_id}.{extension}")
+
+        try:
+            # Check if file exists
+            if storage_backend.exists(file_path):
+                result["files_found"] += 1
+
+                if dry_run:
+                    # For dry run, just add to the list without deleting
+                    result["deleted_files"].append(file_path)
+                    logger.info(f"[DRY RUN] Would delete: {file_path}")
+                else:
+                    # Actually delete the file
+                    storage_backend.delete_file(file_path)
+                    result["deleted_files"].append(file_path)
+                    result["files_deleted"] += 1
+                    logger.info(f"Deleted media plan file: {file_path}")
+            else:
+                logger.debug(f"File not found (skipping): {file_path}")
+
+        except Exception as e:
+            error_msg = f"Failed to delete {file_path}: {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(error_msg)
+
+    # Log summary
+    if dry_run:
+        logger.info(f"[DRY RUN] Media plan '{self.meta.id}': found {result['files_found']} files that would be deleted")
+    else:
+        logger.info(
+            f"Media plan '{self.meta.id}': deleted {result['files_deleted']} of {result['files_found']} files found")
+
+    # Raise an error if there were any deletion failures (but not if files didn't exist)
+    if result["errors"] and not dry_run:
+        raise StorageError(
+            f"Failed to delete some files for media plan '{self.meta.id}': {'; '.join(result['errors'])}")
+
+    return result
+
 # Patch methods into MediaPlan class
 MediaPlan.save = save
 MediaPlan.load = classmethod(load)
+MediaPlan.delete = delete
 MediaPlan._should_save_parquet = _should_save_parquet
 MediaPlan._get_parquet_path = _get_parquet_path

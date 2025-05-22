@@ -130,8 +130,17 @@ def setup_argparse():
     excel_validate_parser.add_argument("--version", help="Schema version to validate against")
     excel_validate_parser.add_argument("--report", help="Output path for validation report")
 
-    return parser
+    # Media plan commands (add this new section after excel commands)
+    mediaplan_parser = subparsers.add_parser("mediaplan", help="Media plan operations")
+    mediaplan_subparsers = mediaplan_parser.add_subparsers(dest="mediaplan_command")
 
+    # mediaplan delete
+    delete_parser = mediaplan_subparsers.add_parser("delete", help="Delete a media plan from storage")
+    delete_parser.add_argument("--workspace", help="Path to workspace.json")
+    delete_parser.add_argument("--media-plan-id", required=True, help="Media plan ID to delete")
+    delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted without actually deleting")
+
+    return parser
 
 def handle_workspace_init(args):
     """Handle the 'workspace init' command."""
@@ -597,6 +606,60 @@ def handle_excel_validate(args):
         return 1
 
 
+def handle_mediaplan_delete(args):
+    """Handle the 'mediaplan delete' command."""
+    try:
+        from mediaplanpy.models import MediaPlan
+
+        # Load workspace
+        if args.workspace:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+        else:
+            manager = WorkspaceManager()
+            manager.load()
+
+        # Load the media plan
+        try:
+            media_plan = MediaPlan.load(manager, media_plan_id=args.media_plan_id)
+        except Exception as e:
+            print(f"❌ Error loading media plan '{args.media_plan_id}': {e}")
+            return 1
+
+        # Perform deletion
+        result = media_plan.delete(manager, dry_run=args.dry_run)
+
+        # Display results
+        if args.dry_run:
+            print(f"🔍 DRY RUN - Media plan '{result['mediaplan_id']}':")
+            if result['deleted_files']:
+                print(f"   Would delete {len(result['deleted_files'])} file(s):")
+                for file_path in result['deleted_files']:
+                    print(f"     - {file_path}")
+            else:
+                print("   No files found to delete")
+        else:
+            print(f"✅ Media plan '{result['mediaplan_id']}' deletion completed:")
+            print(f"   Files found: {result['files_found']}")
+            print(f"   Files deleted: {result['files_deleted']}")
+            if result['deleted_files']:
+                print("   Deleted files:")
+                for file_path in result['deleted_files']:
+                    print(f"     - {file_path}")
+
+        if result['errors']:
+            print(f"⚠️  Errors encountered:")
+            for error in result['errors']:
+                print(f"     - {error}")
+            return 1
+
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error deleting media plan: {e}")
+        return 1
+
+
 def main():
     """Main entry point for the CLI."""
     parser = setup_argparse()
@@ -657,6 +720,18 @@ def main():
             return handle_excel_update(args)
         elif args.excel_command == "validate":
             return handle_excel_validate(args)
+
+    # Handle mediaplan commands (add this after excel commands)
+    elif args.command == "mediaplan":
+        if not args.mediaplan_command:
+            # If no mediaplan subcommand, print mediaplan help
+            for action in parser._actions:
+                if action.dest == 'mediaplan_command':
+                    action.choices['delete'].print_help()
+                    return 1
+
+        if args.mediaplan_command == "delete":
+            return handle_mediaplan_delete(args)
 
     # If we reach here, no command was handled
     parser.print_help()
