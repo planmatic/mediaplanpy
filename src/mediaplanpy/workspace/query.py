@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional, Union
 from mediaplanpy.exceptions import SQLQueryError
 import pandas as pd
 import io
+import re
 
 logger = logging.getLogger("mediaplanpy.workspace.query")
 
@@ -459,10 +460,13 @@ def _validate_sql_safety(query: str) -> None:
     query_clean = re.sub(r'/\*.*?\*/', '', query_clean, flags=re.DOTALL)
     query_clean = ' '.join(query_clean.split())
 
-    # Check if query starts with SELECT (allowing WITH clauses)
-    if not (query_clean.startswith('SELECT') or query_clean.startswith('WITH')):
+    # Check if query starts with allowed read-only operations
+    allowed_starts = ['SELECT', 'WITH', 'DESCRIBE', 'SHOW', 'EXPLAIN', 'PRAGMA']
+    query_starts_with_allowed = any(query_clean.startswith(keyword) for keyword in allowed_starts)
+
+    if not query_starts_with_allowed:
         raise SQLQueryError(
-            "Only SELECT queries are allowed. "
+            "Only read-only queries are allowed (SELECT, DESCRIBE, SHOW, EXPLAIN, PRAGMA, WITH). "
             f"Query starts with: {query_clean.split()[0] if query_clean else 'empty'}"
         )
 
