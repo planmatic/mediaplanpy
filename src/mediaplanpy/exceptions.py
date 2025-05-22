@@ -83,3 +83,7 @@ class S3Error(StorageError):
 class DatabaseError(StorageError):
     """Exception raised when a database operation fails."""
     pass
+
+class SQLQueryError(Exception):
+    """Exception raised for SQL query errors."""
+    pass
