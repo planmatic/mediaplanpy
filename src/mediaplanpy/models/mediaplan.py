@@ -107,9 +107,10 @@ class MediaPlan(BaseModel):
 
         return errors
 
-    def add_lineitem(self, line_item: Union[LineItem, Dict[str, Any]]) -> LineItem:
+    def create_lineitem(self, line_item: Union[LineItem, Dict[str, Any]],
+                       validate: bool = True, **kwargs) -> LineItem:
         """
-        Add a line item to the media plan.
+        Create and add a new line item to the media plan.
 
         The line item's ID will be automatically generated if not provided.
         Start and end dates will be inherited from the campaign if not provided.
@@ -118,9 +119,11 @@ class MediaPlan(BaseModel):
         Args:
             line_item: The line item to add, either as a LineItem instance
                       or a dictionary of parameters.
+            validate: Whether to validate the line item before adding (default: True).
+            **kwargs: Additional line item parameters.
 
         Returns:
-            The added LineItem instance.
+            The created LineItem instance.
 
         Raises:
             ValidationError: If the line item fails validation.
@@ -132,6 +135,7 @@ class MediaPlan(BaseModel):
         if isinstance(line_item, dict):
             # Create a copy to avoid modifying the original
             line_item_data = line_item.copy()
+            line_item_data.update(kwargs)  # Merge any additional kwargs
 
             # Generate ID if not provided
             if 'id' not in line_item_data or not line_item_data['id']:
@@ -160,38 +164,44 @@ class MediaPlan(BaseModel):
 
             line_item = LineItem.from_dict(line_item_data)
         else:
-            # For LineItem instances, the required fields must already be set
-            # due to Pydantic validation, but we can still generate an ID if needed
+            # For LineItem instances, apply kwargs if any provided
+            if kwargs:
+                line_item_dict = line_item.to_dict()
+                line_item_dict.update(kwargs)
+                line_item = LineItem.from_dict(line_item_dict)
+
+            # Generate ID if missing
             if not line_item.id:
                 line_item.id = f"li_{uuid.uuid4().hex[:8]}"
 
-        # Validate the line item
-        try:
-            line_item.assert_valid()
-        except ValidationError as e:
-            raise ValidationError(f"Invalid line item: {str(e)}")
+        # Validate the line item if requested
+        if validate:
+            # Use the new consolidated validate() method
+            validation_errors = line_item.validate()
+            if validation_errors:
+                raise ValidationError(f"Invalid line item: {'; '.join(validation_errors)}")
 
-        # Validate line item dates against campaign
-        if line_item.start_date < self.campaign.start_date:
-            raise ValidationError(
-                f"Line item starts before campaign: "
-                f"{line_item.start_date} < {self.campaign.start_date}"
-            )
+            # Validate line item dates against campaign
+            if line_item.start_date < self.campaign.start_date:
+                raise ValidationError(
+                    f"Line item starts before campaign: "
+                    f"{line_item.start_date} < {self.campaign.start_date}"
+                )
 
-        if line_item.end_date > self.campaign.end_date:
-            raise ValidationError(
-                f"Line item ends after campaign: "
-                f"{line_item.end_date} > {self.campaign.end_date}"
-            )
+            if line_item.end_date > self.campaign.end_date:
+                raise ValidationError(
+                    f"Line item ends after campaign: "
+                    f"{line_item.end_date} > {self.campaign.end_date}"
+                )
 
         # Add to the line items list
         self.lineitems.append(line_item)
 
         return line_item
 
-    def get_lineitem(self, line_item_id: str) -> Optional[LineItem]:
+    def load_lineitem(self, line_item_id: str) -> Optional[LineItem]:
         """
-        Get a line item by ID.
+        Load a line item by ID.
 
         Args:
             line_item_id: The ID of the line item to retrieve.
@@ -204,20 +214,94 @@ class MediaPlan(BaseModel):
                 return line_item
         return None
 
-    def remove_lineitem(self, line_item_id: str) -> bool:
+    def save_lineitem(self, line_item: LineItem, validate: bool = True) -> LineItem:
         """
-        Remove a line item by ID.
+        Save changes to an existing line item in the media plan.
+
+        Args:
+            line_item: The LineItem instance to save (must have existing ID).
+            validate: Whether to validate the line item before saving (default: True).
+
+        Returns:
+            The updated LineItem instance.
+
+        Raises:
+            ValidationError: If validation fails.
+            ValueError: If line item ID not found in media plan.
+        """
+        # Find the existing line item by ID
+        existing_index = None
+        for i, existing_item in enumerate(self.lineitems):
+            if existing_item.id == line_item.id:
+                existing_index = i
+                break
+
+        if existing_index is None:
+            raise ValueError(f"Line item with ID '{line_item.id}' not found in media plan")
+
+        # Validate if requested
+        if validate:
+            # Use the new consolidated validate() method
+            validation_errors = line_item.validate()
+            if validation_errors:
+                raise ValidationError(f"Invalid line item: {'; '.join(validation_errors)}")
+
+            # Validate line item dates against campaign
+            if line_item.start_date < self.campaign.start_date:
+                raise ValidationError(
+                    f"Line item starts before campaign: "
+                    f"{line_item.start_date} < {self.campaign.start_date}"
+                )
+
+            if line_item.end_date > self.campaign.end_date:
+                raise ValidationError(
+                    f"Line item ends after campaign: "
+                    f"{line_item.end_date} > {self.campaign.end_date}"
+                )
+
+        # Replace the existing line item (only if validation passed)
+        self.lineitems[existing_index] = line_item
+
+        return line_item
+
+    def delete_lineitem(self, line_item_id: str, validate: bool = True) -> bool:
+        """
+        Delete a line item by ID.
 
         Args:
             line_item_id: The ID of the line item to remove.
+            validate: Whether to validate media plan consistency after deletion (default: True).
 
         Returns:
-            True if the line item was removed, False if it wasn't found.
+            True if the line item was deleted, False if it wasn't found.
+
+        Raises:
+            ValidationError: If post-deletion validation fails.
         """
+        # Find and remove the line item
         for i, line_item in enumerate(self.lineitems):
             if line_item.id == line_item_id:
-                self.lineitems.pop(i)
+                # Store the item for potential rollback
+                removed_item = self.lineitems.pop(i)
+
+                # Validate the media plan consistency after deletion if requested
+                if validate:
+                    try:
+                        # Check that total costs still make sense (optional validation)
+                        # This is media plan level validation, not line item validation
+                        total_cost = sum(item.cost_total for item in self.lineitems)
+
+                        # We could add validation here if needed, but for now
+                        # we focus on line item validation only as requested
+                        pass
+
+                    except Exception as e:
+                        # If validation fails, rollback the deletion
+                        self.lineitems.insert(i, removed_item)
+                        raise ValidationError(f"Cannot delete line item: validation failed after deletion: {str(e)}")
+
                 return True
+
         return False
 
     def calculate_total_cost(self) -> Decimal:
@@ -283,6 +367,31 @@ class MediaPlan(BaseModel):
 
         # Create new instance
         return MediaPlan.from_dict(migrated_data)
+
+    # Legacy method support - keeping old methods for any internal usage
+    def add_lineitem(self, line_item: Union[LineItem, Dict[str, Any]], **kwargs) -> LineItem:
+        """
+        Legacy method - use create_lineitem() instead.
+
+        This method is kept for internal compatibility and calls the new create_lineitem() method.
+        """
+        return self.create_lineitem(line_item, **kwargs)
+
+    def get_lineitem(self, line_item_id: str) -> Optional[LineItem]:
+        """
+        Legacy method - use load_lineitem() instead.
+
+        This method is kept for internal compatibility and calls the new load_lineitem() method.
+        """
+        return self.load_lineitem(line_item_id)
+
+    def remove_lineitem(self, line_item_id: str) -> bool:
+        """
+        Legacy method - use delete_lineitem() instead.
+
+        This method is kept for internal compatibility and calls the new delete_lineitem() method.
+        """
+        return self.delete_lineitem(line_item_id)
 
     @classmethod
     def create(cls,

@@ -108,9 +108,10 @@ class LineItem(BaseModel):
     }
 
     @model_validator(mode="after")
-    def validate_dates(self) -> "LineItem":
+    def _validate_dates_internal(self) -> "LineItem":
         """
-        Validate that start_date is before or equal to end_date.
+        Internal method to validate that start_date is before or equal to end_date.
+        This is called automatically by Pydantic during model validation.
 
         Returns:
             The validated LineItem instance.
@@ -126,9 +127,10 @@ class LineItem(BaseModel):
                     "cost_custom1", "cost_custom2", "cost_custom3", "cost_custom4", "cost_custom5",
                     "cost_custom6", "cost_custom7", "cost_custom8", "cost_custom9", "cost_custom10")
     @classmethod
-    def validate_cost(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+    def _validate_cost_internal(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """
-        Validate that cost fields are positive numbers.
+        Internal method to validate that cost fields are positive numbers.
+        This is called automatically by Pydantic during field validation.
 
         Args:
             v: The cost value to validate.
@@ -147,9 +149,10 @@ class LineItem(BaseModel):
                     "metric_custom1", "metric_custom2", "metric_custom3", "metric_custom4", "metric_custom5",
                     "metric_custom6", "metric_custom7", "metric_custom8", "metric_custom9", "metric_custom10")
     @classmethod
-    def validate_metric(cls, v: Optional[Decimal]) -> Optional[Decimal]:
+    def _validate_metric_internal(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """
-        Validate that metric fields are non-negative.
+        Internal method to validate that metric fields are non-negative.
+        This is called automatically by Pydantic during field validation.
 
         Args:
             v: The metric value to validate.
@@ -164,58 +167,111 @@ class LineItem(BaseModel):
             raise ValueError("Metric values must be non-negative")
         return v
 
-    def validate_model(self) -> List[str]:
+    def validate(self) -> List[str]:
         """
-        Perform additional validation beyond what Pydantic provides.
+        Perform comprehensive validation of the line item.
+
+        This method consolidates all validation logic including date validation,
+        cost validation, metric validation, and business rule validation.
 
         Returns:
-            A list of validation error messages, if any.
+            List of validation error messages, empty if validation succeeds.
         """
-        errors = super().validate_model()
+        errors = []
 
-        # Validate channel if provided
+        # Date validation (consolidated from old validate_dates method)
+        if self.start_date > self.end_date:
+            errors.append(f"start_date ({self.start_date}) must be before or equal to end_date ({self.end_date})")
+
+        # Cost validation
+        cost_fields = [
+            ("cost_total", self.cost_total),
+            ("cost_media", self.cost_media),
+            ("cost_buying", self.cost_buying),
+            ("cost_platform", self.cost_platform),
+            ("cost_data", self.cost_data),
+            ("cost_creative", self.cost_creative),
+        ]
+
+        # Add custom cost fields
+        for i in range(1, 11):
+            field_name = f"cost_custom{i}"
+            field_value = getattr(self, field_name)
+            cost_fields.append((field_name, field_value))
+
+        # Validate all cost fields are non-negative
+        for field_name, field_value in cost_fields:
+            if field_value is not None and field_value < 0:
+                errors.append(f"{field_name} must be non-negative, got: {field_value}")
+
+        # Metric validation
+        metric_fields = [
+            ("metric_impressions", self.metric_impressions),
+            ("metric_clicks", self.metric_clicks),
+            ("metric_views", self.metric_views),
+        ]
+
+        # Add custom metric fields
+        for i in range(1, 11):
+            field_name = f"metric_custom{i}"
+            field_value = getattr(self, field_name)
+            metric_fields.append((field_name, field_value))
+
+        # Validate all metric fields are non-negative
+        for field_name, field_value in metric_fields:
+            if field_value is not None and field_value < 0:
+                errors.append(f"{field_name} must be non-negative, got: {field_value}")
+
+        # Channel validation
         if self.channel and self.channel.lower() not in self.VALID_CHANNELS:
             errors.append(f"Unrecognized channel: {self.channel}. "
                         f"Valid channels are: {', '.join(self.VALID_CHANNELS)}")
 
-        # Validate KPI if provided
+        # KPI validation
         if self.kpi and self.kpi.lower() not in self.VALID_KPIS:
             errors.append(f"Unrecognized KPI: {self.kpi}. "
                         f"Valid KPIs are: {', '.join(self.VALID_KPIS)}")
 
-        # Validate that custom fields have values only if main field is 'other'
-        if self.channel and self.channel.lower() != 'other' and self.channel_custom:
-            errors.append("channel_custom should only be set when channel is 'other'")
+        # Custom field validation - ensure custom fields only have values when main field is 'other'
+        custom_field_validations = [
+            (self.channel, self.channel_custom, "channel_custom", "channel"),
+            (self.vehicle, self.vehicle_custom, "vehicle_custom", "vehicle"),
+            (self.partner, self.partner_custom, "partner_custom", "partner"),
+            (self.media_product, self.media_product_custom, "media_product_custom", "media_product"),
+            (self.adformat, self.adformat_custom, "adformat_custom", "adformat"),
+            (self.kpi, self.kpi_custom, "kpi_custom", "kpi"),
+        ]
 
-        if self.vehicle and self.vehicle.lower() != 'other' and self.vehicle_custom:
-            errors.append("vehicle_custom should only be set when vehicle is 'other'")
+        for main_field, custom_field, custom_field_name, main_field_name in custom_field_validations:
+            if main_field and main_field.lower() != 'other' and custom_field:
+                errors.append(f"{custom_field_name} should only be set when {main_field_name} is 'other'")
 
-        if self.partner and self.partner.lower() != 'other' and self.partner_custom:
-            errors.append("partner_custom should only be set when partner is 'other'")
-
-        if self.media_product and self.media_product.lower() != 'other' and self.media_product_custom:
-            errors.append("media_product_custom should only be set when media_product is 'other'")
-
-        if self.adformat and self.adformat.lower() != 'other' and self.adformat_custom:
-            errors.append("adformat_custom should only be set when adformat is 'other'")
-
-        if self.kpi and self.kpi.lower() != 'other' and self.kpi_custom:
-            errors.append("kpi_custom should only be set when kpi is 'other'")
-
-        # Validate cost breakdowns sum up to total cost if all are provided
-        cost_fields = [
+        # Cost breakdown validation - check if all cost breakdown fields sum to total cost
+        cost_breakdown_fields = [
             self.cost_media, self.cost_buying, self.cost_platform,
             self.cost_data, self.cost_creative
         ]
 
         # Only check if all cost breakdown fields are provided
-        if all(cost is not None for cost in cost_fields):
-            cost_sum = sum(cost_fields)
+        if all(cost is not None for cost in cost_breakdown_fields):
+            cost_sum = sum(cost_breakdown_fields)
             # Allow small rounding differences (0.01)
             if abs(cost_sum - self.cost_total) > Decimal('0.01'):
                 errors.append(f"Sum of cost breakdowns ({cost_sum}) does not match cost_total ({self.cost_total})")
 
         return errors
+
+    # Legacy method support - keeping the old validate_model method as internal API
+    def validate_model(self) -> List[str]:
+        """
+        Legacy method - use validate() instead.
+
+        This method is kept for internal compatibility and calls the new validate() method.
+
+        Returns:
+            List of validation error messages, empty if validation succeeds.
+        """
+        return self.validate()
 
     @classmethod
     def from_v0_lineitem(cls, v0_lineitem: Dict[str, Any]) -> "LineItem":
