@@ -214,7 +214,7 @@ class MediaPlan(BaseModel):
                 return line_item
         return None
 
-    def update_lineitem(self, line_item: LineItem, validate: bool = False) -> LineItem:
+    def update_lineitem(self, line_item: LineItem, validate: bool = True) -> LineItem:
         """
         Update an existing line item in the media plan.
 
@@ -263,7 +263,7 @@ class MediaPlan(BaseModel):
 
         return line_item
 
-    def delete_lineitem(self, line_item_id: str, validate: bool = True) -> bool:
+    def delete_lineitem(self, line_item_id: str, validate: bool = False) -> bool:
         """
         Delete a line item by ID.
 
