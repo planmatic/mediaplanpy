@@ -1,8 +1,8 @@
 """
-Updated MediaPlan storage integration with subdirectory support.
+Updated MediaPlan storage integration with database support.
 
-This module updates the MediaPlan storage methods to save and load
-media plans from a 'mediaplans' subdirectory within the storage location.
+This module updates the MediaPlan storage methods to automatically save
+media plans to PostgreSQL database when configured.
 """
 
 import os
@@ -31,9 +31,10 @@ from datetime import datetime
 
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
-         include_parquet: bool = True, **format_options) -> str:
+         include_parquet: bool = True, include_database: bool = True,
+         **format_options) -> str:
     """
-    Save the media plan to a storage location.
+    Save the media plan to a storage location with optional database sync.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
@@ -44,6 +45,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         overwrite: If False (default), saves with a new media plan ID. If True,
                   preserves the existing media plan ID.
         include_parquet: If True (default), also saves a Parquet file for v1.0.0+ schemas.
+        include_database: If True (default), also saves to database if configured.
         **format_options: Additional format-specific options.
 
     Returns:
@@ -128,6 +130,18 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             format_name="parquet", **parquet_options
         )
         logger.info(f"Also saved Parquet file: {parquet_path}")
+
+    # Save to database if configured and enabled
+    if include_database:
+        try:
+            db_saved = self.save_to_database(workspace_manager, overwrite=overwrite)
+            if db_saved:
+                logger.info(f"Media plan {self.meta.id} synchronized to database")
+            else:
+                logger.debug(f"Database sync skipped for media plan {self.meta.id}")
+        except Exception as e:
+            # Database errors should not prevent file save
+            logger.warning(f"Database sync failed for media plan {self.meta.id}: {e}")
 
     # Return the path where the media plan was saved
     return path
@@ -291,16 +305,18 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
 
 def delete(self, workspace_manager: 'WorkspaceManager',
-           dry_run: bool = False) -> Dict[str, Any]:
+           dry_run: bool = False, include_database: bool = True) -> Dict[str, Any]:
     """
-    Delete the media plan files from workspace storage.
+    Delete the media plan files from workspace storage and optionally from database.
 
     This method removes both JSON and Parquet files associated with this media plan
     from the workspace storage. The files are located in the 'mediaplans' subdirectory.
+    If database integration is enabled, it will also remove database records.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
         dry_run: If True, shows what would be deleted without actually deleting files.
+        include_database: If True, also delete from database if configured.
 
     Returns:
         Dictionary containing:
@@ -310,6 +326,8 @@ def delete(self, workspace_manager: 'WorkspaceManager',
         - dry_run: Whether this was a dry run
         - files_found: Total number of files found
         - files_deleted: Total number of files successfully deleted
+        - database_deleted: Whether database records were deleted
+        - database_rows_deleted: Number of database rows deleted
 
     Raises:
         WorkspaceError: If no configuration is loaded.
@@ -339,7 +357,9 @@ def delete(self, workspace_manager: 'WorkspaceManager',
         "mediaplan_id": self.meta.id,
         "dry_run": dry_run,
         "files_found": 0,
-        "files_deleted": 0
+        "files_deleted": 0,
+        "database_deleted": False,
+        "database_rows_deleted": 0
     }
 
     # Define file extensions to look for
@@ -375,12 +395,43 @@ def delete(self, workspace_manager: 'WorkspaceManager',
             result["errors"].append(error_msg)
             logger.error(error_msg)
 
+    # Handle database deletion if enabled
+    if include_database:
+        try:
+            if self._should_save_to_database(workspace_manager):
+                if dry_run:
+                    logger.info(f"[DRY RUN] Would delete database records for media plan {self.meta.id}")
+                    result["database_deleted"] = True  # Would be deleted
+                else:
+                    # Actually delete from database
+                    from mediaplanpy.storage.database import PostgreSQLBackend
+                    db_backend = PostgreSQLBackend(workspace_config)
+
+                    workspace_id = workspace_manager.config.get('workspace_id', 'unknown')
+                    deleted_rows = db_backend.delete_media_plan(self.meta.id, workspace_id)
+
+                    result["database_deleted"] = True
+                    result["database_rows_deleted"] = deleted_rows
+
+                    logger.info(f"Deleted {deleted_rows} database records for media plan {self.meta.id}")
+            else:
+                logger.debug("Database deletion skipped - not configured or not applicable")
+
+        except Exception as e:
+            error_msg = f"Failed to delete database records: {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(error_msg)
+
     # Log summary
     if dry_run:
         logger.info(f"[DRY RUN] Media plan '{self.meta.id}': found {result['files_found']} files that would be deleted")
+        if result["database_deleted"]:
+            logger.info(f"[DRY RUN] Database records would also be deleted")
     else:
         logger.info(
             f"Media plan '{self.meta.id}': deleted {result['files_deleted']} of {result['files_found']} files found")
+        if result["database_deleted"]:
+            logger.info(f"Also deleted {result['database_rows_deleted']} database records")
 
     # Raise an error if there were any deletion failures (but not if files didn't exist)
     if result["errors"] and not dry_run:

@@ -102,10 +102,40 @@ def validate_database_config(config: Dict[str, Any]) -> List[str]:
     db_config = config.get('database', {})
 
     if db_config.get('enabled', False):
-        if not db_config.get('host'):
-            errors.append("Database integration enabled but no host specified.")
-        if not db_config.get('database'):
-            errors.append("Database integration enabled but no database name specified.")
+        # Required fields when database is enabled
+        required_fields = ['host', 'database']
+        for field in required_fields:
+            if not db_config.get(field):
+                errors.append(f"Database integration enabled but missing required field: {field}")
+
+        # Validate optional fields
+        port = db_config.get('port')
+        if port is not None:
+            if not isinstance(port, int) or port < 1 or port > 65535:
+                errors.append(f"Database port must be a valid port number (1-65535), got: {port}")
+
+        timeout = db_config.get('connection_timeout')
+        if timeout is not None:
+            if not isinstance(timeout, int) or timeout < 1:
+                errors.append(f"Database connection_timeout must be a positive integer, got: {timeout}")
+
+        # Validate table and schema names (basic validation)
+        table_name = db_config.get('table_name')
+        if table_name and not _is_valid_identifier(table_name):
+            errors.append(f"Invalid table_name: {table_name}. Must be a valid SQL identifier.")
+
+        schema_name = db_config.get('schema')
+        if schema_name and not _is_valid_identifier(schema_name):
+            errors.append(f"Invalid schema name: {schema_name}. Must be a valid SQL identifier.")
+
+        # Check password environment variable if specified
+        password_env_var = db_config.get('password_env_var')
+        if password_env_var:
+            if not _is_valid_env_var_name(password_env_var):
+                errors.append(f"Invalid password_env_var name: {password_env_var}")
+            elif not os.environ.get(password_env_var):
+                # This is a warning, not an error - the env var might be set at runtime
+                logger.warning(f"Database password environment variable '{password_env_var}' is not currently set")
 
     return errors
 
@@ -134,3 +164,77 @@ def validate_schema_settings(config: Dict[str, Any]) -> List[str]:
         errors.append(f"Repository URL should start with http:// or https://: {repo_url}")
 
     return errors
+
+
+def test_database_connection(config: Dict[str, Any]) -> List[str]:
+    """
+    Test database connection with the provided configuration.
+
+    Args:
+        config: The workspace configuration to test.
+
+    Returns:
+        A list of connection error messages, empty if connection succeeds.
+    """
+    errors = []
+    db_config = config.get('database', {})
+
+    if not db_config.get('enabled', False):
+        errors.append("Database is not enabled in configuration")
+        return errors
+
+    try:
+        # Import the PostgreSQL backend
+        from mediaplanpy.storage.database import PostgreSQLBackend
+
+        # Create backend instance
+        backend = PostgreSQLBackend(config)
+
+        # Test connection
+        if not backend.test_connection():
+            errors.append("Database connection test failed")
+        else:
+            logger.info("Database connection test successful")
+
+    except ImportError:
+        errors.append("psycopg2-binary is required for database functionality")
+    except Exception as e:
+        errors.append(f"Database connection test failed: {e}")
+
+    return errors
+
+
+def _is_valid_identifier(name: str) -> bool:
+    """
+    Check if a name is a valid SQL identifier.
+
+    Args:
+        name: The identifier to validate.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    if not name:
+        return False
+
+    # Basic validation: alphanumeric plus underscore, must start with letter or underscore
+    import re
+    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', name))
+
+
+def _is_valid_env_var_name(name: str) -> bool:
+    """
+    Check if a name is a valid environment variable name.
+
+    Args:
+        name: The environment variable name to validate.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    if not name:
+        return False
+
+    # Environment variable names should be uppercase letters, digits, and underscores
+    import re
+    return bool(re.match(r'^[A-Z][A-Z0-9_]*$', name))

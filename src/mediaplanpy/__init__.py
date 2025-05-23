@@ -79,6 +79,14 @@ from mediaplanpy.excel import (
     ExcelFormatHandler
 )
 
+# Import database integration (this will patch MediaPlan with database methods)
+try:
+    import mediaplanpy.models.mediaplan_database
+    _database_available = True
+except ImportError:
+    _database_available = False
+    logger.debug("Database functionality not available - psycopg2-binary not installed")
+
 __all__ = [
     # Workspace
     'WorkspaceManager',
@@ -137,3 +145,13 @@ __all__ = [
     # Version
     '__version__'
 ]
+
+# Add database availability info
+def is_database_available():
+    """
+    Check if database functionality is available.
+
+    Returns:
+        True if psycopg2-binary is installed and database functionality is available.
+    """
+    return _database_available

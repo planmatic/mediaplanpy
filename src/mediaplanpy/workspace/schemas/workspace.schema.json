@@ -122,21 +122,21 @@
         },
         "database": {
             "type": "object",
-            "description": "Optional PostgreSQL database configuration",
+            "description": "PostgreSQL database configuration for automatic media plan sync",
             "properties": {
                 "enabled": {
                     "type": "boolean",
                     "default": false,
-                    "description": "Enable database integration"
+                    "description": "Enable automatic database synchronization when saving media plans"
                 },
                 "host": {
                     "type": "string",
-                    "description": "PostgreSQL host"
+                    "description": "PostgreSQL host address"
                 },
                 "port": {
                     "type": "integer",
                     "default": 5432,
-                    "description": "PostgreSQL port"
+                    "description": "PostgreSQL port number"
                 },
                 "database": {
                     "type": "string",
@@ -145,12 +145,35 @@
                 "schema": {
                     "type": "string",
                     "default": "public",
-                    "description": "Schema name"
+                    "description": "Database schema name"
+                },
+                "table_name": {
+                    "type": "string",
+                    "default": "media_plans",
+                    "description": "Table name for storing media plan data"
+                },
+                "username": {
+                    "type": "string",
+                    "description": "Database username for authentication"
+                },
+                "password_env_var": {
+                    "type": "string",
+                    "description": "Environment variable name containing the database password"
                 },
                 "ssl": {
                     "type": "boolean",
                     "default": true,
-                    "description": "Use SSL for database connection"
+                    "description": "Use SSL for database connections"
+                },
+                "connection_timeout": {
+                    "type": "integer",
+                    "default": 30,
+                    "description": "Connection timeout in seconds"
+                },
+                "auto_create_table": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically create the media plans table if it doesn't exist"
                 }
             }
         },
