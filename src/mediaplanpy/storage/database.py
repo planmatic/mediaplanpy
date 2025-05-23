@@ -187,7 +187,7 @@ class PostgreSQLBackend:
             ('campaign_locations', 'TEXT'),  # JSON string
 
             # Line item fields
-            ('lineitem_id', 'VARCHAR(255)'),
+            ('lineitem_id', 'VARCHAR(255) NOT NULL DEFAULT \'placeholder\''),
             ('lineitem_name', 'VARCHAR(255)'),
             ('lineitem_start_date', 'DATE'),
             ('lineitem_end_date', 'DATE'),
@@ -286,7 +286,7 @@ class PostgreSQLBackend:
             create_sql = f"""
             CREATE TABLE {self.schema}.{self.table_name} (
                 {', '.join(column_definitions)},
-                PRIMARY KEY (workspace_id, meta_id, COALESCE(lineitem_id, 'placeholder'))
+                PRIMARY KEY (workspace_id, meta_id, lineitem_id)
             )
             """
 
@@ -348,20 +348,6 @@ class PostgreSQLBackend:
             raise DatabaseError(f"Failed to delete media plan {meta_id}: {e}")
 
     def insert_media_plan(self, flattened_data: pd.DataFrame, workspace_id: str, workspace_name: str) -> int:
-        """
-        Insert media plan data into the database.
-
-        Args:
-            flattened_data: DataFrame with flattened media plan data.
-            workspace_id: The workspace ID.
-            workspace_name: The workspace name.
-
-        Returns:
-            Number of rows inserted.
-
-        Raises:
-            DatabaseError: If insertion fails.
-        """
         if flattened_data.empty:
             logger.warning("No data to insert")
             return 0
@@ -384,22 +370,43 @@ class PostgreSQLBackend:
             # Reorder columns to match schema
             df = df[expected_columns]
 
+            # Convert numpy types to Python types
+            def fix_numpy_types(values_list):
+                """Convert numpy types to Python types."""
+                import numpy as np
+                import pandas as pd
+
+                fixed_values = []
+                for row in values_list:
+                    fixed_row = []
+                    for val in row:
+                        if isinstance(val, (np.integer, np.int32, np.int64)):
+                            fixed_row.append(int(val))
+                        elif isinstance(val, (np.floating, np.float32, np.float64)):
+                            fixed_row.append(float(val))
+                        elif pd.isna(val):
+                            fixed_row.append(None)
+                        else:
+                            fixed_row.append(val)
+                    fixed_values.append(tuple(fixed_row))
+                return fixed_values
+
             # Convert DataFrame to list of tuples for bulk insert
             values = [tuple(row) for row in df.itertuples(index=False, name=None)]
+            values = fix_numpy_types(values)
 
-            # Create INSERT statement
-            placeholders = ', '.join(['%s'] * len(expected_columns))
+            # Create INSERT statement for execute_values
             insert_sql = f"""
             INSERT INTO {self.schema}.{self.table_name} 
             ({', '.join(expected_columns)}) 
-            VALUES ({placeholders})
+            VALUES %s
             """
 
             with self.connect() as conn:
                 with conn.cursor() as cursor:
                     # Use execute_values for better performance with multiple rows
                     self.psycopg2_extras.execute_values(
-                        cursor, insert_sql, values, template=None, page_size=100
+                        cursor, insert_sql, values, page_size=100
                     )
                     rows_inserted = cursor.rowcount
                     conn.commit()
@@ -409,6 +416,7 @@ class PostgreSQLBackend:
 
         except Exception as e:
             raise DatabaseError(f"Failed to insert media plan data: {e}")
+
 
     def validate_schema(self) -> List[str]:
         """

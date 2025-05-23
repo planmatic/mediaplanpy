@@ -171,7 +171,7 @@ def _prepare_database_data(self, workspace_id: str, workspace_name: str) -> pd.D
         return pd.DataFrame()
 
 
-def test_database_connection(workspace_manager: WorkspaceManager) -> bool:
+def test_database_connection(cls, workspace_manager: WorkspaceManager) -> bool:
     """
     Test database connection for a workspace.
 
@@ -204,7 +204,7 @@ def test_database_connection(workspace_manager: WorkspaceManager) -> bool:
         return False
 
 
-def create_database_table(workspace_manager: WorkspaceManager) -> bool:
+def create_database_table(cls, workspace_manager: WorkspaceManager) -> bool:
     """
     Create the database table for media plans.
 
@@ -234,7 +234,7 @@ def create_database_table(workspace_manager: WorkspaceManager) -> bool:
         return False
 
 
-def validate_database_schema(workspace_manager: WorkspaceManager) -> bool:
+def validate_database_schema(cls, workspace_manager: WorkspaceManager) -> bool:
     """
     Validate database schema against expected structure.
 

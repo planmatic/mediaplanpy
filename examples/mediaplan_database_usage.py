@@ -54,7 +54,7 @@ def create_test_workspace_config():
             "database": "mediaplanpy",
             "schema": "public",
             "table_name": "media_plans",
-            "username": "superuser",
+            "username": "postgres",
             "password_env_var": "MEDIAPLAN_DB_PASSWORD",
             "ssl": False,  # Set to True for production
             "connection_timeout": 30,
