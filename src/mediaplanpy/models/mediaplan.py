@@ -214,20 +214,19 @@ class MediaPlan(BaseModel):
                 return line_item
         return None
 
-    def save_lineitem(self, line_item: LineItem, validate: bool = True) -> LineItem:
+    def update_lineitem(self, line_item: LineItem, validate: bool = False) -> LineItem:
         """
-        Save changes to an existing line item in the media plan.
+        Update an existing line item in the media plan.
+
+        Note: Changes are only made to the in-memory media plan.
+        Call mediaplan.save() to persist changes to storage.
 
         Args:
-            line_item: The LineItem instance to save (must have existing ID).
-            validate: Whether to validate the line item before saving (default: True).
+            line_item: The LineItem instance to update (must have existing ID)
+            validate: Whether to validate the line item before updating
 
         Returns:
-            The updated LineItem instance.
-
-        Raises:
-            ValidationError: If validation fails.
-            ValueError: If line item ID not found in media plan.
+            The updated LineItem instance
         """
         # Find the existing line item by ID
         existing_index = None
