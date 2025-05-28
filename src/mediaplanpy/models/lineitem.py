@@ -223,14 +223,14 @@ class LineItem(BaseModel):
                 errors.append(f"{field_name} must be non-negative, got: {field_value}")
 
         # Channel validation
-        if self.channel and self.channel.lower() not in self.VALID_CHANNELS:
-            errors.append(f"Unrecognized channel: {self.channel}. "
-                        f"Valid channels are: {', '.join(self.VALID_CHANNELS)}")
+        # if self.channel and self.channel.lower() not in self.VALID_CHANNELS:
+        #     errors.append(f"Unrecognized channel: {self.channel}. "
+        #                 f"Valid channels are: {', '.join(self.VALID_CHANNELS)}")
 
         # KPI validation
-        if self.kpi and self.kpi.lower() not in self.VALID_KPIS:
-            errors.append(f"Unrecognized KPI: {self.kpi}. "
-                        f"Valid KPIs are: {', '.join(self.VALID_KPIS)}")
+        # if self.kpi and self.kpi.lower() not in self.VALID_KPIS:
+        #     errors.append(f"Unrecognized KPI: {self.kpi}. "
+        #                 f"Valid KPIs are: {', '.join(self.VALID_KPIS)}")
 
         # Custom field validation - ensure custom fields only have values when main field is 'other'
         custom_field_validations = [
