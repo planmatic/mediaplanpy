@@ -76,5 +76,9 @@ disallow_incomplete_defs = true
 testpaths = ["tests"]
 python_files = "test_*.py"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
 [tool.setuptools.package-data]
 "mediaplanpy.workspace" = ["schemas/*.json"]
+"mediaplanpy.schema" = ["definitions/*/*.json"]
