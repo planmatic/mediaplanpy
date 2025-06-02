@@ -17,7 +17,7 @@ from pydantic import Field, field_validator, model_validator
 from mediaplanpy.models.base import BaseModel
 from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
 from mediaplanpy.models.lineitem import LineItem
-from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError
+from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
 
@@ -107,97 +107,145 @@ class MediaPlan(BaseModel):
 
         return errors
 
-    def create_lineitem(self, line_item: Union[LineItem, Dict[str, Any]],
-                       validate: bool = True, **kwargs) -> LineItem:
+    def create_lineitem(self, line_items: Union[LineItem, Dict[str, Any], List[Union[LineItem, Dict[str, Any]]]],
+                        validate: bool = True, **kwargs) -> Union[LineItem, List[LineItem]]:
         """
-        Create and add a new line item to the media plan.
-
-        The line item's ID will be automatically generated if not provided.
-        Start and end dates will be inherited from the campaign if not provided.
-        Cost total will default to 0 if not provided.
+        Create one or more line items for this media plan.
 
         Args:
-            line_item: The line item to add, either as a LineItem instance
-                      or a dictionary of parameters.
-            validate: Whether to validate the line item before adding (default: True).
-            **kwargs: Additional line item parameters.
+            line_items: Single line item or list of line items to create.
+                       Each item can be a LineItem object or dictionary.
+            validate: Whether to validate line items before creation.
+            **kwargs: Additional line item parameters (applied to all items if line_items is a list).
 
         Returns:
-            The created LineItem instance.
+            Single LineItem object if input was single item, or List[LineItem]
+            if input was a list.
 
         Raises:
-            ValidationError: If the line item fails validation.
+            ValidationError: If line item data is invalid
+            MediaPlanError: If creation fails
+
+        Example:
+            # Single line item (backward compatible)
+            item = plan.create_lineitem({"name": "Campaign", "cost_total": 5000})
+
+            # Multiple line items (new capability)
+            items = plan.create_lineitem([item1_dict, item2_dict])
         """
         from datetime import date
         from decimal import Decimal
+        import copy
 
-        # Convert dict to LineItem if necessary
-        if isinstance(line_item, dict):
-            # Create a copy to avoid modifying the original
-            line_item_data = line_item.copy()
-            line_item_data.update(kwargs)  # Merge any additional kwargs
+        # Step 1: Input Processing - Determine if input is single item or list
+        is_single_input = not isinstance(line_items, list)
 
-            # Generate ID if not provided
-            if 'id' not in line_item_data or not line_item_data['id']:
-                line_item_data['id'] = f"li_{uuid.uuid4().hex[:8]}"
-
-            # Inherit start date from campaign if not provided
-            if 'start_date' not in line_item_data or not line_item_data['start_date']:
-                line_item_data['start_date'] = self.campaign.start_date
-
-            # Inherit end date from campaign if not provided
-            if 'end_date' not in line_item_data or not line_item_data['end_date']:
-                line_item_data['end_date'] = self.campaign.end_date
-
-            # Set default cost_total to 0 if not provided
-            if 'cost_total' not in line_item_data or line_item_data['cost_total'] is None:
-                line_item_data['cost_total'] = Decimal('0')
-
-            # Convert string dates to date objects if necessary
-            for date_field in ['start_date', 'end_date']:
-                if isinstance(line_item_data.get(date_field), str):
-                    line_item_data[date_field] = date.fromisoformat(line_item_data[date_field])
-
-            # Convert cost_total to Decimal if necessary
-            if isinstance(line_item_data.get('cost_total'), (int, float, str)):
-                line_item_data['cost_total'] = Decimal(str(line_item_data['cost_total']))
-
-            line_item = LineItem.from_dict(line_item_data)
+        # Normalize to list for uniform processing
+        if is_single_input:
+            items_to_process = [line_items]
         else:
-            # For LineItem instances, apply kwargs if any provided
-            if kwargs:
-                line_item_dict = line_item.to_dict()
-                line_item_dict.update(kwargs)
-                line_item = LineItem.from_dict(line_item_dict)
+            items_to_process = line_items
 
-            # Generate ID if missing
-            if not line_item.id:
-                line_item.id = f"li_{uuid.uuid4().hex[:8]}"
+        # Step 2: Pre-process and validate all items before creating any
+        processed_items = []
+        validation_errors = []
 
-        # Validate the line item if requested
-        if validate:
-            # Use the new consolidated validate() method
-            validation_errors = line_item.validate()
-            if validation_errors:
-                raise ValidationError(f"Invalid line item: {'; '.join(validation_errors)}")
+        for i, line_item in enumerate(items_to_process):
+            try:
+                # Convert dict to LineItem if necessary
+                if isinstance(line_item, dict):
+                    # Create a copy to avoid modifying the original
+                    line_item_data = line_item.copy()
+                    line_item_data.update(kwargs)  # Merge any additional kwargs
 
-            # Validate line item dates against campaign
-            if line_item.start_date < self.campaign.start_date:
-                raise ValidationError(
-                    f"Line item starts before campaign: "
-                    f"{line_item.start_date} < {self.campaign.start_date}"
-                )
+                    # Generate ID if not provided
+                    if 'id' not in line_item_data or not line_item_data['id']:
+                        line_item_data['id'] = f"li_{uuid.uuid4().hex[:8]}"
 
-            if line_item.end_date > self.campaign.end_date:
-                raise ValidationError(
-                    f"Line item ends after campaign: "
-                    f"{line_item.end_date} > {self.campaign.end_date}"
-                )
+                    # Inherit start date from campaign if not provided
+                    if 'start_date' not in line_item_data or not line_item_data['start_date']:
+                        line_item_data['start_date'] = self.campaign.start_date
 
-        # Add to the line items list
-        self.lineitems.append(line_item)
+                    # Inherit end date from campaign if not provided
+                    if 'end_date' not in line_item_data or not line_item_data['end_date']:
+                        line_item_data['end_date'] = self.campaign.end_date
 
-        return line_item
+                    # Set default cost_total to 0 if not provided
+                    if 'cost_total' not in line_item_data or line_item_data['cost_total'] is None:
+                        line_item_data['cost_total'] = Decimal('0')
+
+                    # Convert string dates to date objects if necessary
+                    for date_field in ['start_date', 'end_date']:
+                        if isinstance(line_item_data.get(date_field), str):
+                            line_item_data[date_field] = date.fromisoformat(line_item_data[date_field])
+
+                    # Convert cost_total to Decimal if necessary
+                    if isinstance(line_item_data.get('cost_total'), (int, float, str)):
+                        line_item_data['cost_total'] = Decimal(str(line_item_data['cost_total']))
+
+                    # Create LineItem instance
+                    processed_item = LineItem.from_dict(line_item_data)
+                else:
+                    # For LineItem instances, apply kwargs if any provided
+                    if kwargs:
+                        line_item_dict = line_item.to_dict()
+                        line_item_dict.update(kwargs)
+                        processed_item = LineItem.from_dict(line_item_dict)
+                    else:
+                        processed_item = line_item
+
+                    # Generate ID if missing
+                    if not processed_item.id:
+                        processed_item.id = f"li_{uuid.uuid4().hex[:8]}"
+
+                # Validate the individual item if requested
+                if validate:
+                    # Use the consolidated validate() method
+                    item_validation_errors = processed_item.validate()
+                    if item_validation_errors:
+                        validation_errors.extend([f"Item {i}: {error}" for error in item_validation_errors])
+                        continue
+
+                    # Validate line item dates against campaign
+                    if processed_item.start_date < self.campaign.start_date:
+                        validation_errors.append(
+                            f"Item {i}: Line item starts before campaign: "
+                            f"{processed_item.start_date} < {self.campaign.start_date}"
+                        )
+
+                    if processed_item.end_date > self.campaign.end_date:
+                        validation_errors.append(
+                            f"Item {i}: Line item ends after campaign: "
+                            f"{processed_item.end_date} > {self.campaign.end_date}"
+                        )
+
+                processed_items.append(processed_item)
+
+            except Exception as e:
+                validation_errors.append(f"Item {i}: {str(e)}")
+
+        # Step 3: Check all validation errors before proceeding
+        if validation_errors:
+            raise ValidationError(f"Batch validation failed: {'; '.join(validation_errors)}")
+
+        # Step 4: Atomic Operations - backup current state before making changes
+        original_lineitems = copy.deepcopy(self.lineitems)
+
+        try:
+            # Add all items to the line items list
+            for processed_item in processed_items:
+                self.lineitems.append(processed_item)
+
+            # Step 5: Return Value Logic - return in format matching input type
+            if is_single_input:
+                return processed_items[0]
+            else:
+                return processed_items
+
+        except Exception as e:
+            # Rollback: restore original state if anything fails during addition
+            self.lineitems = original_lineitems
+            raise MediaPlanError(f"Failed to create line items: {str(e)}")
 
     def load_lineitem(self, line_item_id: str) -> Optional[LineItem]:
         """
