@@ -7,6 +7,7 @@ including version tracking, validation, and migration.
 
 import logging
 
+from mediaplanpy.schema.manager import SchemaManager
 from mediaplanpy.schema.registry import SchemaRegistry
 from mediaplanpy.schema.validator import SchemaValidator
 from mediaplanpy.schema.migration import SchemaMigrator
@@ -40,6 +41,7 @@ def migrate(media_plan, from_version, to_version):
     return default_migrator.migrate(media_plan, from_version, to_version)
 
 __all__ = [
+    'SchemaManager',
     'SchemaRegistry',
     'SchemaValidator',
     'SchemaMigrator',

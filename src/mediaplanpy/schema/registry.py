@@ -2,17 +2,14 @@
 Schema registry module for mediaplanpy.
 
 This module provides a registry for schema versions and utilities
-for loading schema definitions from the repository.
+for loading schema definitions from bundled files (backward compatibility wrapper).
 """
 
-import os
-import json
 import logging
-import requests
-import pathlib
-from typing import Dict, Any, List, Optional, Set, Union, Tuple
+from typing import Dict, Any, List, Optional
 
 from mediaplanpy.exceptions import SchemaError, SchemaRegistryError, SchemaVersionError
+from mediaplanpy.schema.manager import SchemaManager
 
 logger = logging.getLogger("mediaplanpy.schema.registry")
 
@@ -21,96 +18,65 @@ class SchemaRegistry:
     """
     Registry for media plan schema versions.
 
-    Provides utilities to load schema definitions from the repository
-    and track supported schema versions.
+    This class now serves as a backward compatibility wrapper around
+    the new SchemaManager, which accesses bundled schema files directly.
     """
-
-    # Default repository URL for schema definitions
-    DEFAULT_REPO_URL = "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/"
-
-    # Schema files to load for each version
-    SCHEMA_FILES = ["mediaplan.schema.json", "campaign.schema.json", "lineitem.schema.json"]
 
     def __init__(self, repo_url: Optional[str] = None, local_cache_dir: Optional[str] = None):
         """
         Initialize a SchemaRegistry.
 
         Args:
-            repo_url: URL of the schema repository. If None, uses the default.
-            local_cache_dir: Directory to cache schemas locally. If None, uses a default.
+            repo_url: Deprecated. Schema files are now bundled with the SDK.
+            local_cache_dir: Deprecated. No caching is needed for bundled files.
         """
-        self.repo_url = repo_url or self.DEFAULT_REPO_URL
+        # Log deprecation warnings for old parameters
+        if repo_url is not None:
+            logger.warning(
+                "repo_url parameter is deprecated. Schema files are now bundled with the SDK."
+            )
+        if local_cache_dir is not None:
+            logger.warning(
+                "local_cache_dir parameter is deprecated. No caching is needed for bundled files."
+            )
 
-        # Set up local cache directory
-        if local_cache_dir:
-            self.local_cache_dir = pathlib.Path(local_cache_dir)
-        else:
-            # Default to ~/.mediaplanpy/schemas
-            home = pathlib.Path.home()
-            self.local_cache_dir = home / ".mediaplanpy" / "schemas"
-
-        # Create cache directory if it doesn't exist
-        os.makedirs(self.local_cache_dir, exist_ok=True)
-
-        # Initialize version info and schemas
-        self.versions_info = None
-        self.schemas = {}
+        # Use SchemaManager internally
+        self._schema_manager = SchemaManager()
 
     def load_versions_info(self, force_refresh: bool = False) -> Dict[str, Any]:
         """
-        Load version information from repository or local cache.
+        Load version information from bundled schema files.
 
         Args:
-            force_refresh: If True, force a refresh from the repository.
+            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
             Dictionary containing version information.
-
-        Raises:
-            SchemaRegistryError: If version information cannot be loaded.
         """
-        if self.versions_info is not None and not force_refresh:
-            return self.versions_info
-
-        # Try to load from local cache first
-        cache_path = self.local_cache_dir / "schema_versions.json"
+        if force_refresh:
+            logger.debug("force_refresh parameter ignored for bundled schemas")
 
         try:
-            # If we need to refresh or the cache doesn't exist, fetch from repository
-            if force_refresh or not cache_path.exists():
-                versions_url = f"{self.repo_url}/schemas/schema_versions.json"
-                logger.debug(f"Fetching schema versions from {versions_url}")
+            supported_versions = self._schema_manager.get_supported_versions()
 
-                response = requests.get(versions_url)
-                if response.status_code != 200:
-                    raise SchemaRegistryError(f"Failed to fetch schema versions: {response.status_code}")
+            # Determine current version (highest version number)
+            current_version = supported_versions[-1] if supported_versions else "v1.0.0"
 
-                versions_data = response.json()
-
-                # Cache the versions data
-                with open(cache_path, 'w') as f:
-                    json.dump(versions_data, f, indent=2)
-            else:
-                # Load from cache
-                logger.debug(f"Loading schema versions from cache: {cache_path}")
-                with open(cache_path, 'r') as f:
-                    versions_data = json.load(f)
-
-            # Store and return
-            self.versions_info = versions_data
-            return versions_data
-
+            return {
+                "current": current_version,
+                "supported": supported_versions,
+                "deprecated": [],  # No deprecated versions for now
+                "description": "Schema versions bundled with mediaplanpy SDK"
+            }
         except Exception as e:
-            # Fallback to default version info if everything fails
-            logger.warning(f"Error loading schema versions: {str(e)}. Using default.")
-            default_info = {
-                "current": "v0.0.0",
-                "supported": ["v0.0.0"],
+            logger.error(f"Error loading version info: {e}")
+            # Fallback to default
+            return {
+                "current": "v1.0.0",
+                "supported": ["v0.0.0", "v1.0.0"],
                 "deprecated": [],
                 "description": "Default schema version configuration"
             }
-            self.versions_info = default_info
-            return default_info
 
     def get_current_version(self) -> str:
         """
@@ -119,8 +85,8 @@ class SchemaRegistry:
         Returns:
             The current schema version string.
         """
-        versions_info = self.load_versions_info(force_refresh=True)
-        return versions_info.get("current", "v0.0.0")
+        versions_info = self.load_versions_info()
+        return versions_info.get("current", "v1.0.0")
 
     def get_supported_versions(self) -> List[str]:
         """
@@ -129,8 +95,7 @@ class SchemaRegistry:
         Returns:
             List of supported schema version strings.
         """
-        versions_info = self.load_versions_info(force_refresh=True)
-        return versions_info.get("supported", ["v0.0.0"])
+        return self._schema_manager.get_supported_versions()
 
     def is_version_supported(self, version: str) -> bool:
         """
@@ -170,22 +135,30 @@ class SchemaRegistry:
             schema_name: The schema file name.
 
         Returns:
-            The full path to the schema in the repository.
-        """
-        return f"{self.repo_url}/schemas/{version}/{schema_name}"
+            The path to the schema (for backward compatibility).
 
-    def get_local_schema_path(self, version: str, schema_name: str) -> pathlib.Path:
+        Note:
+            This method is deprecated as schemas are now bundled.
         """
-        Get the local cache path for a specific schema.
+        logger.warning("get_schema_path is deprecated for bundled schemas")
+        return f"bundled://schemas/{version}/{schema_name}"
+
+    def get_local_schema_path(self, version: str, schema_name: str) -> str:
+        """
+        Get the local path for a specific schema.
 
         Args:
             version: The schema version.
             schema_name: The schema file name.
 
         Returns:
-            Path to the local cached schema file.
+            The path to the bundled schema file.
+
+        Note:
+            This method is deprecated as schemas are now bundled.
         """
-        return self.local_cache_dir / version / schema_name
+        logger.warning("get_local_schema_path is deprecated for bundled schemas")
+        return str(self._schema_manager._get_schema_path(version, schema_name))
 
     def load_schema(self, version: Optional[str] = None,
                    schema_name: str = "mediaplan.schema.json",
@@ -196,7 +169,7 @@ class SchemaRegistry:
         Args:
             version: The schema version to load. If None, uses the current version.
             schema_name: The schema file name to load.
-            force_refresh: If True, force a refresh from the repository.
+            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
             The schema as a dictionary.
@@ -205,55 +178,32 @@ class SchemaRegistry:
             SchemaRegistryError: If the schema cannot be loaded.
             SchemaVersionError: If the schema version is not supported.
         """
+        if force_refresh:
+            logger.debug("force_refresh parameter ignored for bundled schemas")
+
         # Determine version if not specified
         if version is None:
             version = self.get_current_version()
 
-        # Check if version is supported
-        self.assert_version_supported(version)
+        # Map schema filename to schema type
+        schema_type_map = {
+            "mediaplan.schema.json": "mediaplan",
+            "campaign.schema.json": "campaign",
+            "lineitem.schema.json": "lineitem"
+        }
 
-        # Check if we have this schema cached in memory
-        cache_key = f"{version}/{schema_name}"
-        if cache_key in self.schemas and not force_refresh:
-            return self.schemas[cache_key]
-
-        # Create directory for version if it doesn't exist
-        version_dir = self.local_cache_dir / version
-        os.makedirs(version_dir, exist_ok=True)
-
-        # Get local and remote paths
-        local_path = self.get_local_schema_path(version, schema_name)
-        remote_url = self.get_schema_path(version, schema_name)
+        schema_type = schema_type_map.get(schema_name)
+        if not schema_type:
+            raise SchemaRegistryError(f"Unknown schema file: {schema_name}")
 
         try:
-            # If we need to refresh or the cache doesn't exist, fetch from repository
-            if force_refresh or not local_path.exists():
-                logger.debug(f"Fetching schema from {remote_url}")
-
-                response = requests.get(remote_url)
-                if response.status_code != 200:
-                    raise SchemaRegistryError(f"Failed to fetch schema: {response.status_code}")
-
-                schema_data = response.json()
-
-                # Cache the schema data
-                with open(local_path, 'w') as f:
-                    json.dump(schema_data, f, indent=2)
-            else:
-                # Load from cache
-                logger.debug(f"Loading schema from cache: {local_path}")
-                with open(local_path, 'r') as f:
-                    schema_data = json.load(f)
-
-            # Store in memory cache and return
-            self.schemas[cache_key] = schema_data
-            return schema_data
-
-        except SchemaVersionError as e:
-            # Re-raise version errors
-            raise
+            return self._schema_manager.get_schema(schema_type, version)
+        except FileNotFoundError as e:
+            raise SchemaRegistryError(f"Schema not found: {e}")
+        except ValueError as e:
+            raise SchemaVersionError(f"Invalid schema request: {e}")
         except Exception as e:
-            raise SchemaRegistryError(f"Error loading schema {schema_name} (version {version}): {str(e)}")
+            raise SchemaRegistryError(f"Error loading schema: {e}")
 
     def load_all_schemas(self, version: Optional[str] = None,
                         force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
@@ -262,29 +212,43 @@ class SchemaRegistry:
 
         Args:
             version: The schema version to load. If None, uses the current version.
-            force_refresh: If True, force a refresh from the repository.
+            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
-            Dictionary mapping schema names to schema definitions.
+            Dictionary mapping schema filenames to schema definitions.
 
         Raises:
             SchemaRegistryError: If any schema cannot be loaded.
             SchemaVersionError: If the schema version is not supported.
         """
+        if force_refresh:
+            logger.debug("force_refresh parameter ignored for bundled schemas")
+
         # Determine version if not specified
         if version is None:
             version = self.get_current_version()
 
-        # Check if version is supported
-        self.assert_version_supported(version)
+        try:
+            schemas = self._schema_manager.get_all_schemas(version)
 
-        result = {}
-        for schema_name in self.SCHEMA_FILES:
-            try:
-                schema = self.load_schema(version, schema_name, force_refresh)
-                result[schema_name] = schema
-            except SchemaRegistryError as e:
-                # Re-raise with additional context
-                raise SchemaRegistryError(f"Failed to load schema {schema_name}: {str(e)}")
+            # Convert to filename-based mapping for backward compatibility
+            filename_schemas = {}
+            for schema_type, schema_data in schemas.items():
+                filename = f"{schema_type}.schema.json"
+                filename_schemas[filename] = schema_data
 
-        return result
+            return filename_schemas
+
+        except Exception as e:
+            raise SchemaRegistryError(f"Error loading schemas for version {version}: {e}")
+
+    # Deprecated properties for backward compatibility
+    @property
+    def repo_url(self) -> str:
+        """Deprecated: Repository URL is no longer used."""
+        return "bundled://schemas"
+
+    @property
+    def local_cache_dir(self) -> str:
+        """Deprecated: Local cache directory is no longer used."""
+        return "bundled://cache"

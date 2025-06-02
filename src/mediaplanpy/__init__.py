@@ -47,7 +47,8 @@ from mediaplanpy.schema import (
     migrate,
     SchemaRegistry,
     SchemaValidator,
-    SchemaMigrator
+    SchemaMigrator,
+    SchemaManager
 )
 
 # Import models
@@ -118,6 +119,7 @@ __all__ = [
     'SchemaRegistry',
     'SchemaValidator',
     'SchemaMigrator',
+    'SchemaManager',
 
     # Models
     'BaseModel',

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/laurent-colard-l5i/media-plan-ods/main/schemas/v0.0.0/lineitem.schema.json",
+  "title": "Line Item",
+  "type": "object",
+  "required": ["id", "channel", "platform", "publisher", "start_date", "end_date", "budget", "kpi"],
+  "properties": {
+    "id": { "type": "string" },
+    "channel": { "type": "string" },
+    "platform": { "type": "string" },
+    "publisher": { "type": "string" },
+    "start_date": { "type": "string", "format": "date" },
+    "end_date": { "type": "string", "format": "date" },
+    "budget": { "type": "number" },
+    "kpi": { "type": "string" },
+    "creative_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/laurent-colard-l5i/media-plan-ods/main/schemas/v1.0.0/mediaplan.schema.json",
+  "title": "Media Plan",
+  "type": "object",
+  "required": ["meta", "campaign", "lineitems"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "required": ["id", "schema_version", "created_by", "created_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "schema_version": { "type": "string" },
+        "name": { "type": "string" },
+        "created_by": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "comments": { "type": "string" }
+      }
+    },
+    "campaign": { "$ref": "campaign.schema.json" },
+    "lineitems": {
+      "type": "array",
+      "items": { "$ref": "lineitem.schema.json" }
+    }
+  }
+}

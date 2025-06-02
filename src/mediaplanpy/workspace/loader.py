@@ -705,3 +705,13 @@ class WorkspaceManager:
 
         from mediaplanpy.storage import get_storage_backend
         return get_storage_backend(self.get_resolved_config())
+
+    def get_schema_manager(self) -> 'SchemaManager':
+        """
+        Get SchemaManager instance for this workspace.
+
+        Returns:
+            SchemaManager instance
+        """
+        from mediaplanpy.schema.manager import SchemaManager
+        return SchemaManager()
