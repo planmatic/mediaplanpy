@@ -75,8 +75,6 @@ class WorkspaceManager:
         """
         Get the schema registry for this workspace.
 
-        The registry is initialized with settings from the workspace configuration.
-
         Returns:
             A SchemaRegistry instance.
 
@@ -87,19 +85,9 @@ class WorkspaceManager:
             raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
         if self._schema_registry is None:
-            # Initialize schema registry with workspace settings
-            schema_settings = self.get_schema_settings()
-            repo_url = schema_settings.get('repository_url')
-            local_cache_dir = schema_settings.get('local_cache_dir')
-
-            # Resolve paths if needed
-            if local_cache_dir:
-                local_cache_dir = self._resolve_path_variables(local_cache_dir)
-
-            self._schema_registry = SchemaRegistry(
-                repo_url=repo_url,
-                local_cache_dir=local_cache_dir
-            )
+            # CLEANED: No longer need repo_url or local_cache_dir parameters
+            # SchemaRegistry now uses bundled schemas internally
+            self._schema_registry = SchemaRegistry()
 
         return self._schema_registry
 

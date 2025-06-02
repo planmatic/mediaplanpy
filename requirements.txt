@@ -44,7 +44,6 @@ pytest==8.3.5
 python-dateutil==2.9.0.post0
 pytz==2025.2
 referencing==0.36.2
-requests==2.32.3
 requests-oauthlib==2.0.0
 rpds-py==0.24.0
 rsa==4.9.1
