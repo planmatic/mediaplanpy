@@ -55,6 +55,7 @@ mediaplanpy = "mediaplanpy.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+include-package-data = true
 
 [tool.black]
 line-length = 100
