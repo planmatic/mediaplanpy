@@ -85,8 +85,7 @@ class WorkspaceManager:
             raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
         if self._schema_registry is None:
-            # CLEANED: No longer need repo_url or local_cache_dir parameters
-            # SchemaRegistry now uses bundled schemas internally
+            # Initialize schema registry (no parameters needed for bundled schemas)
             self._schema_registry = SchemaRegistry()
 
         return self._schema_registry
@@ -275,7 +274,7 @@ class WorkspaceManager:
         if os.path.exists(settings_file_path) and not overwrite:
             raise WorkspaceError(f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
 
-        # Create default configuration
+        # Create default configuration (updated to remove deprecated schema fields)
         config = {
             "workspace_id": workspace_id,
             "workspace_name": workspace_name,
@@ -290,10 +289,7 @@ class WorkspaceManager:
             },
             "schema_settings": {
                 "preferred_version": "v1.0.0",
-                "auto_migrate": False,
-                "offline_mode": False,
-                "repository_url": "https://raw.githubusercontent.com/laurent-colard-l5i/mediaplanschema/main/",
-                "local_cache_dir": "${user_home}/.mediaplanpy/schemas"
+                "auto_migrate": False
             },
             "database": {
                 "enabled": False
@@ -538,7 +534,6 @@ class WorkspaceManager:
         Supports:
         - ${user_documents}: User's Documents directory
         - ${user_home}: User's home directory
-        - References to other config values with ${config.section.key}
 
         Args:
             path: The path string to resolve.
@@ -563,8 +558,6 @@ class WorkspaceManager:
         if '${user_home}' in path:
             home = os.environ.get('HOME') or os.environ.get('USERPROFILE', '')
             path = path.replace('${user_home}', home)
-
-        # TODO: Implement config reference resolution with ${config.section.key}
 
         return path
 

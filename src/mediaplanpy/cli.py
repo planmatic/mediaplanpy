@@ -80,7 +80,6 @@ def setup_argparse():
     # schema versions
     schema_versions_parser = schema_subparsers.add_parser("versions", help="List supported schema versions")
     schema_versions_parser.add_argument("--workspace", help="Path to workspace.json")
-    schema_versions_parser.add_argument("--refresh", action="store_true", help="Force refresh from repository")
 
     # schema validate
     schema_validate_parser = schema_subparsers.add_parser("validate", help="Validate a media plan against schema")
@@ -146,14 +145,18 @@ def handle_workspace_init(args):
     """Handle the 'workspace init' command."""
     try:
         manager = WorkspaceManager()
-        config = manager.create_default_workspace(args.path, overwrite=args.force)
-        print(f"✅ Created workspace '{config['workspace_name']}' at {args.path}")
+        workspace_id, settings_path = manager.create(
+            settings_path_name=os.path.dirname(args.path) if args.path != "./workspace.json" else None,
+            settings_file_name=os.path.basename(args.path) if args.path != "./workspace.json" else None,
+            overwrite=args.force
+        )
+        config = manager.config
+        print(f"✅ Created workspace '{config['workspace_name']}' with ID '{workspace_id}' at {settings_path}")
         print(f"Storage mode: {config['storage']['mode']}")
         if config['storage']['mode'] == 'local':
             print(f"Local storage path: {config['storage']['local']['base_path']}")
         print(f"Schema settings:")
         print(f"  Preferred version: {config['schema_settings']['preferred_version']}")
-        print(f"  Repository URL: {config['schema_settings']['repository_url']}")
     except WorkspaceError as e:
         print(f"❌ Error creating workspace: {e}")
         return 1
@@ -220,11 +223,8 @@ def handle_workspace_info(args):
 
         print("\nSchema Settings:")
         schema_settings = resolved.get('schema_settings', {})
-        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v0.0.0')}")
+        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v1.0.0')}")
         print(f"  Auto Migrate: {schema_settings.get('auto_migrate', False)}")
-        print(f"  Offline Mode: {schema_settings.get('offline_mode', False)}")
-        print(f"  Repository URL: {schema_settings.get('repository_url', 'default')}")
-        print(f"  Local Cache Directory: {schema_settings.get('local_cache_dir', 'default')}")
 
         print("\nDatabase Configuration:")
         db_config = config['database']
@@ -297,8 +297,7 @@ def handle_schema_info(args):
         print(f"Schema Information:")
         print(f"  Current Version: {current_version}")
         print(f"  Supported Versions: {', '.join(supported_versions)}")
-        print(f"  Repository URL: {registry.repo_url}")
-        print(f"  Local Cache Directory: {registry.local_cache_dir}")
+        print(f"  Schemas: Bundled with SDK")
 
     except (WorkspaceError, SchemaError) as e:
         print(f"❌ Error getting schema information: {e}")
@@ -318,8 +317,8 @@ def handle_schema_versions(args):
             # Use default registry
             registry = SchemaRegistry()
 
-        # Get versions (with optional refresh)
-        versions_info = registry.load_versions_info(force_refresh=args.refresh)
+        # Get versions
+        versions_info = registry.load_versions_info()
 
         print(f"Schema Versions:")
         print(f"  Current: {versions_info.get('current')}")

@@ -67,20 +67,36 @@ class SchemaValidator:
                 f"Supported versions: {', '.join(self.registry.get_supported_versions())}"
             )
 
-        # Load the schema
+        # Load the main schema and all related schemas for this version
         try:
-            schema = self.registry.load_schema(version, "mediaplan.schema.json")
+            main_schema = self.registry.load_schema(version, "mediaplan.schema.json")
+            all_schemas = self.registry.load_all_schemas(version)
         except SchemaRegistryError as e:
             raise SchemaRegistryError(f"Failed to load schema for validation: {str(e)}")
 
-        # Create a resolver for references
-        schema_path = self.registry.get_schema_path(version, "mediaplan.schema.json")
-        resolver = RefResolver(base_uri=schema_path, referrer=schema)
+        # Create a resolver with bundled schemas
+        # Map schema filenames to their URI references for the resolver store
+        schema_store = {}
+        for filename, schema_content in all_schemas.items():
+            # Create URIs that match the $ref patterns used in schemas
+            if filename == "mediaplan.schema.json":
+                schema_store[filename] = schema_content
+            elif filename == "campaign.schema.json":
+                schema_store["campaign.schema.json"] = schema_content
+            elif filename == "lineitem.schema.json":
+                schema_store["lineitem.schema.json"] = schema_content
+
+        # Create resolver with the schema store
+        resolver = RefResolver(
+            base_uri="",  # Empty base URI since we're using a store
+            referrer=main_schema,
+            store=schema_store
+        )
 
         # Validate
         errors = []
         try:
-            jsonschema.validate(instance=media_plan, schema=schema, resolver=resolver)
+            jsonschema.validate(instance=media_plan, schema=main_schema, resolver=resolver)
         except JsonSchemaValidationError as e:
             # Extract useful validation errors
             path = " -> ".join([str(p) for p in e.path]) if e.path else "root"

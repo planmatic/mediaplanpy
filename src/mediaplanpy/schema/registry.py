@@ -22,29 +22,34 @@ class SchemaRegistry:
     the new SchemaManager, which accesses bundled schema files directly.
     """
 
-    def __init__(self):
+    def __init__(self, repo_url: Optional[str] = None, local_cache_dir: Optional[str] = None):
         """
         Initialize a SchemaRegistry.
 
-        Schema files are now bundled with the SDK, eliminating the need for
-        network requests or local caching.
+        Args:
+            repo_url: Deprecated. Schema files are now bundled with the SDK.
+            local_cache_dir: Deprecated. No caching is needed for bundled files.
         """
+        # Log deprecation warnings for old parameters
+        if repo_url is not None:
+            logger.warning(
+                "repo_url parameter is deprecated. Schema files are now bundled with the SDK."
+            )
+        if local_cache_dir is not None:
+            logger.warning(
+                "local_cache_dir parameter is deprecated. No caching is needed for bundled files."
+            )
+
         # Use SchemaManager internally
         self._schema_manager = SchemaManager()
 
-    def load_versions_info(self, force_refresh: bool = False) -> Dict[str, Any]:
+    def load_versions_info(self) -> Dict[str, Any]:
         """
         Load version information from bundled schema files.
-
-        Args:
-            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
             Dictionary containing version information.
         """
-        if force_refresh:
-            logger.debug("force_refresh parameter ignored for bundled schemas")
-
         try:
             supported_versions = self._schema_manager.get_supported_versions()
 
@@ -116,15 +121,13 @@ class SchemaRegistry:
             )
 
     def load_schema(self, version: Optional[str] = None,
-                   schema_name: str = "mediaplan.schema.json",
-                   force_refresh: bool = False) -> Dict[str, Any]:
+                   schema_name: str = "mediaplan.schema.json") -> Dict[str, Any]:
         """
         Load a specific schema version.
 
         Args:
             version: The schema version to load. If None, uses the current version.
             schema_name: The schema file name to load.
-            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
             The schema as a dictionary.
@@ -133,9 +136,6 @@ class SchemaRegistry:
             SchemaRegistryError: If the schema cannot be loaded.
             SchemaVersionError: If the schema version is not supported.
         """
-        if force_refresh:
-            logger.debug("force_refresh parameter ignored for bundled schemas")
-
         # Determine version if not specified
         if version is None:
             version = self.get_current_version()
@@ -160,14 +160,12 @@ class SchemaRegistry:
         except Exception as e:
             raise SchemaRegistryError(f"Error loading schema: {e}")
 
-    def load_all_schemas(self, version: Optional[str] = None,
-                        force_refresh: bool = False) -> Dict[str, Dict[str, Any]]:
+    def load_all_schemas(self, version: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Load all schemas for a specific version.
 
         Args:
             version: The schema version to load. If None, uses the current version.
-            force_refresh: Deprecated. No refresh needed for bundled files.
 
         Returns:
             Dictionary mapping schema filenames to schema definitions.
@@ -176,9 +174,6 @@ class SchemaRegistry:
             SchemaRegistryError: If any schema cannot be loaded.
             SchemaVersionError: If the schema version is not supported.
         """
-        if force_refresh:
-            logger.debug("force_refresh parameter ignored for bundled schemas")
-
         # Determine version if not specified
         if version is None:
             version = self.get_current_version()
