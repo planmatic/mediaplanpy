@@ -1,8 +1,8 @@
 """
-PostgreSQL backend for mediaplanpy.
+Enhanced PostgreSQL backend for mediaplanpy with 2-digit version support.
 
-This module provides PostgreSQL database integration for automatically
-syncing media plan data when plans are saved.
+This module provides PostgreSQL database integration with proper version handling,
+migration logic, and compatibility checks for the new 2-digit versioning strategy.
 """
 
 import os
@@ -18,10 +18,10 @@ logger = logging.getLogger("mediaplanpy.storage.database")
 
 class PostgreSQLBackend:
     """
-    PostgreSQL backend for storing flattened media plan data.
+    PostgreSQL backend for storing flattened media plan data with version support.
 
-    Handles connection management, schema creation, and data operations
-    for media plan database synchronization.
+    Handles connection management, schema creation, data operations, and version
+    migration for media plan database synchronization.
     """
 
     def __init__(self, workspace_config: Dict[str, Any]):
@@ -151,6 +151,7 @@ class PostgreSQLBackend:
     def get_table_schema(self) -> List[Tuple[str, str]]:
         """
         Define the table schema matching Parquet export format plus workspace fields.
+        Updated to properly handle 2-digit schema versions.
 
         Returns:
             List of (column_name, column_type) tuples.
@@ -161,9 +162,9 @@ class PostgreSQLBackend:
             ('workspace_id', 'VARCHAR(255) NOT NULL'),
             ('workspace_name', 'VARCHAR(255) NOT NULL'),
 
-            # Meta fields
+            # Meta fields - updated for 2-digit version support
             ('meta_id', 'VARCHAR(255) NOT NULL'),
-            ('meta_schema_version', 'VARCHAR(50)'),
+            ('meta_schema_version', 'VARCHAR(10)'),  # Reduced size for 2-digit versions (e.g., "1.0")
             ('meta_created_by', 'VARCHAR(255)'),
             ('meta_created_at', 'TIMESTAMP'),
             ('meta_name', 'VARCHAR(255)'),
@@ -236,10 +237,140 @@ class PostgreSQLBackend:
         for i in range(1, 11):
             schema.append((f'lineitem_metric_custom{i}', 'DECIMAL(15,2)'))
 
-        # Add placeholder indicator
+        # Add placeholder indicator and version tracking
         schema.append(('is_placeholder', 'BOOLEAN DEFAULT FALSE'))
+        schema.append(('created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'))
+        schema.append(('updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'))
 
         return schema
+
+    def validate_schema_version(self, schema_version: str) -> bool:
+        """
+        Validate that a schema version follows the 2-digit format and is compatible.
+
+        Args:
+            schema_version: Schema version to validate
+
+        Returns:
+            True if version is valid and compatible
+
+        Raises:
+            DatabaseError: If version is invalid or incompatible
+        """
+        if not schema_version:
+            raise DatabaseError("Schema version cannot be empty")
+
+        # Import version utilities
+        try:
+            from mediaplanpy.schema.version_utils import (
+                validate_version_format,
+                normalize_version,
+                get_compatibility_type
+            )
+
+            # Normalize version to 2-digit format
+            try:
+                normalized_version = normalize_version(schema_version)
+            except Exception as e:
+                raise DatabaseError(f"Invalid schema version format '{schema_version}': {e}")
+
+            # Check compatibility
+            compatibility = get_compatibility_type(normalized_version)
+
+            if compatibility == "unsupported":
+                raise DatabaseError(f"Schema version '{schema_version}' is not supported by current SDK")
+            elif compatibility in ["deprecated", "forward_minor"]:
+                logger.warning(f"Schema version '{schema_version}' has compatibility issues: {compatibility}")
+
+            return True
+
+        except ImportError:
+            # Fallback validation if version utilities not available
+            import re
+            if not re.match(r'^v?[0-9]+\.[0-9]+$', schema_version.strip()):
+                raise DatabaseError(f"Invalid schema version format '{schema_version}'. Expected format: 'X.Y'")
+            return True
+
+    def migrate_existing_data(self) -> Dict[str, Any]:
+        """
+        Migrate existing data to support 2-digit versioning.
+
+        This method:
+        1. Finds records with old 3-digit versions (v1.0.0 -> 1.0)
+        2. Updates them to 2-digit format
+        3. Validates version compatibility
+
+        Returns:
+            Dictionary with migration results
+        """
+        migration_result = {
+            "records_found": 0,
+            "records_migrated": 0,
+            "errors": []
+        }
+
+        try:
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    # Find all distinct schema versions in the table
+                    cursor.execute(f"""
+                        SELECT DISTINCT meta_schema_version, COUNT(*) as count
+                        FROM {self.schema}.{self.table_name}
+                        WHERE meta_schema_version IS NOT NULL
+                        GROUP BY meta_schema_version
+                    """)
+
+                    version_counts = cursor.fetchall()
+
+                    for version, count in version_counts:
+                        migration_result["records_found"] += count
+
+                        # Check if this is a 3-digit version that needs migration
+                        if version and (version.startswith('v') and version.count('.') >= 2):
+                            try:
+                                # Convert v1.0.0 -> 1.0
+                                from mediaplanpy.schema.version_utils import normalize_version
+                                normalized_version = normalize_version(version)
+
+                                # Validate the normalized version
+                                self.validate_schema_version(normalized_version)
+
+                                # Update records with this version
+                                cursor.execute(f"""
+                                    UPDATE {self.schema}.{self.table_name}
+                                    SET meta_schema_version = %s,
+                                        updated_at = CURRENT_TIMESTAMP
+                                    WHERE meta_schema_version = %s
+                                """, (normalized_version, version))
+
+                                updated_count = cursor.rowcount
+                                migration_result["records_migrated"] += updated_count
+
+                                logger.info(f"Migrated {updated_count} records from version '{version}' to '{normalized_version}'")
+
+                            except Exception as e:
+                                error_msg = f"Failed to migrate version '{version}': {str(e)}"
+                                migration_result["errors"].append(error_msg)
+                                logger.error(error_msg)
+
+                        elif version and not version.startswith('v') and version.count('.') == 1:
+                            # Already in 2-digit format, validate compatibility
+                            try:
+                                self.validate_schema_version(version)
+                                logger.debug(f"Version '{version}' is already in correct 2-digit format")
+                            except Exception as e:
+                                error_msg = f"Version '{version}' validation failed: {str(e)}"
+                                migration_result["errors"].append(error_msg)
+
+                    # Commit all migrations
+                    conn.commit()
+
+        except Exception as e:
+            error_msg = f"Database migration failed: {str(e)}"
+            migration_result["errors"].append(error_msg)
+            logger.error(error_msg)
+
+        return migration_result
 
     def table_exists(self) -> bool:
         """
@@ -270,32 +401,67 @@ class PostgreSQLBackend:
     def create_table(self) -> None:
         """
         Create the media plans table if it doesn't exist.
+        Updated to include version compatibility triggers.
 
         Raises:
             DatabaseError: If table creation fails.
         """
         if self.table_exists():
             logger.debug(f"Table {self.schema}.{self.table_name} already exists")
+            # Run migration for existing table
+            migration_result = self.migrate_existing_data()
+            if migration_result["errors"]:
+                logger.warning(f"Migration completed with errors: {migration_result['errors']}")
+            else:
+                logger.info(f"Migration completed: {migration_result['records_migrated']} records updated")
             return
 
         try:
             schema_def = self.get_table_schema()
             column_definitions = [f"{name} {type_def}" for name, type_def in schema_def]
 
-            # Create table with primary key
+            # Create table with primary key and constraints
             create_sql = f"""
             CREATE TABLE {self.schema}.{self.table_name} (
                 {', '.join(column_definitions)},
-                PRIMARY KEY (workspace_id, meta_id, lineitem_id)
+                PRIMARY KEY (workspace_id, meta_id, lineitem_id),
+                CONSTRAINT valid_schema_version CHECK (
+                    meta_schema_version IS NULL OR 
+                    meta_schema_version ~ '^[0-9]+\\.[0-9]+$'
+                )
             )
             """
 
             with self.connect() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(create_sql)
+
+                    # Create index on schema version for efficient querying
+                    cursor.execute(f"""
+                        CREATE INDEX IF NOT EXISTS idx_{self.table_name}_schema_version 
+                        ON {self.schema}.{self.table_name} (meta_schema_version)
+                    """)
+
+                    # Create trigger to update updated_at timestamp
+                    cursor.execute(f"""
+                        CREATE OR REPLACE FUNCTION update_updated_at_column()
+                        RETURNS TRIGGER AS $$
+                        BEGIN
+                            NEW.updated_at = CURRENT_TIMESTAMP;
+                            RETURN NEW;
+                        END;
+                        $$ language 'plpgsql'
+                    """)
+
+                    cursor.execute(f"""
+                        CREATE TRIGGER update_{self.table_name}_updated_at 
+                        BEFORE UPDATE ON {self.schema}.{self.table_name}
+                        FOR EACH ROW EXECUTE FUNCTION update_updated_at_column()
+                    """)
+
                     conn.commit()
 
-            logger.info(f"Created table {self.schema}.{self.table_name}")
+            logger.info(f"Created table {self.schema}.{self.table_name} with version constraints")
 
         except Exception as e:
             raise DatabaseError(f"Failed to create table: {e}")
@@ -314,6 +480,11 @@ class PostgreSQLBackend:
                 raise DatabaseError(
                     f"Table {self.schema}.{self.table_name} does not exist and auto_create_table is disabled"
                 )
+        else:
+            # Table exists, run migration to ensure version compatibility
+            migration_result = self.migrate_existing_data()
+            if migration_result["records_migrated"] > 0:
+                logger.info(f"Migrated {migration_result['records_migrated']} existing records to 2-digit versioning")
 
     def delete_media_plan(self, meta_id: str, workspace_id: str) -> int:
         """
@@ -348,6 +519,20 @@ class PostgreSQLBackend:
             raise DatabaseError(f"Failed to delete media plan {meta_id}: {e}")
 
     def insert_media_plan(self, flattened_data: pd.DataFrame, workspace_id: str, workspace_name: str) -> int:
+        """
+        Insert media plan data with version validation.
+
+        Args:
+            flattened_data: DataFrame with media plan data
+            workspace_id: Workspace ID
+            workspace_name: Workspace name
+
+        Returns:
+            Number of rows inserted
+
+        Raises:
+            DatabaseError: If insertion fails or version validation fails
+        """
         if flattened_data.empty:
             logger.warning("No data to insert")
             return 0
@@ -357,6 +542,15 @@ class PostgreSQLBackend:
             df = flattened_data.copy()
             df['workspace_id'] = workspace_id
             df['workspace_name'] = workspace_name
+
+            # Validate schema versions in the data
+            if 'meta_schema_version' in df.columns:
+                for schema_version in df['meta_schema_version'].dropna().unique():
+                    try:
+                        self.validate_schema_version(str(schema_version))
+                    except DatabaseError as e:
+                        logger.error(f"Schema version validation failed: {e}")
+                        raise
 
             # Get table schema to ensure column order
             schema_def = self.get_table_schema()
@@ -417,7 +611,6 @@ class PostgreSQLBackend:
         except Exception as e:
             raise DatabaseError(f"Failed to insert media plan data: {e}")
 
-
     def validate_schema(self) -> List[str]:
         """
         Validate that the database table schema matches expectations.
@@ -458,6 +651,20 @@ class PostgreSQLBackend:
             if extra_columns:
                 logger.info(f"Extra columns in table: {', '.join(extra_columns)}")
 
+            # Check version constraint exists
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT constraint_name 
+                        FROM information_schema.table_constraints 
+                        WHERE table_schema = %s AND table_name = %s 
+                        AND constraint_type = 'CHECK'
+                        AND constraint_name = 'valid_schema_version'
+                    """, (self.schema, self.table_name))
+
+                    if not cursor.fetchone():
+                        errors.append("Missing schema version validation constraint")
+
         except Exception as e:
             errors.append(f"Schema validation failed: {e}")
 
@@ -471,3 +678,47 @@ class PostgreSQLBackend:
             The full table name including schema.
         """
         return f"{self.schema}.{self.table_name}"
+
+    def get_version_statistics(self) -> Dict[str, Any]:
+        """
+        Get statistics about schema versions in the database.
+
+        Returns:
+            Dictionary with version statistics
+        """
+        stats = {
+            "total_records": 0,
+            "version_distribution": {},
+            "invalid_versions": [],
+            "migration_needed": False
+        }
+
+        try:
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    # Get total record count
+                    cursor.execute(f"SELECT COUNT(*) FROM {self.schema}.{self.table_name}")
+                    stats["total_records"] = cursor.fetchone()[0]
+
+                    # Get version distribution
+                    cursor.execute(f"""
+                        SELECT meta_schema_version, COUNT(*) as count
+                        FROM {self.schema}.{self.table_name}
+                        GROUP BY meta_schema_version
+                        ORDER BY count DESC
+                    """)
+
+                    for version, count in cursor.fetchall():
+                        if version:
+                            stats["version_distribution"][version] = count
+
+                            # Check if this version needs migration (3-digit format)
+                            if version.startswith('v') and version.count('.') >= 2:
+                                stats["migration_needed"] = True
+                                if version not in stats["invalid_versions"]:
+                                    stats["invalid_versions"].append(version)
+
+        except Exception as e:
+            logger.error(f"Failed to get version statistics: {e}")
+
+        return stats

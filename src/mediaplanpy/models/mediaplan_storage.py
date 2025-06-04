@@ -1,16 +1,23 @@
 """
-Updated MediaPlan storage integration with database support.
+Enhanced MediaPlan storage integration with comprehensive version support.
 
-This module updates the MediaPlan storage methods to automatically save
-media plans to PostgreSQL database when configured.
+This module updates the MediaPlan storage methods to include version validation,
+compatibility checking, and migration logic for the new 2-digit versioning strategy.
 """
 
 import os
 import logging
-import os
+import uuid
 from typing import Dict, Any, Optional, Union, Type, ClassVar
+from datetime import datetime
 
-from mediaplanpy.exceptions import StorageError, FileReadError, FileWriteError
+from mediaplanpy.exceptions import (
+    StorageError,
+    FileReadError,
+    FileWriteError,
+    SchemaVersionError,
+    SchemaError
+)
 from mediaplanpy.models.mediaplan import MediaPlan
 from mediaplanpy.storage import (
     read_mediaplan as storage_read_mediaplan,
@@ -24,17 +31,13 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_storage")
 # Define constants
 MEDIAPLANS_SUBDIR = "mediaplans"
 
-# Add storage-related methods to MediaPlan class
-import uuid
-from datetime import datetime
-
 
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
          include_parquet: bool = True, include_database: bool = True,
-         **format_options) -> str:
+         validate_version: bool = True, **format_options) -> str:
     """
-    Save the media plan to a storage location with optional database sync.
+    Save the media plan to a storage location with comprehensive version validation.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
@@ -44,8 +47,9 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
                     or defaults to "json".
         overwrite: If False (default), saves with a new media plan ID. If True,
                   preserves the existing media plan ID.
-        include_parquet: If True (default), also saves a Parquet file for v1.0.0+ schemas.
+        include_parquet: If True (default), also saves a Parquet file for v1.0+ schemas.
         include_database: If True (default), also saves to database if configured.
+        validate_version: If True (default), validate schema version compatibility.
         **format_options: Additional format-specific options.
 
     Returns:
@@ -53,6 +57,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     Raises:
         StorageError: If the media plan cannot be saved.
+        SchemaVersionError: If version validation fails.
         WorkspaceInactiveError: If the workspace is inactive.
     """
     # Check if workspace is active
@@ -64,6 +69,47 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     # Get resolved workspace config
     workspace_config = workspace_manager.get_resolved_config()
+
+    # Validate schema version before saving
+    if validate_version:
+        current_version = self.meta.schema_version
+        if current_version:
+            try:
+                from mediaplanpy.schema.version_utils import (
+                    normalize_version,
+                    get_compatibility_type,
+                    get_migration_recommendation
+                )
+
+                # Check version compatibility
+                normalized_version = normalize_version(current_version)
+                compatibility = get_compatibility_type(normalized_version)
+
+                if compatibility == "unsupported":
+                    recommendation = get_migration_recommendation(normalized_version)
+                    raise SchemaVersionError(
+                        f"Cannot save media plan with unsupported schema version '{current_version}'. "
+                        f"{recommendation.get('message', 'Version upgrade required.')}"
+                    )
+                elif compatibility == "deprecated":
+                    logger.warning(
+                        f"Saving media plan with deprecated schema version '{current_version}'. "
+                        "Consider upgrading to current version."
+                    )
+
+                # Ensure version is in correct 2-digit format
+                target_version = f"v{normalized_version}"
+                if self.meta.schema_version != target_version:
+                    logger.info(f"Normalizing schema version from '{current_version}' to '{target_version}'")
+                    self.meta.schema_version = target_version
+
+            except ImportError:
+                logger.warning("Version utilities not available, skipping advanced version validation")
+        else:
+            # Set current version if missing
+            from mediaplanpy import __schema_version__
+            self.meta.schema_version = f"v{__schema_version__}"
+            logger.info(f"Set missing schema version to current: v{__schema_version__}")
 
     # Handle media plan ID based on overwrite parameter
     if not overwrite:
@@ -85,7 +131,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         if extension.startswith('.'):
             extension = extension[1:]
 
-        # Use media plan ID as filename (changed from campaign ID)
+        # Use media plan ID as filename
         mediaplan_id = self.meta.id
         # Sanitize media plan ID for use as a filename
         mediaplan_id = mediaplan_id.replace('/', '_').replace('\\', '_')
@@ -100,6 +146,17 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     # Convert model to dictionary
     data = self.to_dict()
 
+    # Validate data structure if version validation is enabled
+    if validate_version:
+        try:
+            format_handler = get_format_handler_instance(format_name or "json")
+            if hasattr(format_handler, 'validate_media_plan_structure'):
+                structure_errors = format_handler.validate_media_plan_structure(data)
+                if structure_errors:
+                    raise StorageError(f"Media plan structure validation failed: {'; '.join(structure_errors)}")
+        except Exception as e:
+            logger.warning(f"Could not validate media plan structure: {e}")
+
     # Get storage backend to create subdirectory
     try:
         from mediaplanpy.storage import get_storage_backend
@@ -111,25 +168,41 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     except Exception as e:
         logger.warning(f"Could not ensure mediaplans directory exists: {e}")
 
-    # Write to storage
-    storage_write_mediaplan(workspace_config, data, path, format_name, **format_options)
+    # Write to storage with version validation
+    try:
+        format_options_copy = format_options.copy()
+        if validate_version:
+            format_options_copy['validate_version'] = True
 
-    logger.info(f"Media plan saved to {path}")
+        storage_write_mediaplan(workspace_config, data, path, format_name, **format_options_copy)
+        logger.info(f"Media plan saved to {path}")
+    except SchemaVersionError:
+        # Re-raise version errors
+        raise
+    except Exception as e:
+        raise StorageError(f"Failed to save media plan to {path}: {e}")
 
-    # Also save Parquet file for v1.0.0+ schemas
+    # Also save Parquet file for v1.0+ schemas
     if include_parquet and self._should_save_parquet():
         parquet_path = self._get_parquet_path(path)
 
-        # Create separate options for Parquet
+        # Create separate options for Parquet with version validation
         parquet_options = {k: v for k, v in format_options.items()
                            if k in ['compression']}
+        if validate_version:
+            parquet_options['validate_version'] = True
 
-        # Write Parquet file
-        storage_write_mediaplan(
-            workspace_config, data, parquet_path,
-            format_name="parquet", **parquet_options
-        )
-        logger.info(f"Also saved Parquet file: {parquet_path}")
+        try:
+            # Write Parquet file
+            storage_write_mediaplan(
+                workspace_config, data, parquet_path,
+                format_name="parquet", **parquet_options
+            )
+            logger.info(f"Also saved Parquet file: {parquet_path}")
+        except SchemaVersionError as e:
+            logger.warning(f"Parquet save failed due to version issue: {e}")
+        except Exception as e:
+            logger.warning(f"Parquet save failed: {e}")
 
     # Save to database if configured and enabled
     if include_database:
@@ -147,66 +220,29 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     return path
 
 
-def _should_save_parquet(self) -> bool:
-    """
-    Check if Parquet should be saved (v1.0.0+).
-
-    Returns:
-        True if the schema version is v1.0.0 or higher.
-    """
-    version = self.meta.schema_version
-    if not version:
-        return False
-
-    # Simple version comparison for v1.0.0+
-    # This assumes version format vX.Y.Z
-    if version.startswith('v'):
-        try:
-            major = int(version.split('.')[0][1:])
-            return major >= 1
-        except (ValueError, IndexError):
-            return False
-
-    return False
-
-
-def _get_parquet_path(self, json_path: str) -> str:
-    """
-    Get Parquet path from JSON path.
-
-    Args:
-        json_path: The JSON file path.
-
-    Returns:
-        The corresponding Parquet file path.
-    """
-    base, _ = os.path.splitext(json_path)
-    return f"{base}.parquet"
-
-
 def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          media_plan_id: Optional[str] = None, campaign_id: Optional[str] = None,
-         format_name: Optional[str] = None) -> 'MediaPlan':
+         format_name: Optional[str] = None, validate_version: bool = True,
+         auto_migrate: bool = True) -> 'MediaPlan':
     """
-    Load a media plan from a storage location.
+    Load a media plan from a storage location with version handling and migration.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
-        path: The path to the media plan file. Required if neither media_plan_id nor campaign_id is provided.
-        media_plan_id: The media plan ID to load. If provided and path is None, will try to
-                       load from a default path based on media_plan_id. Takes precedence over campaign_id.
-        campaign_id: The campaign ID to load (deprecated, kept for backward compatibility).
-                     If provided and path/media_plan_id are None, will try to load from
-                     a default path based on campaign_id.
-        format_name: Optional format name to use. If not specified, inferred from path
-                     or defaults to "json".
+        path: The path to the media plan file.
+        media_plan_id: The media plan ID to load.
+        campaign_id: The campaign ID to load (deprecated).
+        format_name: Optional format name to use.
+        validate_version: If True (default), validate and handle version compatibility.
+        auto_migrate: If True (default), automatically migrate compatible versions.
 
     Returns:
         A MediaPlan instance.
 
     Raises:
         StorageError: If the media plan cannot be loaded.
-        ValueError: If neither path, media_plan_id, nor campaign_id is provided.
+        SchemaVersionError: If version is incompatible and migration fails.
+        ValueError: If no identifier is provided.
     """
     # Check if workspace is loaded
     if not workspace_manager.is_loaded:
@@ -275,21 +311,138 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         except Exception as e:
             logger.warning(f"Error checking mediaplans subdirectory: {e}")
 
-    # Read from storage
+    # Read from storage with version handling
     try:
+        # Create format options with version validation
+        format_options = {}
+        if validate_version:
+            format_options['validate_version'] = True
+
         data = storage_read_mediaplan(workspace_config, path, format_name)
 
+        # Extract and validate schema version
+        file_version = data.get("meta", {}).get("schema_version")
+        logger.debug(f"Loaded media plan with schema version: {file_version}")
+
+        # Handle version compatibility and migration
+        if validate_version and file_version:
+            try:
+                from mediaplanpy.schema.version_utils import (
+                    normalize_version,
+                    get_compatibility_type,
+                    get_migration_recommendation
+                )
+
+                # Check compatibility
+                normalized_version = normalize_version(file_version)
+                compatibility = get_compatibility_type(normalized_version)
+
+                logger.debug(f"Version compatibility: {compatibility}")
+
+                if compatibility == "unsupported":
+                    if auto_migrate:
+                        # Try to migrate using schema migrator
+                        try:
+                            from mediaplanpy.schema import SchemaMigrator
+                            from mediaplanpy import __schema_version__
+
+                            migrator = SchemaMigrator()
+                            current_version = f"v{__schema_version__}"
+
+                            logger.info(f"Attempting migration from {file_version} to {current_version}")
+                            migrated_data = migrator.migrate(data, file_version, current_version)
+                            data = migrated_data
+
+                            logger.info(f"✅ Successfully migrated media plan from {file_version} to {current_version}")
+
+                        except Exception as migration_error:
+                            recommendation = get_migration_recommendation(normalized_version)
+                            raise SchemaVersionError(
+                                f"Schema version '{file_version}' is not supported and migration failed: {migration_error}. "
+                                f"{recommendation.get('message', 'Manual upgrade required.')}"
+                            )
+                    else:
+                        recommendation = get_migration_recommendation(normalized_version)
+                        raise SchemaVersionError(
+                            f"Schema version '{file_version}' is not supported. "
+                            f"{recommendation.get('message', 'Version upgrade required.')}"
+                        )
+
+                elif compatibility == "deprecated":
+                    logger.warning(
+                        f"⚠️ Media plan uses deprecated schema version '{file_version}'. "
+                        "Consider upgrading to current version."
+                    )
+                    if auto_migrate:
+                        # Auto-upgrade deprecated versions
+                        from mediaplanpy import __schema_version__
+                        current_version = f"v{__schema_version__}"
+
+                        if "meta" not in data:
+                            data["meta"] = {}
+                        data["meta"]["schema_version"] = current_version
+
+                        logger.info(f"Auto-upgraded deprecated version from {file_version} to {current_version}")
+
+                elif compatibility == "forward_minor":
+                    from mediaplanpy import __schema_version__
+                    current_version = f"v{__schema_version__}"
+                    logger.warning(
+                        f"⚠️ Media plan uses schema {file_version}. Current SDK supports up to {current_version}. "
+                        f"File imported and downgraded to {current_version} - new fields preserved but may be inactive."
+                    )
+                    if auto_migrate:
+                        # Update version to current (Pydantic will preserve unknown fields)
+                        if "meta" not in data:
+                            data["meta"] = {}
+                        data["meta"]["schema_version"] = current_version
+
+                elif compatibility == "backward_compatible":
+                    from mediaplanpy import __schema_version__
+                    current_version = f"v{__schema_version__}"
+                    logger.info(f"ℹ️ Media plan version-bumped from schema {file_version} to {current_version}")
+                    if auto_migrate:
+                        # Update version to current
+                        if "meta" not in data:
+                            data["meta"] = {}
+                        data["meta"]["schema_version"] = current_version
+
+            except ImportError:
+                logger.warning("Version utilities not available, skipping version compatibility checks")
+
         # Create MediaPlan instance from dictionary
+        # The from_dict method will handle any remaining version compatibility
         media_plan = cls.from_dict(data)
 
         logger.info(f"Media plan loaded from {path}")
         return media_plan
+
     except FileReadError:
         # Try legacy path as fallback if path was already modified
         if path.startswith(MEDIAPLANS_SUBDIR):
             legacy_path = os.path.basename(path)
             try:
+                format_options = {}
+                if validate_version:
+                    format_options['validate_version'] = True
+
                 data = storage_read_mediaplan(workspace_config, legacy_path, format_name)
+
+                # Apply same version handling as above
+                if validate_version:
+                    file_version = data.get("meta", {}).get("schema_version")
+                    if file_version:
+                        try:
+                            from mediaplanpy.schema.version_utils import get_compatibility_type
+                            compatibility = get_compatibility_type(file_version)
+
+                            if compatibility in ["deprecated", "backward_compatible"] and auto_migrate:
+                                from mediaplanpy import __schema_version__
+                                current_version = f"v{__schema_version__}"
+                                data["meta"]["schema_version"] = current_version
+                                logger.info(f"Auto-migrated legacy file from {file_version} to {current_version}")
+                        except ImportError:
+                            pass
 
                 # Create MediaPlan instance from dictionary
                 media_plan = cls.from_dict(data)
@@ -302,16 +455,20 @@ def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
         # If all attempts failed, raise appropriate error
         raise StorageError(f"Failed to read media plan from {path}")
+    except SchemaVersionError:
+        # Re-raise version errors
+        raise
+    except Exception as e:
+        raise StorageError(f"Failed to load media plan from {path}: {e}")
 
 
 def delete(self, workspace_manager: 'WorkspaceManager',
            dry_run: bool = False, include_database: bool = True) -> Dict[str, Any]:
     """
-    Delete the media plan files from workspace storage and optionally from database.
+    Delete the media plan files from workspace storage with version awareness.
 
     This method removes both JSON and Parquet files associated with this media plan
-    from the workspace storage. The files are located in the 'mediaplans' subdirectory.
-    If database integration is enabled, it will also remove database records.
+    from the workspace storage, considering version compatibility for database operations.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
@@ -319,15 +476,7 @@ def delete(self, workspace_manager: 'WorkspaceManager',
         include_database: If True, also delete from database if configured.
 
     Returns:
-        Dictionary containing:
-        - deleted_files: List of files that were (or would be) deleted
-        - errors: List of any errors encountered
-        - mediaplan_id: The media plan ID
-        - dry_run: Whether this was a dry run
-        - files_found: Total number of files found
-        - files_deleted: Total number of files successfully deleted
-        - database_deleted: Whether database records were deleted
-        - database_rows_deleted: Number of database rows deleted
+        Dictionary containing deletion results and version information.
 
     Raises:
         WorkspaceError: If no configuration is loaded.
@@ -350,17 +499,37 @@ def delete(self, workspace_manager: 'WorkspaceManager',
     except Exception as e:
         raise StorageError(f"Failed to get storage backend: {e}")
 
-    # Initialize result dictionary
+    # Initialize result dictionary with version information
     result = {
         "deleted_files": [],
         "errors": [],
         "mediaplan_id": self.meta.id,
+        "schema_version": self.meta.schema_version,
         "dry_run": dry_run,
         "files_found": 0,
         "files_deleted": 0,
         "database_deleted": False,
-        "database_rows_deleted": 0
+        "database_rows_deleted": 0,
+        "version_compatible": True,
+        "version_warnings": []
     }
+
+    # Check version compatibility for operations
+    try:
+        from mediaplanpy.schema.version_utils import get_compatibility_type
+        compatibility = get_compatibility_type(self.meta.schema_version.lstrip('v'))
+
+        if compatibility == "unsupported":
+            result["version_compatible"] = False
+            result["version_warnings"].append(
+                f"Media plan has unsupported schema version {self.meta.schema_version}"
+            )
+        elif compatibility == "deprecated":
+            result["version_warnings"].append(
+                f"Media plan has deprecated schema version {self.meta.schema_version}"
+            )
+    except Exception as e:
+        result["version_warnings"].append(f"Could not determine version compatibility: {e}")
 
     # Define file extensions to look for
     extensions = ["json", "parquet"]
@@ -395,8 +564,8 @@ def delete(self, workspace_manager: 'WorkspaceManager',
             result["errors"].append(error_msg)
             logger.error(error_msg)
 
-    # Handle database deletion if enabled
-    if include_database:
+    # Handle database deletion if enabled and version compatible
+    if include_database and result["version_compatible"]:
         try:
             if self._should_save_to_database(workspace_manager):
                 if dry_run:
@@ -421,17 +590,26 @@ def delete(self, workspace_manager: 'WorkspaceManager',
             error_msg = f"Failed to delete database records: {str(e)}"
             result["errors"].append(error_msg)
             logger.error(error_msg)
+    elif include_database and not result["version_compatible"]:
+        result["version_warnings"].append("Database deletion skipped due to version incompatibility")
 
-    # Log summary
+    # Log summary with version information
     if dry_run:
-        logger.info(f"[DRY RUN] Media plan '{self.meta.id}': found {result['files_found']} files that would be deleted")
+        logger.info(f"[DRY RUN] Media plan '{self.meta.id}' (v{self.meta.schema_version}): "
+                   f"found {result['files_found']} files that would be deleted")
         if result["database_deleted"]:
             logger.info(f"[DRY RUN] Database records would also be deleted")
     else:
         logger.info(
-            f"Media plan '{self.meta.id}': deleted {result['files_deleted']} of {result['files_found']} files found")
+            f"Media plan '{self.meta.id}' (v{self.meta.schema_version}): "
+            f"deleted {result['files_deleted']} of {result['files_found']} files found"
+        )
         if result["database_deleted"]:
             logger.info(f"Also deleted {result['database_rows_deleted']} database records")
+
+    # Log version warnings
+    for warning in result["version_warnings"]:
+        logger.warning(warning)
 
     # Raise an error if there were any deletion failures (but not if files didn't exist)
     if result["errors"] and not dry_run:
@@ -440,9 +618,110 @@ def delete(self, workspace_manager: 'WorkspaceManager',
 
     return result
 
+
+def _should_save_parquet(self) -> bool:
+    """
+    Check if Parquet should be saved based on schema version compatibility.
+
+    Returns:
+        True if the schema version supports Parquet export (v1.0+).
+    """
+    version = self.meta.schema_version
+    if not version:
+        return False
+
+    try:
+        from mediaplanpy.schema.version_utils import normalize_version, get_compatibility_type
+
+        # Normalize and check compatibility
+        normalized_version = normalize_version(version)
+        compatibility = get_compatibility_type(normalized_version)
+
+        # Only save Parquet for supported versions
+        if compatibility == "unsupported":
+            return False
+
+        # Check if major version is 1.0 or higher
+        major_version = int(normalized_version.split('.')[0])
+        return major_version >= 1
+
+    except Exception as e:
+        logger.warning(f"Could not determine Parquet compatibility for version {version}: {e}")
+        # Fallback: check if version looks like v1.0+
+        if version.startswith('v'):
+            try:
+                major = int(version.split('.')[0][1:])
+                return major >= 1
+            except (ValueError, IndexError):
+                return False
+        return False
+
+
+def _get_parquet_path(self, json_path: str) -> str:
+    """
+    Get Parquet path from JSON path.
+
+    Args:
+        json_path: The JSON file path.
+
+    Returns:
+        The corresponding Parquet file path.
+    """
+    base, _ = os.path.splitext(json_path)
+    return f"{base}.parquet"
+
+
+def get_version_info(self) -> Dict[str, Any]:
+    """
+    Get comprehensive version information for this media plan.
+
+    Returns:
+        Dictionary with version details and compatibility information
+    """
+    version_info = {
+        "schema_version": self.meta.schema_version,
+        "media_plan_id": self.meta.id,
+        "created_at": self.meta.created_at,
+        "created_by": self.meta.created_by
+    }
+
+    # Add compatibility information
+    if self.meta.schema_version:
+        try:
+            from mediaplanpy.schema.version_utils import (
+                normalize_version,
+                get_compatibility_type,
+                get_migration_recommendation
+            )
+            from mediaplanpy import __version__, __schema_version__
+
+            normalized_version = normalize_version(self.meta.schema_version)
+            compatibility = get_compatibility_type(normalized_version)
+
+            version_info.update({
+                "normalized_version": normalized_version,
+                "compatibility_type": compatibility,
+                "current_sdk_version": __version__,
+                "current_schema_version": __schema_version__,
+                "is_current": normalized_version == __schema_version__,
+                "supports_parquet": self._should_save_parquet(),
+                "migration_needed": compatibility in ["deprecated", "backward_compatible"]
+            })
+
+            if compatibility == "unsupported":
+                recommendation = get_migration_recommendation(normalized_version)
+                version_info["migration_recommendation"] = recommendation
+
+        except Exception as e:
+            version_info["version_check_error"] = str(e)
+
+    return version_info
+
+
 # Patch methods into MediaPlan class
 MediaPlan.save = save
 MediaPlan.load = classmethod(load)
 MediaPlan.delete = delete
 MediaPlan._should_save_parquet = _should_save_parquet
 MediaPlan._get_parquet_path = _get_parquet_path
+MediaPlan.get_version_info = get_version_info

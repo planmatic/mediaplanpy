@@ -1,20 +1,22 @@
 """
-Base format interface for mediaplanpy.
+Enhanced base format interface for mediaplanpy with version validation support.
 
-This module defines the abstract base class for file format handlers.
-Format handlers are responsible for serializing and deserializing
-media plans to/from various file formats.
+This module defines the abstract base class for file format handlers with
+shared version validation and compatibility checking capabilities.
 """
 
 import abc
-from typing import Dict, Any, BinaryIO, TextIO, Union, Optional, Type
+import logging
+from typing import Dict, Any, BinaryIO, TextIO, Union, Optional, Type, List
 
-from mediaplanpy.exceptions import StorageError
+from mediaplanpy.exceptions import StorageError, SchemaVersionError
+
+logger = logging.getLogger("mediaplanpy.storage.formats.base")
 
 
 class FormatHandler(abc.ABC):
     """
-    Abstract base class for format handlers.
+    Abstract base class for format handlers with version validation support.
     """
 
     # Format name (used for registration and lookup)
@@ -27,7 +29,7 @@ class FormatHandler(abc.ABC):
     media_types: list = []
 
     # Whether this format requires binary mode
-    is_binary: bool = False  # Add this attribute
+    is_binary: bool = False
 
     @classmethod
     def get_file_extension(cls) -> str:
@@ -60,6 +62,221 @@ class FormatHandler(abc.ABC):
             return extension == cls.file_extension.lower()
         except (IndexError, AttributeError):
             return False
+
+    def validate_media_plan_structure(self, data: Dict[str, Any]) -> List[str]:
+        """
+        Validate basic media plan structure.
+
+        Args:
+            data: Media plan data to validate
+
+        Returns:
+            List of validation errors, empty if valid
+        """
+        errors = []
+
+        # Check for required top-level sections
+        required_sections = ["meta", "campaign"]
+        for section in required_sections:
+            if section not in data:
+                errors.append(f"Missing required section: {section}")
+
+        # Check meta section
+        if "meta" in data:
+            meta = data["meta"]
+            required_meta_fields = ["id", "schema_version", "created_by"]
+            for field in required_meta_fields:
+                if field not in meta:
+                    errors.append(f"Missing required meta field: {field}")
+
+        # Check campaign section
+        if "campaign" in data:
+            campaign = data["campaign"]
+            required_campaign_fields = ["id", "name", "objective", "start_date", "end_date"]
+            for field in required_campaign_fields:
+                if field not in campaign:
+                    errors.append(f"Missing required campaign field: {field}")
+
+        # Validate line items if present
+        if "lineitems" in data:
+            lineitems = data["lineitems"]
+            if not isinstance(lineitems, list):
+                errors.append("lineitems must be a list")
+            else:
+                for i, lineitem in enumerate(lineitems):
+                    if not isinstance(lineitem, dict):
+                        errors.append(f"Line item {i} must be a dictionary")
+                        continue
+
+                    required_lineitem_fields = ["id", "name", "start_date", "end_date", "cost_total"]
+                    for field in required_lineitem_fields:
+                        if field not in lineitem:
+                            errors.append(f"Line item {i}: missing required field: {field}")
+
+        return errors
+
+    def get_version_from_data(self, data: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract schema version from media plan data.
+
+        Args:
+            data: Media plan data
+
+        Returns:
+            Schema version string or None if not found
+        """
+        return data.get("meta", {}).get("schema_version")
+
+    def validate_version_format(self, version: str) -> bool:
+        """
+        Validate that a version string follows expected format.
+
+        Args:
+            version: Version string to validate
+
+        Returns:
+            True if format is valid
+        """
+        if not version:
+            return False
+
+        try:
+            from mediaplanpy.schema.version_utils import validate_version_format
+            return validate_version_format(version)
+        except ImportError:
+            # Fallback validation
+            import re
+            # Allow both v1.0.0 and 1.0 formats
+            return bool(re.match(r'^v?[0-9]+\.[0-9]+(\.[0-9]+)?$', version.strip()))
+
+    def normalize_version(self, version: str) -> str:
+        """
+        Normalize version to standard 2-digit format.
+
+        Args:
+            version: Version string to normalize
+
+        Returns:
+            Normalized version string
+
+        Raises:
+            SchemaVersionError: If version format is invalid
+        """
+        if not version:
+            raise SchemaVersionError("Version cannot be empty")
+
+        try:
+            from mediaplanpy.schema.version_utils import normalize_version
+            return normalize_version(version)
+        except ImportError:
+            # Fallback normalization
+            import re
+            # Remove 'v' prefix and convert to X.Y format
+            clean_version = version.lstrip('v')
+            parts = clean_version.split('.')
+            if len(parts) >= 2:
+                return f"{parts[0]}.{parts[1]}"
+            else:
+                raise SchemaVersionError(f"Invalid version format: {version}")
+        except Exception as e:
+            raise SchemaVersionError(f"Failed to normalize version '{version}': {e}")
+
+    def check_version_compatibility(self, version: str) -> Dict[str, Any]:
+        """
+        Check version compatibility with current SDK.
+
+        Args:
+            version: Schema version to check
+
+        Returns:
+            Dictionary with compatibility information
+        """
+        compatibility_info = {
+            "version": version,
+            "normalized_version": None,
+            "is_compatible": False,
+            "compatibility_type": "unknown",
+            "warnings": [],
+            "errors": []
+        }
+
+        try:
+            # Normalize version
+            normalized_version = self.normalize_version(version)
+            compatibility_info["normalized_version"] = normalized_version
+
+            # Get compatibility type
+            try:
+                from mediaplanpy.schema.version_utils import (
+                    get_compatibility_type,
+                    get_migration_recommendation
+                )
+
+                compatibility_type = get_compatibility_type(normalized_version)
+                compatibility_info["compatibility_type"] = compatibility_type
+
+                if compatibility_type == "native":
+                    compatibility_info["is_compatible"] = True
+                elif compatibility_type == "forward_minor":
+                    compatibility_info["is_compatible"] = True
+                    compatibility_info["warnings"].append(
+                        f"Schema version {version} is newer than current SDK supports. "
+                        "Some features may not be available."
+                    )
+                elif compatibility_type == "backward_compatible":
+                    compatibility_info["is_compatible"] = True
+                    compatibility_info["warnings"].append(
+                        f"Schema version {version} will be upgraded during processing."
+                    )
+                elif compatibility_type == "deprecated":
+                    compatibility_info["is_compatible"] = True
+                    compatibility_info["warnings"].append(
+                        f"Schema version {version} is deprecated. Consider upgrading."
+                    )
+                elif compatibility_type == "unsupported":
+                    compatibility_info["is_compatible"] = False
+                    recommendation = get_migration_recommendation(normalized_version)
+                    compatibility_info["errors"].append(
+                        recommendation.get("message", f"Schema version {version} is not supported")
+                    )
+
+            except ImportError:
+                # Fallback compatibility check
+                major_version = int(normalized_version.split('.')[0])
+                if major_version >= 1:
+                    compatibility_info["is_compatible"] = True
+                else:
+                    compatibility_info["is_compatible"] = False
+                    compatibility_info["errors"].append(
+                        f"Schema version {version} (major version {major_version}) is not supported"
+                    )
+
+        except SchemaVersionError as e:
+            compatibility_info["errors"].append(str(e))
+        except Exception as e:
+            compatibility_info["errors"].append(f"Version compatibility check failed: {str(e)}")
+
+        return compatibility_info
+
+    def apply_version_migration_warnings(self, data: Dict[str, Any]) -> None:
+        """
+        Apply appropriate warnings based on version compatibility.
+
+        Args:
+            data: Media plan data
+        """
+        version = self.get_version_from_data(data)
+        if not version:
+            logger.warning("No schema version found in media plan data")
+            return
+
+        compatibility = self.check_version_compatibility(version)
+
+        for warning in compatibility["warnings"]:
+            logger.warning(warning)
+
+        for error in compatibility["errors"]:
+            logger.error(error)
 
     @abc.abstractmethod
     def serialize(self, data: Dict[str, Any], **kwargs) -> Union[str, bytes]:
@@ -192,3 +409,30 @@ def get_format_handler_for_file(filename: str) -> Optional[Type[FormatHandler]]:
         pass
 
     return None
+
+
+def validate_all_formats_version_compatibility(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """
+    Check version compatibility across all registered format handlers.
+
+    Args:
+        data: Media plan data to check
+
+    Returns:
+        Dictionary mapping format names to their compatibility results
+    """
+    results = {}
+
+    for format_name, handler_class in _format_registry.items():
+        try:
+            handler = handler_class()
+            results[format_name] = handler.check_version_compatibility(
+                handler.get_version_from_data(data) or "unknown"
+            )
+        except Exception as e:
+            results[format_name] = {
+                "error": f"Failed to check compatibility: {str(e)}",
+                "is_compatible": False
+            }
+
+    return results
