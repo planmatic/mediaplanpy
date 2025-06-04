@@ -1,5 +1,5 @@
 """
-Updated workspace configuration validation utilities.
+Updated workspace configuration validation utilities with lenient mode support.
 """
 import json
 import logging
@@ -28,12 +28,14 @@ def load_workspace_schema() -> Dict[str, Any]:
 # Load the schema at module initialization
 WORKSPACE_SCHEMA = load_workspace_schema()
 
-def validate_workspace(config: Dict[str, Any]) -> List[str]:
+def validate_workspace(config: Dict[str, Any], lenient_mode: bool = False) -> List[str]:
     """
     Validate a workspace configuration against the updated schema.
 
     Args:
         config: The workspace configuration to validate.
+        lenient_mode: If True, treat deprecated field warnings as non-blocking.
+                     Used during workspace loading to allow migration.
 
     Returns:
         A list of validation error messages, if any.
@@ -54,7 +56,16 @@ def validate_workspace(config: Dict[str, Any]) -> List[str]:
     errors.extend(validate_storage_config(config))
     errors.extend(validate_database_config(config))
     errors.extend(validate_workspace_settings(config))
-    errors.extend(validate_schema_settings_migration(config))
+
+    # Handle deprecated schema_settings with lenient mode
+    migration_issues = validate_schema_settings_migration(config, lenient_mode=lenient_mode)
+    if not lenient_mode:
+        # In strict mode, treat migration issues as errors
+        errors.extend(migration_issues)
+    elif migration_issues:
+        # In lenient mode, just log warnings
+        for issue in migration_issues:
+            logger.warning(f"Workspace migration notice: {issue}")
 
     # Validate workspace_id existence
     if "workspace_id" not in config:
@@ -206,20 +217,21 @@ def validate_workspace_settings(config: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def validate_schema_settings_migration(config: Dict[str, Any]) -> List[str]:
+def validate_schema_settings_migration(config: Dict[str, Any], lenient_mode: bool = False) -> List[str]:
     """
     Validate that deprecated schema_settings fields have been properly migrated.
 
     Args:
         config: The workspace configuration to validate.
+        lenient_mode: If True, return informational messages instead of errors.
 
     Returns:
-        A list of validation errors and warnings, if any.
+        A list of validation errors or informational messages, if any.
     """
-    errors = []
+    issues = []
     schema_settings = config.get('schema_settings', {})
 
-    # Check for deprecated fields and warn
+    # Check for deprecated fields
     deprecated_fields = ['preferred_version', 'auto_migrate']
     found_deprecated = []
 
@@ -228,11 +240,19 @@ def validate_schema_settings_migration(config: Dict[str, Any]) -> List[str]:
             found_deprecated.append(field)
 
     if found_deprecated:
-        errors.append(f"Deprecated schema_settings fields found: {', '.join(found_deprecated)}. "
-                     f"These fields have been moved to workspace_settings or are no longer used. "
-                     f"Run workspace.upgrade_workspace() to migrate configuration.")
+        if lenient_mode:
+            # In lenient mode, this is informational since automatic migration will handle it
+            message = f"Found deprecated schema_settings fields: {', '.join(found_deprecated)}. " \
+                     f"These will be automatically migrated during workspace loading."
+            issues.append(message)
+        else:
+            # In strict mode, this is an error that blocks operation
+            message = f"Deprecated schema_settings fields found: {', '.join(found_deprecated)}. " \
+                     f"These fields have been moved to workspace_settings or are no longer used. " \
+                     f"Run workspace.upgrade_workspace() to migrate configuration."
+            issues.append(message)
 
-    return errors
+    return issues
 
 
 def test_database_connection(config: Dict[str, Any]) -> List[str]:
@@ -316,16 +336,15 @@ def validate_workspace_upgrade_readiness(config: Dict[str, Any]) -> Dict[str, An
             readiness["warnings"].extend([f"Database connection issue: {error}" for error in connection_errors])
             readiness["recommendations"].append("Ensure database is accessible before upgrade")
 
-    # Check for deprecated fields
-    migration_errors = validate_schema_settings_migration(config)
-    if migration_errors:
-        readiness["warnings"].extend(migration_errors)
-        readiness["recommendations"].append("Configuration contains deprecated fields that will be migrated")
+    # Check for deprecated fields (these are handled automatically now)
+    migration_issues = validate_schema_settings_migration(config, lenient_mode=True)
+    if migration_issues:
+        readiness["recommendations"].append("Configuration contains deprecated fields that will be automatically migrated")
 
     # Check workspace_settings existence
     workspace_settings = config.get('workspace_settings')
     if not workspace_settings:
-        readiness["recommendations"].append("Workspace settings will be initialized during upgrade")
+        readiness["recommendations"].append("Workspace settings will be initialized during loading")
     else:
         # Validate existing workspace_settings
         ws_errors = validate_workspace_settings(config)

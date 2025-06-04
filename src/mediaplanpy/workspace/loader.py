@@ -1,8 +1,8 @@
 """
-Workspace configuration loader.
+Updated workspace configuration loader with automatic migration of deprecated fields.
 
 This module provides the WorkspaceManager class for loading, validating,
-and managing workspace configurations.
+and managing workspace configurations with automatic handling of legacy settings.
 """
 
 import os
@@ -66,6 +66,72 @@ class WorkspaceManager:
         self._schema_registry = None
         self._schema_validator = None
         self._schema_migrator = None
+
+    def _migrate_deprecated_fields(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Automatically migrate deprecated fields to new format.
+
+        This method handles the migration from old schema_settings fields to
+        new workspace_settings format as described in the versioning strategy.
+
+        Args:
+            config: The workspace configuration to migrate.
+
+        Returns:
+            Migrated configuration with deprecated fields handled.
+        """
+        # Create a copy to avoid modifying the original
+        import copy
+        migrated_config = copy.deepcopy(config)
+
+        # Track if any migration was performed
+        migration_performed = False
+
+        # Handle deprecated schema_settings fields
+        schema_settings = migrated_config.get('schema_settings', {})
+
+        # Remove deprecated fields if they exist
+        deprecated_fields = ['preferred_version', 'auto_migrate']
+        for field in deprecated_fields:
+            if field in schema_settings:
+                removed_value = schema_settings.pop(field)
+                migration_performed = True
+                logger.info(f"Migrated deprecated field 'schema_settings.{field}' (was: {removed_value})")
+
+        # Ensure workspace_settings exists with proper defaults
+        if 'workspace_settings' not in migrated_config:
+            migrated_config['workspace_settings'] = {}
+            migration_performed = True
+            logger.info("Added workspace_settings section")
+
+        workspace_settings = migrated_config['workspace_settings']
+
+        # Set default values for workspace_settings if not present
+        from mediaplanpy import __schema_version__
+        current_schema_version = __schema_version__
+
+        defaults = {
+            'schema_version': current_schema_version,
+            'last_upgraded': datetime.now().strftime("%Y-%m-%d"),
+            'sdk_version_required': f"{current_schema_version.split('.')[0]}.0.x"
+        }
+
+        for key, default_value in defaults.items():
+            if key not in workspace_settings:
+                workspace_settings[key] = default_value
+                migration_performed = True
+                logger.info(f"Set workspace_settings.{key} to default value: {default_value}")
+
+        # Clean up schema_settings if it's now empty
+        if not schema_settings:
+            migrated_config.pop('schema_settings', None)
+            migration_performed = True
+            logger.info("Removed empty schema_settings section")
+
+        if migration_performed:
+            logger.info("Workspace configuration automatically migrated to new format")
+
+        return migrated_config
 
     @property
     def is_loaded(self) -> bool:
@@ -276,7 +342,10 @@ class WorkspaceManager:
         if os.path.exists(settings_file_path) and not overwrite:
             raise WorkspaceError(f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
 
-        # Create default configuration (updated to remove deprecated schema fields)
+        # Create default configuration with new workspace_settings structure
+        from mediaplanpy import __schema_version__
+        current_schema_version = __schema_version__
+
         config = {
             "workspace_id": workspace_id,
             "workspace_name": workspace_name,
@@ -289,9 +358,10 @@ class WorkspaceManager:
                     "create_if_missing": True
                 }
             },
-            "schema_settings": {
-                "preferred_version": "v1.0.0",
-                "auto_migrate": False
+            "workspace_settings": {
+                "schema_version": current_schema_version,
+                "last_upgraded": datetime.now().strftime("%Y-%m-%d"),
+                "sdk_version_required": f"{current_schema_version.split('.')[0]}.0.x"
             },
             "database": {
                 "enabled": False
@@ -341,7 +411,7 @@ class WorkspaceManager:
              workspace_id: Optional[str] = None,
              config_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Load a workspace configuration.
+        Load a workspace configuration with automatic migration of deprecated fields.
 
         Args:
             workspace_path: Path to workspace settings file
@@ -361,12 +431,15 @@ class WorkspaceManager:
 
         # Use config_dict if provided
         if config_dict is not None:
-            # Validate the configuration
-            errors = validate_workspace(config_dict)
+            # Migrate deprecated fields before validation
+            migrated_config = self._migrate_deprecated_fields(config_dict)
+
+            # Validate the migrated configuration
+            errors = validate_workspace(migrated_config, lenient_mode=True)
             if errors:
                 raise WorkspaceValidationError("\n".join(errors))
 
-            self.config = config_dict
+            self.config = migrated_config
             self.workspace_path = None  # No file path
             logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from provided dictionary")
 
@@ -437,10 +510,22 @@ class WorkspaceManager:
         # Load the configuration from file
         try:
             with open(self.workspace_path, 'r') as f:
-                self.config = json.load(f)
+                raw_config = json.load(f)
 
-            # Validate the configuration
-            errors = validate_workspace(self.config)
+            # Migrate deprecated fields before validation
+            self.config = self._migrate_deprecated_fields(raw_config)
+
+            # If migration was performed, save the updated configuration back to file
+            if self.config != raw_config:
+                try:
+                    with open(self.workspace_path, 'w') as f:
+                        json.dump(self.config, f, indent=2)
+                    logger.info(f"Saved migrated workspace configuration to {self.workspace_path}")
+                except Exception as e:
+                    logger.warning(f"Could not save migrated configuration: {e}")
+
+            # Validate the migrated configuration with lenient mode
+            errors = validate_workspace(self.config, lenient_mode=True)
             if errors:
                 raise WorkspaceValidationError("\n".join(errors))
 
@@ -474,7 +559,7 @@ class WorkspaceManager:
         if not self.is_loaded:
             raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
-        errors = validate_workspace(self.config)
+        errors = validate_workspace(self.config, lenient_mode=False)
         if errors:
             raise WorkspaceValidationError("\n".join(errors))
 
