@@ -133,7 +133,7 @@ def export_to_json(self, workspace_manager=None, file_path=None, file_name=None,
 
 
 @classmethod
-def _create_schema_error_message(cls, data: Dict[str, Any], file_identifier: str) -> str:
+def _create_schema_error_message(data: Dict[str, Any], file_identifier: str) -> str:
     """Create a user-friendly schema version error message."""
     file_version = data.get("meta", {}).get("schema_version", "unknown")
 
@@ -242,13 +242,13 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
 
             except SchemaVersionError:
                 # Create user-friendly error message and raise as StorageError
-                error_msg = cls._create_schema_error_message(data, full_path)
+                error_msg = _create_schema_error_message(data, full_path)
                 raise StorageError(error_msg)
 
             except ValidationError as e:
                 # Check if this ValidationError was caused by a SchemaVersionError
                 if "schema version" in str(e).lower() or "❌" in str(e):
-                    error_msg = cls._create_schema_error_message(data, full_path)
+                    error_msg = _create_schema_error_message(data, full_path)
                     raise StorageError(error_msg)
                 else:
                     # Re-raise other validation errors as-is
@@ -283,13 +283,13 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
 
             except SchemaVersionError:
                 # Create user-friendly error message and raise as StorageError
-                error_msg = cls._create_schema_error_message(data, full_path)
+                error_msg = _create_schema_error_message(data, full_path)
                 raise StorageError(error_msg)
 
             except ValidationError as e:
                 # Check if this ValidationError was caused by a SchemaVersionError
                 if "schema version" in str(e).lower() or "❌" in str(e):
-                    error_msg = cls._create_schema_error_message(data, full_path)
+                    error_msg = _create_schema_error_message(data, full_path)
                     raise StorageError(error_msg)
                 else:
                     # Re-raise other validation errors as-is
