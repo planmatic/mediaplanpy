@@ -2,7 +2,7 @@
 Command-line interface for Media Plan OSC.
 
 This module provides a command-line interface for managing workspaces
-and media plans.
+and media plans with enhanced support for 2-digit versioning strategy.
 """
 import os
 import sys
@@ -35,6 +35,9 @@ from mediaplanpy.exceptions import (
     ValidationError
 )
 
+# Import version information
+from mediaplanpy import __version__, __schema_version__
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -44,53 +47,124 @@ logger = logging.getLogger("mediaplanpy.cli")
 
 
 def setup_argparse():
-    """Set up argument parsing for the CLI."""
+    """Set up argument parsing for the CLI with enhanced version support."""
     parser = argparse.ArgumentParser(
-        description="Media Plan OSC - Open Source Python SDK for Media Plans"
+        description="Media Plan OSC - Open Source Python SDK for Media Plans (2-digit versioning)",
+        epilog=f"SDK Version: {__version__}, Schema Version: {__schema_version__}"
+    )
+
+    # Add global version flag
+    parser.add_argument(
+        '--version',
+        action='version',
+        version=f'mediaplanpy {__version__} (schema {__schema_version__})'
     )
 
     # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
     # Workspace commands
-    workspace_parser = subparsers.add_parser("workspace", help="Workspace management")
+    workspace_parser = subparsers.add_parser(
+        "workspace",
+        help="Workspace management",
+        description="Manage workspace configurations and version compatibility"
+    )
     workspace_subparsers = workspace_parser.add_subparsers(dest="workspace_command")
 
     # workspace init
-    init_parser = workspace_subparsers.add_parser("init", help="Initialize a new workspace")
+    init_parser = workspace_subparsers.add_parser(
+        "init",
+        help="Initialize a new workspace",
+        description="Create a new workspace configuration with current SDK version"
+    )
     init_parser.add_argument("--path", help="Path to create workspace.json", default="./workspace.json")
     init_parser.add_argument("--force", action="store_true", help="Overwrite existing workspace.json")
 
     # workspace validate
-    validate_parser = workspace_subparsers.add_parser("validate", help="Validate an existing workspace")
+    validate_parser = workspace_subparsers.add_parser(
+        "validate",
+        help="Validate an existing workspace",
+        description="Validate workspace configuration and version compatibility"
+    )
     validate_parser.add_argument("--path", help="Path to workspace.json")
 
     # workspace info
-    info_parser = workspace_subparsers.add_parser("info", help="Display information about the workspace")
+    info_parser = workspace_subparsers.add_parser(
+        "info",
+        help="Display information about the workspace",
+        description="Show detailed workspace configuration and version information"
+    )
     info_parser.add_argument("--path", help="Path to workspace.json")
 
+    # workspace upgrade
+    upgrade_parser = workspace_subparsers.add_parser(
+        "upgrade",
+        help="Upgrade workspace to current SDK version",
+        description="Upgrade workspace and all media plans to current SDK/schema versions"
+    )
+    upgrade_parser.add_argument("--workspace", help="Path to workspace.json")
+    upgrade_parser.add_argument("--target-version", help="Target SDK version (defaults to current)")
+    upgrade_parser.add_argument("--dry-run", action="store_true",
+                                help="Show what would be upgraded without making changes")
+
+    # workspace version
+    version_parser = workspace_subparsers.add_parser(
+        "version",
+        help="Show workspace version information",
+        description="Display current workspace and SDK version compatibility details"
+    )
+    version_parser.add_argument("--workspace", help="Path to workspace.json")
+
+    # workspace check
+    check_parser = workspace_subparsers.add_parser(
+        "check",
+        help="Check workspace compatibility and upgrade readiness",
+        description="Analyze workspace compatibility with current SDK version"
+    )
+    check_parser.add_argument("--workspace", help="Path to workspace.json")
+
     # Schema commands
-    schema_parser = subparsers.add_parser("schema", help="Schema management")
+    schema_parser = subparsers.add_parser(
+        "schema",
+        help="Schema management",
+        description="Manage schema versions and validation (2-digit format: X.Y)"
+    )
     schema_subparsers = schema_parser.add_subparsers(dest="schema_command")
 
     # schema info
-    schema_info_parser = schema_subparsers.add_parser("info", help="Display schema information")
+    schema_info_parser = schema_subparsers.add_parser(
+        "info",
+        help="Display schema information",
+        description="Show current schema version and compatibility matrix"
+    )
     schema_info_parser.add_argument("--workspace", help="Path to workspace.json")
 
     # schema versions
-    schema_versions_parser = schema_subparsers.add_parser("versions", help="List supported schema versions")
+    schema_versions_parser = schema_subparsers.add_parser(
+        "versions",
+        help="List supported schema versions",
+        description="List all supported schema versions in 2-digit format"
+    )
     schema_versions_parser.add_argument("--workspace", help="Path to workspace.json")
 
     # schema validate
-    schema_validate_parser = schema_subparsers.add_parser("validate", help="Validate a media plan against schema")
+    schema_validate_parser = schema_subparsers.add_parser(
+        "validate",
+        help="Validate a media plan against schema",
+        description="Validate media plan with version compatibility checking"
+    )
     schema_validate_parser.add_argument("file", help="Path to media plan JSON file")
-    schema_validate_parser.add_argument("--version", help="Schema version to validate against")
+    schema_validate_parser.add_argument("--version", help="Schema version to validate against (e.g., '2.0')")
     schema_validate_parser.add_argument("--workspace", help="Path to workspace.json")
 
     # schema migrate
-    schema_migrate_parser = schema_subparsers.add_parser("migrate", help="Migrate a media plan to a new schema version")
+    schema_migrate_parser = schema_subparsers.add_parser(
+        "migrate",
+        help="Migrate a media plan to a new schema version",
+        description="Migrate media plan between schema versions (2-digit format)"
+    )
     schema_migrate_parser.add_argument("file", help="Path to media plan JSON file")
-    schema_migrate_parser.add_argument("--to-version", help="Target schema version")
+    schema_migrate_parser.add_argument("--to-version", help="Target schema version (e.g., '2.0')")
     schema_migrate_parser.add_argument("--output", help="Output file path (defaults to input with version suffix)")
     schema_migrate_parser.add_argument("--workspace", help="Path to workspace.json")
 
@@ -126,10 +200,10 @@ def setup_argparse():
     # excel validate
     excel_validate_parser = excel_subparsers.add_parser("validate", help="Validate Excel file against schema")
     excel_validate_parser.add_argument("file", help="Path to Excel file")
-    excel_validate_parser.add_argument("--version", help="Schema version to validate against")
+    excel_validate_parser.add_argument("--version", help="Schema version to validate against (e.g., '2.0')")
     excel_validate_parser.add_argument("--report", help="Output path for validation report")
 
-    # Media plan commands (add this new section after excel commands)
+    # Media plan commands
     mediaplan_parser = subparsers.add_parser("mediaplan", help="Media plan operations")
     mediaplan_subparsers = mediaplan_parser.add_subparsers(dest="mediaplan_command")
 
@@ -139,22 +213,8 @@ def setup_argparse():
     delete_parser.add_argument("--media-plan-id", required=True, help="Media plan ID to delete")
     delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted without actually deleting")
 
-    # workspace upgrade
-    upgrade_parser = workspace_subparsers.add_parser("upgrade", help="Upgrade workspace to current SDK version")
-    upgrade_parser.add_argument("--workspace", help="Path to workspace.json")
-    upgrade_parser.add_argument("--target-version", help="Target SDK version (defaults to current)")
-    upgrade_parser.add_argument("--dry-run", action="store_true",
-                                help="Show what would be upgraded without making changes")
-
-    # workspace version
-    version_parser = workspace_subparsers.add_parser("version", help="Show workspace version information")
-    version_parser.add_argument("--workspace", help="Path to workspace.json")
-
-    # workspace check
-    check_parser = workspace_subparsers.add_parser("check", help="Check workspace compatibility and upgrade readiness")
-    check_parser.add_argument("--workspace", help="Path to workspace.json")
-
     return parser
+
 
 def handle_workspace_init(args):
     """Handle the 'workspace init' command."""
@@ -166,12 +226,22 @@ def handle_workspace_init(args):
             overwrite=args.force
         )
         config = manager.config
+
         print(f"✅ Created workspace '{config['workspace_name']}' with ID '{workspace_id}' at {settings_path}")
-        print(f"Storage mode: {config['storage']['mode']}")
+        print(f"📦 SDK Version: {__version__}")
+        print(f"📋 Schema Version: {__schema_version__}")
+        print(f"💾 Storage mode: {config['storage']['mode']}")
+
         if config['storage']['mode'] == 'local':
-            print(f"Local storage path: {config['storage']['local']['base_path']}")
-        print(f"Schema settings:")
-        print(f"  Preferred version: {config['schema_settings']['preferred_version']}")
+            print(f"📁 Local storage path: {config['storage']['local']['base_path']}")
+
+        # Show workspace settings info
+        workspace_settings = config.get('workspace_settings', {})
+        print(f"⚙️  Workspace Settings:")
+        print(f"   Schema version: {workspace_settings.get('schema_version', 'Not set')}")
+        print(f"   SDK required: {workspace_settings.get('sdk_version_required', 'Not set')}")
+        print(f"   Last upgraded: {workspace_settings.get('last_upgraded', 'Never')}")
+
     except WorkspaceError as e:
         print(f"❌ Error creating workspace: {e}")
         return 1
@@ -184,21 +254,43 @@ def handle_workspace_validate(args):
         manager = WorkspaceManager(args.path)
         config = manager.load()
         valid = manager.validate()
-        print(f"✅ Workspace '{config['workspace_name']}' is valid")
 
-        # Show some info about the workspace
-        print("\nWorkspace Configuration:")
-        print(f"  Environment: {config['environment']}")
-        print(f"  Storage Mode: {config['storage']['mode']}")
+        print(f"✅ Workspace '{config['workspace_name']}' is valid")
+        print(f"📦 SDK Version: {__version__}")
+        print(f"📋 Current Schema Version: {__schema_version__}")
+
+        # Show workspace version compatibility
+        version_info = manager.get_workspace_version_info()
+        compatibility = manager.check_workspace_compatibility()
+
+        print(f"\n🔍 Version Compatibility:")
+        print(f"   Workspace schema version: {version_info['workspace_schema_version']}")
+        print(f"   Compatibility status: {version_info['compatibility_status']}")
+
+        if compatibility['warnings']:
+            print(f"⚠️  Warnings:")
+            for warning in compatibility['warnings']:
+                print(f"   - {warning}")
+
+        if compatibility['recommendations']:
+            print(f"💡 Recommendations:")
+            for rec in compatibility['recommendations']:
+                print(f"   - {rec}")
+
+        # Show workspace configuration
+        print(f"\n📋 Workspace Configuration:")
+        print(f"   Environment: {config['environment']}")
+        print(f"   Storage Mode: {config['storage']['mode']}")
 
         if config['storage']['mode'] == 'local':
             local_path = manager.get_resolved_config()['storage']['local']['base_path']
-            print(f"  Local Storage Path: {local_path}")
+            print(f"   Local Storage Path: {local_path}")
         elif config['storage']['mode'] == 's3':
             s3_config = config['storage']['s3']
-            print(f"  S3 Bucket: {s3_config['bucket']}")
+            print(f"   S3 Bucket: {s3_config['bucket']}")
             if 'prefix' in s3_config:
-                print(f"  S3 Prefix: {s3_config['prefix']}")
+                print(f"   S3 Prefix: {s3_config['prefix']}")
+
     except WorkspaceNotFoundError as e:
         print(f"❌ Workspace not found: {e}")
         return 1
@@ -212,74 +304,75 @@ def handle_workspace_validate(args):
 
 
 def handle_workspace_info(args):
-    """Handle the 'workspace info' command."""
+    """Handle the 'workspace info' command with enhanced version information."""
     try:
         manager = WorkspaceManager(args.path)
         config = manager.load()
 
-        print(f"Workspace: {config['workspace_name']}")
-        print(f"Environment: {config['environment']}")
-        print("\nStorage Configuration:")
-        print(f"  Mode: {config['storage']['mode']}")
+        print(f"📋 Workspace: {config['workspace_name']}")
+        print(f"🆔 ID: {config.get('workspace_id', 'Unknown')}")
+        print(f"🌍 Environment: {config['environment']}")
+        print(f"📦 Current SDK Version: {__version__}")
+        print(f"📋 Current Schema Version: {__schema_version__}")
 
+        # Show version information
+        version_info = manager.get_workspace_version_info()
+        print(f"\n🔍 Version Information:")
+        print(f"   Workspace schema version: {version_info['workspace_schema_version'] or 'Not set'}")
+        print(f"   Required SDK version: {version_info['workspace_sdk_required'] or 'Not set'}")
+        print(f"   Last upgraded: {version_info['last_upgraded'] or 'Never'}")
+        print(f"   Compatibility status: {version_info['compatibility_status']}")
+
+        if version_info['needs_upgrade']:
+            print(f"📋 💡 Recommendation: Run 'workspace upgrade' to update to current versions")
+
+        # Show storage configuration
         resolved = manager.get_resolved_config()
+        print(f"\n💾 Storage Configuration:")
+        print(f"   Mode: {config['storage']['mode']}")
 
         if config['storage']['mode'] == 'local':
             local_config = resolved['storage']['local']
-            print(f"  Base Path: {local_config['base_path']}")
-            print(f"  Create If Missing: {local_config['create_if_missing']}")
+            print(f"   Base Path: {local_config['base_path']}")
+            print(f"   Create If Missing: {local_config['create_if_missing']}")
         elif config['storage']['mode'] == 's3':
             s3_config = config['storage']['s3']
-            print(f"  Bucket: {s3_config['bucket']}")
+            print(f"   Bucket: {s3_config['bucket']}")
             if 'prefix' in s3_config:
-                print(f"  Prefix: {s3_config['prefix']}")
+                print(f"   Prefix: {s3_config['prefix']}")
             if 'region' in s3_config:
-                print(f"  Region: {s3_config['region']}")
+                print(f"   Region: {s3_config['region']}")
 
-        print("\nSchema Settings:")
-        schema_settings = resolved.get('schema_settings', {})
-        print(f"  Preferred Version: {schema_settings.get('preferred_version', 'v1.0.0')}")
-        print(f"  Auto Migrate: {schema_settings.get('auto_migrate', False)}")
+        # Show workspace settings (new section for 2-digit versioning)
+        workspace_settings = config.get('workspace_settings', {})
+        print(f"\n⚙️  Workspace Settings:")
+        print(f"   Schema version: {workspace_settings.get('schema_version', 'Not set')}")
+        print(f"   Last upgraded: {workspace_settings.get('last_upgraded', 'Never')}")
+        print(f"   SDK version required: {workspace_settings.get('sdk_version_required', 'Not set')}")
 
-        print("\nDatabase Configuration:")
+        # Show database configuration
+        print(f"\n🗄️  Database Configuration:")
         db_config = config['database']
         if db_config.get('enabled', False):
-            print(f"  Enabled: Yes")
-            print(f"  Host: {db_config.get('host')}")
-            print(f"  Port: {db_config.get('port', 5432)}")
-            print(f"  Database: {db_config.get('database')}")
-            print(f"  Schema: {db_config.get('schema', 'public')}")
-            print(f"  SSL: {db_config.get('ssl', True)}")
+            print(f"   Enabled: Yes")
+            print(f"   Host: {db_config.get('host')}")
+            print(f"   Port: {db_config.get('port', 5432)}")
+            print(f"   Database: {db_config.get('database')}")
+            print(f"   Schema: {db_config.get('schema', 'public')}")
+            print(f"   SSL: {db_config.get('ssl', True)}")
         else:
-            print("  Enabled: No")
+            print("   Enabled: No")
 
-        print("\nGoogle Sheets Configuration:")
-        gs_config = config.get('google_sheets', {})
-        if gs_config.get('enabled', False):
-            print(f"  Enabled: Yes")
-            if 'credentials_path' in gs_config:
-                creds_path = resolved.get('google_sheets', {}).get('credentials_path', '')
-                print(f"  Credentials Path: {creds_path}")
-            if 'template_id' in gs_config:
-                print(f"  Template ID: {gs_config['template_id']}")
-        else:
-            print("  Enabled: No")
-
-        print("\nExcel Configuration:")
+        # Show Excel configuration
+        print(f"\n📊 Excel Configuration:")
         excel_config = config.get('excel', {})
-        if 'template_path' in excel_config:
-            template_path = resolved.get('excel', {}).get('template_path', '')
-            print(f"  Template Path: {template_path}")
-        if 'default_export_path' in excel_config:
-            export_path = resolved.get('excel', {}).get('default_export_path', '')
-            print(f"  Default Export Path: {export_path}")
-
-        print("\nLogging Configuration:")
-        log_config = config.get('logging', {})
-        print(f"  Level: {log_config.get('level', 'INFO')}")
-        if 'file' in log_config:
-            log_file = resolved.get('logging', {}).get('file', '')
-            print(f"  Log File: {log_file}")
+        if excel_config.get('enabled', True):
+            print(f"   Enabled: Yes")
+            if 'template_path' in excel_config:
+                template_path = resolved.get('excel', {}).get('template_path', '')
+                print(f"   Template Path: {template_path}")
+        else:
+            print("   Enabled: No")
 
     except WorkspaceNotFoundError as e:
         print(f"❌ Workspace not found: {e}")
@@ -293,8 +386,135 @@ def handle_workspace_info(args):
     return 0
 
 
+def handle_workspace_upgrade(args):
+    """Handle the 'workspace upgrade' command."""
+    try:
+        manager = WorkspaceManager(args.workspace)
+        manager.load()
+
+        print(f"🚀 Starting workspace upgrade...")
+        print(f"📦 Current SDK Version: {__version__}")
+        print(f"📋 Current Schema Version: {__schema_version__}")
+
+        if args.target_version:
+            print(f"🎯 Target SDK Version: {args.target_version}")
+        else:
+            print(f"🎯 Target SDK Version: {__version__} (current)")
+
+        result = manager.upgrade_workspace(
+            target_sdk_version=args.target_version,
+            dry_run=args.dry_run
+        )
+
+        if args.dry_run:
+            print(f"🔍 DRY RUN - Workspace upgrade analysis:")
+        else:
+            print(f"✅ Workspace upgrade completed:")
+
+        print(f"   📄 JSON files migrated: {result['json_files_migrated']}")
+        print(f"   📊 Parquet files regenerated: {result['parquet_files_regenerated']}")
+        print(f"   🗄️  Database upgraded: {result['database_upgraded']}")
+        print(f"   ⚙️  Workspace settings updated: {result['workspace_updated']}")
+
+        if result['errors']:
+            print(f"⚠️  Errors encountered:")
+            for error in result['errors']:
+                print(f"    - {error}")
+            return 1
+
+        if not args.dry_run:
+            print(f"🎉 Upgrade successful! Workspace is now compatible with SDK {__version__}")
+
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error upgrading workspace: {e}")
+        return 1
+
+
+def handle_workspace_version(args):
+    """Handle the 'workspace version' command."""
+    try:
+        manager = WorkspaceManager(args.workspace)
+        manager.load()
+
+        version_info = manager.get_workspace_version_info()
+
+        print(f"📋 Workspace Version Information:")
+        print(f"   Workspace: {version_info['workspace_name']}")
+        print(f"   Current SDK Version: {version_info['current_sdk_version']}")
+        print(f"   Current Schema Version: {version_info['current_schema_version']}")
+        print(f"   Workspace Schema Version: {version_info['workspace_schema_version'] or 'Not set'}")
+        print(f"   Required SDK Version: {version_info['workspace_sdk_required'] or 'Not set'}")
+        print(f"   Last Upgraded: {version_info['last_upgraded'] or 'Never'}")
+        print(f"   Compatibility Status: {version_info['compatibility_status']}")
+
+        # Show compatibility details
+        compatibility = manager.check_workspace_compatibility()
+
+        if not compatibility['is_compatible']:
+            print(f"❌ Compatibility Issues Found:")
+            for error in compatibility['errors']:
+                print(f"   - {error}")
+        else:
+            print(f"✅ Workspace is compatible with current SDK")
+
+        if compatibility['warnings']:
+            print(f"⚠️  Warnings:")
+            for warning in compatibility['warnings']:
+                print(f"   - {warning}")
+
+        if version_info['needs_upgrade']:
+            print(f"💡 Recommendation: Run 'workspace upgrade' to update to current versions")
+
+        return 0
+
+    except Exception as e:
+        print(f"❌ Error getting version information: {e}")
+        return 1
+
+
+def handle_workspace_check(args):
+    """Handle the 'workspace check' command."""
+    try:
+        manager = WorkspaceManager(args.workspace)
+        manager.load()
+
+        print(f"🔍 Checking workspace compatibility...")
+        print(f"📦 Current SDK Version: {__version__}")
+        print(f"📋 Current Schema Version: {__schema_version__}")
+
+        compatibility = manager.check_workspace_compatibility()
+
+        if compatibility['is_compatible']:
+            print(f"✅ Workspace is compatible with current SDK")
+        else:
+            print(f"❌ Workspace compatibility issues found")
+
+        if compatibility['errors']:
+            print(f"🚫 Errors:")
+            for error in compatibility['errors']:
+                print(f"   - {error}")
+
+        if compatibility['warnings']:
+            print(f"⚠️  Warnings:")
+            for warning in compatibility['warnings']:
+                print(f"   - {warning}")
+
+        if compatibility['recommendations']:
+            print(f"💡 Recommendations:")
+            for rec in compatibility['recommendations']:
+                print(f"   - {rec}")
+
+        return 0 if compatibility['is_compatible'] else 1
+
+    except Exception as e:
+        print(f"❌ Error checking workspace: {e}")
+        return 1
+
+
 def handle_schema_info(args):
-    """Handle the 'schema info' command."""
+    """Handle the 'schema info' command with enhanced 2-digit version support."""
     try:
         # Load workspace if specified
         if args.workspace:
@@ -309,10 +529,26 @@ def handle_schema_info(args):
         current_version = registry.get_current_version()
         supported_versions = registry.get_supported_versions()
 
-        print(f"Schema Information:")
-        print(f"  Current Version: {current_version}")
-        print(f"  Supported Versions: {', '.join(supported_versions)}")
-        print(f"  Schemas: Bundled with SDK")
+        print(f"📋 Schema Information (2-digit format):")
+        print(f"   Current Version: {current_version}")
+        print(f"   SDK Version: {__version__}")
+        print(f"   Supported Versions: {', '.join(supported_versions)}")
+        print(f"   Format: 2-digit (Major.Minor)")
+        print(f"   Schemas: Bundled with SDK")
+
+        # Show version compatibility matrix
+        try:
+            from mediaplanpy.schema.version_utils import get_compatibility_type, CURRENT_MAJOR, CURRENT_MINOR
+
+            print(f"\n🔄 Version Compatibility Matrix:")
+            print(f"   Current: {CURRENT_MAJOR}.{CURRENT_MINOR} → Native Support")
+            print(f"   {CURRENT_MAJOR}.{CURRENT_MINOR + 1}+ → Forward Compatible (downgrade + warning)")
+            print(f"   {CURRENT_MAJOR}.{max(0, CURRENT_MINOR - 1)}- → Backward Compatible (upgrade)")
+            print(f"   {max(0, CURRENT_MAJOR - 1)}.* → Deprecated (migrate + warning)")
+            print(f"   {max(0, CURRENT_MAJOR - 2)}.* → Unsupported (reject + guidance)")
+
+        except Exception:
+            pass
 
     except (WorkspaceError, SchemaError) as e:
         print(f"❌ Error getting schema information: {e}")
@@ -321,7 +557,7 @@ def handle_schema_info(args):
 
 
 def handle_schema_versions(args):
-    """Handle the 'schema versions' command."""
+    """Handle the 'schema versions' command with 2-digit version display."""
     try:
         # Load workspace if specified
         if args.workspace:
@@ -335,13 +571,21 @@ def handle_schema_versions(args):
         # Get versions
         versions_info = registry.load_versions_info()
 
-        print(f"Schema Versions:")
-        print(f"  Current: {versions_info.get('current')}")
-        print(f"  Supported: {', '.join(versions_info.get('supported', []))}")
+        print(f"📋 Schema Versions (2-digit format):")
+        print(f"   Current: {versions_info.get('current')}")
+        print(f"   Supported: {', '.join(versions_info.get('supported', []))}")
+        print(f"   Format: 2-digit (Major.Minor)")
+
         if 'deprecated' in versions_info and versions_info['deprecated']:
-            print(f"  Deprecated: {', '.join(versions_info.get('deprecated', []))}")
+            print(f"   Deprecated: {', '.join(versions_info.get('deprecated', []))}")
+
         if 'description' in versions_info:
-            print(f"  Description: {versions_info['description']}")
+            print(f"   Description: {versions_info['description']}")
+
+        # Show examples
+        print(f"\n📝 Version Format Examples:")
+        print(f"   ✅ Valid: '2.0', '1.5', '0.9'")
+        print(f"   ❌ Invalid: 'v2.0.0', '2.0.1', 'latest'")
 
     except (WorkspaceError, SchemaError) as e:
         print(f"❌ Error getting schema versions: {e}")
@@ -373,20 +617,26 @@ def handle_schema_validate(args):
         print(f"🎯 Target validation version: {target_version}")
 
         # Check version compatibility before validation
-        from mediaplanpy.schema.version_utils import get_compatibility_type, get_migration_recommendation
-        from mediaplanpy.schema.version_utils import normalize_version
-
         if file_version != "unknown":
             try:
-                compatibility = get_compatibility_type(normalize_version(file_version))
+                from mediaplanpy.schema.version_utils import (
+                    get_compatibility_type,
+                    get_migration_recommendation,
+                    normalize_version
+                )
+
+                # Normalize to 2-digit format
+                normalized_version = normalize_version(file_version)
+                compatibility = get_compatibility_type(normalized_version)
+
                 print(f"🔄 Version compatibility: {compatibility}")
 
                 if compatibility == "unsupported":
-                    recommendation = get_migration_recommendation(normalize_version(file_version))
+                    recommendation = get_migration_recommendation(normalized_version)
                     print(f"❌ {recommendation.get('message', 'Version not supported')}")
                     return 1
                 elif compatibility in ["deprecated", "forward_minor"]:
-                    recommendation = get_migration_recommendation(normalize_version(file_version))
+                    recommendation = get_migration_recommendation(normalized_version)
                     print(f"⚠️  {recommendation.get('message', 'Version compatibility warning')}")
 
             except Exception as e:
@@ -396,12 +646,12 @@ def handle_schema_validate(args):
         errors = validator.validate(media_plan_data, target_version)
 
         if not errors:
-            print(f"✅ Media plan '{args.file}' is valid")
+            print(f"✅ Media plan '{args.file}' is valid against schema {target_version}")
             return 0
         else:
             print(f"❌ Media plan validation failed with {len(errors)} errors:")
             for i, error in enumerate(errors, 1):
-                print(f"  {i}. {error}")
+                print(f"   {i}. {error}")
             return 1
 
     except Exception as e:
@@ -410,7 +660,7 @@ def handle_schema_validate(args):
 
 
 def handle_schema_migrate(args):
-    """Handle the 'schema migrate' command with enhanced version handling."""
+    """Handle the 'schema migrate' command with enhanced 2-digit version handling."""
     try:
         # Load workspace if specified
         if args.workspace:
@@ -434,7 +684,7 @@ def handle_schema_migrate(args):
         # Get target version
         to_version = args.to_version
         if not to_version:
-            # If no target version specified, use current version
+            # If no target version specified, use current version (2-digit format)
             to_version = f"v{migrator.registry.get_current_version()}"
 
         print(f"📄 Migrating file: {args.file}")
@@ -442,11 +692,13 @@ def handle_schema_migrate(args):
         print(f"🎯 To version: {to_version}")
 
         # Check version compatibility
-        from mediaplanpy.schema.version_utils import get_compatibility_type, normalize_version
-
         try:
-            compatibility = get_compatibility_type(normalize_version(from_version))
+            from mediaplanpy.schema.version_utils import get_compatibility_type, normalize_version
+
+            normalized_from = normalize_version(from_version)
+            compatibility = get_compatibility_type(normalized_from)
             print(f"🔄 Source version compatibility: {compatibility}")
+
         except Exception as e:
             print(f"⚠️  Could not determine source version compatibility: {e}")
 
@@ -457,10 +709,10 @@ def handle_schema_migrate(args):
         if args.output:
             output_path = args.output
         else:
-            # Default to input file name with version suffix
+            # Default to input file name with version suffix (2-digit format)
             input_path = Path(args.file)
-            # Extract just the version number for the filename
-            version_for_filename = to_version.replace('v', '').replace('.', '_')
+            # Extract version for filename (normalize to remove 'v' prefix)
+            version_for_filename = to_version.lstrip('v').replace('.', '_')
             output_path = input_path.with_stem(f"{input_path.stem}_v{version_for_filename}")
 
         # Write the migrated plan
@@ -469,6 +721,7 @@ def handle_schema_migrate(args):
 
         print(f"✅ Migration completed successfully")
         print(f"💾 Output saved to: {output_path}")
+        print(f"📋 New schema version: {migrated_plan.get('meta', {}).get('schema_version')}")
 
         return 0
 
@@ -531,6 +784,7 @@ def handle_excel_export(args):
             )
 
         print(f"✅ Media plan exported to Excel: {result_path}")
+        print(f"📋 Schema version: {media_plan.meta.schema_version}")
         return 0
 
     except Exception as e:
@@ -572,6 +826,7 @@ def handle_excel_import(args):
             result_path = output_path
 
         print(f"✅ Media plan imported from Excel and saved to: {result_path}")
+        print(f"📋 Final schema version: {media_plan.meta.schema_version}")
         return 0
 
     except Exception as e:
@@ -605,6 +860,9 @@ def handle_excel_update(args):
             print("❌ Error: You must specify either --target, or both --workspace and (--path or --campaign-id)")
             return 1
 
+        print(f"📄 Updating from Excel: {args.file}")
+        original_version = media_plan.meta.schema_version
+
         # Update from Excel
         media_plan.update_from_excel(args.file)
 
@@ -631,6 +889,7 @@ def handle_excel_update(args):
             result_path = output_path
 
         print(f"✅ Media plan updated from Excel and saved to: {result_path}")
+        print(f"📋 Schema version: {original_version} → {media_plan.meta.schema_version}")
         return 0
 
     except Exception as e:
@@ -644,18 +903,22 @@ def handle_excel_validate(args):
         from mediaplanpy.models import MediaPlan
         from mediaplanpy.excel.validator import create_validation_report
 
+        print(f"📄 Validating Excel file: {args.file}")
+        if args.version:
+            print(f"🎯 Target schema version: {args.version}")
+
         # Validate Excel file
         errors = MediaPlan.validate_excel(args.file, schema_version=args.version)
 
         if errors:
             print(f"❌ Excel file validation failed with {len(errors)} errors:")
             for i, error in enumerate(errors, 1):
-                print(f"  {i}. {error}")
+                print(f"   {i}. {error}")
 
             # Create validation report if requested
             if args.report:
                 report_path = create_validation_report(args.file, errors, args.report)
-                print(f"Validation report saved to: {report_path}")
+                print(f"📄 Validation report saved to: {report_path}")
 
             return 1
         else:
@@ -664,7 +927,7 @@ def handle_excel_validate(args):
             # Create validation report if requested
             if args.report:
                 report_path = create_validation_report(args.file, [], args.report)
-                print(f"Validation report saved to: {report_path}")
+                print(f"📄 Validation report saved to: {report_path}")
 
             return 0
 
@@ -689,9 +952,13 @@ def handle_mediaplan_delete(args):
         # Load the media plan
         try:
             media_plan = MediaPlan.load(manager, media_plan_id=args.media_plan_id)
+            schema_version = media_plan.meta.schema_version
         except Exception as e:
             print(f"❌ Error loading media plan '{args.media_plan_id}': {e}")
             return 1
+
+        print(f"📄 Media plan: {args.media_plan_id}")
+        print(f"📋 Schema version: {schema_version}")
 
         # Perform deletion
         result = media_plan.delete(manager, dry_run=args.dry_run)
@@ -707,8 +974,8 @@ def handle_mediaplan_delete(args):
                 print("   No files found to delete")
         else:
             print(f"✅ Media plan '{result['mediaplan_id']}' deletion completed:")
-            print(f"   Files found: {result['files_found']}")
-            print(f"   Files deleted: {result['files_deleted']}")
+            print(f"   📁 Files found: {result['files_found']}")
+            print(f"   🗑️  Files deleted: {result['files_deleted']}")
             if result['deleted_files']:
                 print("   Deleted files:")
                 for file_path in result['deleted_files']:
@@ -741,8 +1008,8 @@ def main():
         if not args.workspace_command:
             # If no workspace subcommand, print workspace help
             for action in parser._actions:
-                if action.dest == 'workspace_command':
-                    action.choices['init'].print_help()
+                if hasattr(action, 'choices') and 'workspace' in action.choices:
+                    action.choices['workspace'].print_help()
                     return 1
 
         if args.workspace_command == "init":
@@ -751,14 +1018,20 @@ def main():
             return handle_workspace_validate(args)
         elif args.workspace_command == "info":
             return handle_workspace_info(args)
+        elif args.workspace_command == "upgrade":
+            return handle_workspace_upgrade(args)
+        elif args.workspace_command == "version":
+            return handle_workspace_version(args)
+        elif args.workspace_command == "check":
+            return handle_workspace_check(args)
 
     # Handle schema commands
     elif args.command == "schema":
         if not args.schema_command:
             # If no schema subcommand, print schema help
             for action in parser._actions:
-                if action.dest == 'schema_command':
-                    action.choices['info'].print_help()
+                if hasattr(action, 'choices') and 'schema' in action.choices:
+                    action.choices['schema'].print_help()
                     return 1
 
         if args.schema_command == "info":
@@ -775,8 +1048,8 @@ def main():
         if not args.excel_command:
             # If no excel subcommand, print excel help
             for action in parser._actions:
-                if action.dest == 'excel_command':
-                    action.choices['export'].print_help()
+                if hasattr(action, 'choices') and 'excel' in action.choices:
+                    action.choices['excel'].print_help()
                     return 1
 
         if args.excel_command == "export":
@@ -788,117 +1061,22 @@ def main():
         elif args.excel_command == "validate":
             return handle_excel_validate(args)
 
-    # Handle mediaplan commands (add this after excel commands)
+    # Handle mediaplan commands
     elif args.command == "mediaplan":
         if not args.mediaplan_command:
             # If no mediaplan subcommand, print mediaplan help
             for action in parser._actions:
-                if action.dest == 'mediaplan_command':
-                    action.choices['delete'].print_help()
+                if hasattr(action, 'choices') and 'mediaplan' in action.choices:
+                    action.choices['mediaplan'].print_help()
                     return 1
 
         if args.mediaplan_command == "delete":
             return handle_mediaplan_delete(args)
-
-    def handle_workspace_upgrade(args):
-        """Handle the 'workspace upgrade' command."""
-        try:
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            result = manager.upgrade_workspace(
-                target_sdk_version=args.target_version,
-                dry_run=args.dry_run
-            )
-
-            if args.dry_run:
-                print(f"🔍 DRY RUN - Workspace upgrade analysis:")
-            else:
-                print(f"✅ Workspace upgrade completed:")
-
-            print(f"  JSON files migrated: {result['json_files_migrated']}")
-            print(f"  Parquet files regenerated: {result['parquet_files_regenerated']}")
-            print(f"  Database upgraded: {result['database_upgraded']}")
-            print(f"  Workspace settings updated: {result['workspace_updated']}")
-
-            if result['errors']:
-                print(f"⚠️  Errors encountered:")
-                for error in result['errors']:
-                    print(f"    - {error}")
-                return 1
-
-            return 0
-
-        except Exception as e:
-            print(f"❌ Error upgrading workspace: {e}")
-            return 1
-
-    def handle_workspace_version(args):
-        """Handle the 'workspace version' command."""
-        try:
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            version_info = manager.get_workspace_version_info()
-
-            print(f"Workspace Version Information:")
-            print(f"  Workspace: {version_info['workspace_name']}")
-            print(f"  Current SDK Version: {version_info['current_sdk_version']}")
-            print(f"  Current Schema Version: {version_info['current_schema_version']}")
-            print(f"  Workspace Schema Version: {version_info['workspace_schema_version'] or 'Not set'}")
-            print(f"  Required SDK Version: {version_info['workspace_sdk_required'] or 'Not set'}")
-            print(f"  Last Upgraded: {version_info['last_upgraded'] or 'Never'}")
-            print(f"  Compatibility Status: {version_info['compatibility_status']}")
-
-            if version_info['needs_upgrade']:
-                print(f"📋 Recommendation: Run 'workspace upgrade' to update to current versions")
-
-            return 0
-
-        except Exception as e:
-            print(f"❌ Error getting version information: {e}")
-            return 1
-
-    def handle_workspace_check(args):
-        """Handle the 'workspace check' command."""
-        try:
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            compatibility = manager.check_workspace_compatibility()
-
-            if compatibility['is_compatible']:
-                print(f"✅ Workspace is compatible with current SDK")
-            else:
-                print(f"❌ Workspace compatibility issues found")
-
-            if compatibility['errors']:
-                print(f"Errors:")
-                for error in compatibility['errors']:
-                    print(f"  - {error}")
-
-            if compatibility['warnings']:
-                print(f"Warnings:")
-                for warning in compatibility['warnings']:
-                    print(f"  - {warning}")
-
-            if compatibility['recommendations']:
-                print(f"Recommendations:")
-                for rec in compatibility['recommendations']:
-                    print(f"  - {rec}")
-
-            return 0 if compatibility['is_compatible'] else 1
-
-        except Exception as e:
-            print(f"❌ Error checking workspace: {e}")
-            return 1
 
     # If we reach here, no command was handled
     parser.print_help()
     return 1
 
 
-
 if __name__ == "__main__":
     sys.exit(main())
-
