@@ -133,6 +133,43 @@ def export_to_json(self, workspace_manager=None, file_path=None, file_name=None,
 
 
 @classmethod
+def _create_schema_error_message(cls, data: Dict[str, Any], file_identifier: str) -> str:
+    """Create a user-friendly schema version error message."""
+    file_version = data.get("meta", {}).get("schema_version", "unknown")
+
+    # Get current SDK version info
+    try:
+        from mediaplanpy import __version__, __schema_version__
+        current_sdk_version = __version__
+        current_schema_version = __schema_version__
+    except ImportError:
+        current_sdk_version = "unknown"
+        current_schema_version = "unknown"
+
+    # Get supported versions
+    try:
+        from mediaplanpy.schema import get_supported_versions
+        supported_versions = get_supported_versions()
+    except ImportError:
+        supported_versions = ["1.0"]
+
+    return (
+        f"Schema Version Compatibility Issue\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"File: {file_identifier}\n"
+        f"File schema version: {file_version}\n"
+        f"SDK version: {current_sdk_version}\n"
+        f"Supported schema versions: {', '.join(supported_versions)}\n\n"
+        f"The media plan file uses schema version '{file_version}' which is not "
+        f"compatible with the current SDK version.\n\n"
+        f"Solutions:\n"
+        f"  • Upgrade your SDK to a version that supports schema {file_version}\n"
+        f"  • Use a media plan file with a supported schema version\n"
+        f"  • Contact support for migration assistance"
+    )
+
+
+@classmethod
 def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
                      **format_options):
     """
@@ -197,15 +234,19 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
             except json.JSONDecodeError as e:
                 raise StorageError(f"Failed to parse JSON file: {e}")
 
-            # Create MediaPlan instance with version handling
-            # The from_dict method will handle version compatibility
-            result = cls.from_dict(data)
+            # Create MediaPlan instance with enhanced version error handling
+            try:
+                result = cls.from_dict(data)
+                logger.info(f"Media plan imported from JSON in workspace storage: {full_path}")
+                return result
 
-            logger.info(f"Media plan imported from JSON in workspace storage: {full_path}")
-            return result
+            except SchemaVersionError:
+                # Create user-friendly error message and raise as StorageError
+                error_msg = cls._create_schema_error_message(data, full_path)
+                raise StorageError(error_msg)
 
-        except SchemaVersionError:
-            # Re-raise schema version errors with file context
+        except StorageError:
+            # Re-raise StorageError as-is (including our enhanced schema version errors)
             raise
         except Exception as e:
             if not isinstance(e, StorageError):
@@ -225,17 +266,21 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
             with open(full_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Create MediaPlan instance with version handling
-            # The from_dict method will handle version compatibility
-            result = cls.from_dict(data)
+            # Create MediaPlan instance with enhanced version error handling
+            try:
+                result = cls.from_dict(data)
+                logger.info(f"Media plan imported from JSON at: {full_path}")
+                return result
 
-            logger.info(f"Media plan imported from JSON at: {full_path}")
-            return result
+            except SchemaVersionError:
+                # Create user-friendly error message and raise as StorageError
+                error_msg = cls._create_schema_error_message(data, full_path)
+                raise StorageError(error_msg)
 
         except json.JSONDecodeError as e:
             raise StorageError(f"Failed to parse JSON file: {e}")
-        except SchemaVersionError:
-            # Re-raise schema version errors with file context
+        except StorageError:
+            # Re-raise StorageError as-is
             raise
         except Exception as e:
             raise StorageError(f"Failed to import media plan from JSON: {e}")
