@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Dict, Any, Optional
 
-from mediaplanpy.exceptions import StorageError, SchemaVersionError
+from mediaplanpy.exceptions import StorageError, SchemaVersionError, ValidationError
 from mediaplanpy.workspace import WorkspaceManager
 
 # Configure logging
@@ -245,6 +245,15 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
                 error_msg = cls._create_schema_error_message(data, full_path)
                 raise StorageError(error_msg)
 
+            except ValidationError as e:
+                # Check if this ValidationError was caused by a SchemaVersionError
+                if "schema version" in str(e).lower() or "❌" in str(e):
+                    error_msg = cls._create_schema_error_message(data, full_path)
+                    raise StorageError(error_msg)
+                else:
+                    # Re-raise other validation errors as-is
+                    raise StorageError(f"Failed to import media plan from JSON: {e}")
+
         except StorageError:
             # Re-raise StorageError as-is (including our enhanced schema version errors)
             raise
@@ -276,6 +285,15 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
                 # Create user-friendly error message and raise as StorageError
                 error_msg = cls._create_schema_error_message(data, full_path)
                 raise StorageError(error_msg)
+
+            except ValidationError as e:
+                # Check if this ValidationError was caused by a SchemaVersionError
+                if "schema version" in str(e).lower() or "❌" in str(e):
+                    error_msg = cls._create_schema_error_message(data, full_path)
+                    raise StorageError(error_msg)
+                else:
+                    # Re-raise other validation errors as-is
+                    raise StorageError(f"Failed to import media plan from JSON: {e}")
 
         except json.JSONDecodeError as e:
             raise StorageError(f"Failed to parse JSON file: {e}")
