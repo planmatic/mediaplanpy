@@ -132,7 +132,6 @@ def export_to_json(self, workspace_manager=None, file_path=None, file_name=None,
             raise StorageError(f"Failed to export media plan to JSON: {e}")
 
 
-@classmethod
 def _create_schema_error_message(data: Dict[str, Any], file_identifier: str) -> str:
     """Create a user-friendly schema version error message."""
     file_version = data.get("meta", {}).get("schema_version", "unknown")
