@@ -1,0 +1,21 @@
+{
+  "current": "1.0",
+  "supported": ["0.0", "1.0"],
+  "deprecated": [],
+  "description": "Schema versions for Media Plan Open Data Standard",
+  "format": "2-digit (Major.Minor)",
+  "changelog": {
+    "1.0": {
+      "release_date": "2025-06-04",
+      "description": "Stable v1.0 schema (migrated from v1.0.0)",
+      "breaking_changes": true,
+      "sdk_version": "1.0.0"
+    },
+    "0.0": {
+      "release_date": "2025-05-01",
+      "description": "Initial schema (migrated from v0.0.0)",
+      "breaking_changes": true,
+      "sdk_version": "0.1.0"
+    }
+  }
+}

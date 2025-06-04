@@ -2,7 +2,7 @@
 Schema registry module for mediaplanpy.
 
 This module provides a registry for schema versions and utilities
-for loading schema definitions from bundled files (backward compatibility wrapper).
+for loading schema definitions from bundled files. Updated for 2-digit versioning.
 """
 
 import logging
@@ -10,6 +10,7 @@ from typing import Dict, Any, List, Optional
 
 from mediaplanpy.exceptions import SchemaError, SchemaRegistryError, SchemaVersionError
 from mediaplanpy.schema.manager import SchemaManager
+from mediaplanpy.schema.version_utils import normalize_version, validate_version_format
 
 logger = logging.getLogger("mediaplanpy.schema.registry")
 
@@ -18,8 +19,8 @@ class SchemaRegistry:
     """
     Registry for media plan schema versions.
 
-    This class now serves as a backward compatibility wrapper around
-    the new SchemaManager, which accesses bundled schema files directly.
+    This class serves as a backward compatibility wrapper around
+    the new SchemaManager, updated for 2-digit versioning.
     """
 
     def __init__(self, repo_url: Optional[str] = None, local_cache_dir: Optional[str] = None):
@@ -48,46 +49,76 @@ class SchemaRegistry:
         Load version information from bundled schema files.
 
         Returns:
-            Dictionary containing version information.
+            Dictionary containing version information in 2-digit format.
         """
         try:
             supported_versions = self._schema_manager.get_supported_versions()
 
             # Determine current version (highest version number)
-            current_version = supported_versions[-1] if supported_versions else "v1.0.0"
+            current_version = supported_versions[-1] if supported_versions else "2.0"
 
             return {
                 "current": current_version,
                 "supported": supported_versions,
-                "deprecated": [],  # No deprecated versions for now
-                "description": "Schema versions bundled with mediaplanpy SDK"
+                "deprecated": self._get_deprecated_versions(supported_versions),
+                "description": "Schema versions bundled with mediaplanpy SDK (2-digit format)"
             }
         except Exception as e:
             logger.error(f"Error loading version info: {e}")
             # Fallback to default
             return {
-                "current": "v1.0.0",
-                "supported": ["v0.0.0", "v1.0.0"],
-                "deprecated": [],
-                "description": "Default schema version configuration"
+                "current": "2.0",
+                "supported": ["0.0", "1.0", "2.0"],
+                "deprecated": ["0.0"],
+                "description": "Default schema version configuration (2-digit format)"
             }
+
+    def _get_deprecated_versions(self, supported_versions: List[str]) -> List[str]:
+        """
+        Determine which supported versions are deprecated.
+
+        Args:
+            supported_versions: List of all supported versions
+
+        Returns:
+            List of deprecated version strings
+        """
+        if not supported_versions:
+            return []
+
+        # Import current major version from main module
+        try:
+            from mediaplanpy import CURRENT_MAJOR
+        except ImportError:
+            CURRENT_MAJOR = 2
+
+        deprecated = []
+        for version in supported_versions:
+            try:
+                major_version = int(version.split('.')[0])
+                if major_version < CURRENT_MAJOR:
+                    deprecated.append(version)
+            except (ValueError, IndexError):
+                continue
+
+        return deprecated
 
     def get_current_version(self) -> str:
         """
-        Get the current (latest) schema version.
+        Get the current (latest) schema version in 2-digit format.
 
         Returns:
-            The current schema version string.
+            The current schema version string (e.g., "2.0").
         """
         versions_info = self.load_versions_info()
-        return versions_info.get("current", "v1.0.0")
+        return versions_info.get("current", "2.0")
 
     def get_supported_versions(self) -> List[str]:
         """
-        Get a list of supported schema versions.
+        Get a list of supported schema versions in 2-digit format.
 
         Returns:
-            List of supported schema version strings.
+            List of supported schema version strings (e.g., ["0.0", "1.0", "2.0"]).
         """
         return self._schema_manager.get_supported_versions()
 
@@ -96,12 +127,17 @@ class SchemaRegistry:
         Check if a specific schema version is supported.
 
         Args:
-            version: The schema version to check.
+            version: The schema version to check (supports both old and new formats).
 
         Returns:
             True if the version is supported, False otherwise.
         """
-        return version in self.get_supported_versions()
+        try:
+            # Normalize version to 2-digit format for comparison
+            normalized_version = normalize_version(version)
+            return normalized_version in self.get_supported_versions()
+        except Exception:
+            return False
 
     def assert_version_supported(self, version: str) -> None:
         """
@@ -115,10 +151,17 @@ class SchemaRegistry:
         """
         if not self.is_version_supported(version):
             supported = self.get_supported_versions()
-            raise SchemaVersionError(
-                f"Schema version '{version}' is not supported. "
-                f"Supported versions: {', '.join(supported)}"
-            )
+            try:
+                normalized = normalize_version(version)
+                raise SchemaVersionError(
+                    f"Schema version '{version}' (normalized: '{normalized}') is not supported. "
+                    f"Supported versions: {', '.join(supported)}"
+                )
+            except Exception:
+                raise SchemaVersionError(
+                    f"Schema version '{version}' is not supported or has invalid format. "
+                    f"Supported versions: {', '.join(supported)}"
+                )
 
     def load_schema(self, version: Optional[str] = None,
                    schema_name: str = "mediaplan.schema.json") -> Dict[str, Any]:
@@ -140,6 +183,12 @@ class SchemaRegistry:
         if version is None:
             version = self.get_current_version()
 
+        # Normalize version to 2-digit format
+        try:
+            normalized_version = normalize_version(version)
+        except Exception as e:
+            raise SchemaVersionError(f"Invalid version format '{version}': {e}")
+
         # Map schema filename to schema type
         schema_type_map = {
             "mediaplan.schema.json": "mediaplan",
@@ -152,7 +201,7 @@ class SchemaRegistry:
             raise SchemaRegistryError(f"Unknown schema file: {schema_name}")
 
         try:
-            return self._schema_manager.get_schema(schema_type, version)
+            return self._schema_manager.get_schema(schema_type, normalized_version)
         except FileNotFoundError as e:
             raise SchemaRegistryError(f"Schema not found: {e}")
         except ValueError as e:
@@ -178,8 +227,14 @@ class SchemaRegistry:
         if version is None:
             version = self.get_current_version()
 
+        # Normalize version to 2-digit format
         try:
-            schemas = self._schema_manager.get_all_schemas(version)
+            normalized_version = normalize_version(version)
+        except Exception as e:
+            raise SchemaVersionError(f"Invalid version format '{version}': {e}")
+
+        try:
+            schemas = self._schema_manager.get_all_schemas(normalized_version)
 
             # Convert to filename-based mapping for backward compatibility
             filename_schemas = {}
@@ -190,4 +245,4 @@ class SchemaRegistry:
             return filename_schemas
 
         except Exception as e:
-            raise SchemaRegistryError(f"Error loading schemas for version {version}: {e}")
+            raise SchemaRegistryError(f"Error loading schemas for version {normalized_version}: {e}")

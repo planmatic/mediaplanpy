@@ -5,7 +5,18 @@ A lightweight, open-source Python SDK for interacting with the open data
 standard for media plans.
 """
 
-__version__ = '0.1.0'
+# Central Version Definitions
+__version__ = '1.0.0'          # SDK version
+__schema_version__ = '1.0'     # Current schema version supported
+
+VERSION_NOTES = {
+    '1.0.0': 'Initial v1 release with new versioning strategy - Schema 1.0'
+}
+
+# Schema version compatibility constants
+CURRENT_MAJOR = 1
+CURRENT_MINOR = 0
+SUPPORTED_MAJOR_VERSIONS = [0, 1]  # Support current and 1 major version back
 
 # Setup package-level logger
 import logging
@@ -89,6 +100,14 @@ except ImportError:
     logger.debug("Database functionality not available - psycopg2-binary not installed")
 
 __all__ = [
+    # Version information
+    '__version__',
+    '__schema_version__',
+    'VERSION_NOTES',
+    'CURRENT_MAJOR',
+    'CURRENT_MINOR',
+    'SUPPORTED_MAJOR_VERSIONS',
+
     # Workspace
     'WorkspaceManager',
     'WorkspaceError',
@@ -143,9 +162,6 @@ __all__ = [
     'update_from_excel',
     'validate_excel',
     'ExcelFormatHandler',
-
-    # Version
-    '__version__'
 ]
 
 # Add database availability info
@@ -157,3 +173,19 @@ def is_database_available():
         True if psycopg2-binary is installed and database functionality is available.
     """
     return _database_available
+
+def get_version_info():
+    """
+    Get detailed version information.
+
+    Returns:
+        Dictionary containing SDK version, schema version, and release notes.
+    """
+    return {
+        'sdk_version': __version__,
+        'schema_version': __schema_version__,
+        'release_notes': VERSION_NOTES.get(__version__, 'No release notes available'),
+        'supported_major_versions': SUPPORTED_MAJOR_VERSIONS,
+        'current_major': CURRENT_MAJOR,
+        'current_minor': CURRENT_MINOR
+    }
