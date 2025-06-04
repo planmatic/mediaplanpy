@@ -8,7 +8,7 @@ and importing media plans from JSON files.
 import os
 import json
 import logging
-from typing import Optional
+from typing import Dict, Any, Optional
 
 from mediaplanpy.exceptions import StorageError, SchemaVersionError
 from mediaplanpy.workspace import WorkspaceManager
