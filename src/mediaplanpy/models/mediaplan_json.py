@@ -10,7 +10,7 @@ import json
 import logging
 from typing import Optional
 
-from mediaplanpy.exceptions import StorageError
+from mediaplanpy.exceptions import StorageError, SchemaVersionError
 from mediaplanpy.workspace import WorkspaceManager
 
 # Configure logging
