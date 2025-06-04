@@ -1,4 +1,5 @@
 # Testing recommendations for Phase 5.3 Excel integration updates
+from mediaplanpy import *
 
 # Test Case 1: Excel export with current version media plan
 def test_excel_export_current_version():

@@ -338,8 +338,7 @@ class PostgreSQLBackend:
                                 # Update records with this version
                                 cursor.execute(f"""
                                     UPDATE {self.schema}.{self.table_name}
-                                    SET meta_schema_version = %s,
-                                        updated_at = CURRENT_TIMESTAMP
+                                    SET meta_schema_version = %s
                                     WHERE meta_schema_version = %s
                                 """, (normalized_version, version))
 
