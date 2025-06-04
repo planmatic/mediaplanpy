@@ -159,12 +159,15 @@ class ExcelFormatHandler(FormatHandler):
         Returns:
             An openpyxl Workbook object.
         """
-        # This is a placeholder. Actual implementation will be in the exporter module.
-        # For now, just create a simple workbook
+        # UPDATE: This is a placeholder implementation.
+        # In practice, this should delegate to the exporter module for actual implementation.
+        # For now, just create a simple workbook with version reference
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Media Plan"
         sheet['A1'] = "Media Plan Data"
+        sheet['A2'] = "Schema Version:"
+        sheet['B2'] = "1.0"  # UPDATE: Use current version format
 
         return workbook
 
@@ -179,14 +182,15 @@ class ExcelFormatHandler(FormatHandler):
         Returns:
             The media plan data as a dictionary.
         """
-        # This is a placeholder. Actual implementation will be in the importer module.
-        # For now, just return an empty media plan structure
+        # UPDATE: This is a placeholder implementation.
+        # In practice, this should delegate to the importer module for actual implementation.
+        # For now, just return a media plan structure with current version format
         return {
             "meta": {
-                "schema_version": "v1.0.0",
+                "schema_version": "1.0",  # UPDATE: Use current version format
                 "id": "excel_import",
                 "created_by": "excel_import",
-                "created_at": "2025-05-06T00:00:00Z"
+                "created_at": "2025-06-04T00:00:00Z"  # UPDATE: Use current date
             },
             "campaign": {
                 "id": "campaign_from_excel",

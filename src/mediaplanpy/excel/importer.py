@@ -43,11 +43,15 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
         # Determine schema version
         schema_version = _detect_schema_version(workbook)
 
-        # Import based on schema version
-        if schema_version.startswith("v0.0.0"):
-            media_plan = _import_v0_media_plan(workbook)
-        else:  # Default to v1.0.0
-            media_plan = _import_v1_media_plan(workbook)
+        # UPDATE: Only support current schema version
+        if not _is_current_schema_version(schema_version):
+            raise ValidationError(
+                f"Excel import only supports schema version 1.0. Found: {schema_version}. "
+                f"Please update your Excel file to use the current schema version."
+            )
+
+        # UPDATE: Simplified import logic - only v1.0 support
+        media_plan = _import_v1_media_plan(workbook)
 
         # Sanitize the data to avoid validation issues
         sanitized_media_plan = _sanitize_media_plan_data(media_plan)
@@ -57,6 +61,21 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
 
     except Exception as e:
         raise StorageError(f"Failed to import media plan from Excel: {e}")
+
+
+def _is_current_schema_version(version: str) -> bool:
+    """
+    Check if the schema version is the current supported version.
+
+    Args:
+        version: The schema version to check.
+
+    Returns:
+        True if the version is current and supported.
+    """
+    # Normalize version format (handle both "1.0" and "v1.0" for compatibility)
+    normalized = version.replace("v", "") if version.startswith("v") else version
+    return normalized == "1.0"
 
 
 def update_from_excel(media_plan: Dict[str, Any], file_path: str, **kwargs) -> Dict[str, Any]:
@@ -117,35 +136,38 @@ def _detect_schema_version(workbook: Workbook) -> str:
             if metadata_sheet.cell(row=row, column=1).value == "Schema Version:":
                 version = metadata_sheet.cell(row=row, column=2).value
                 if version:
-                    return version
+                    # Normalize version format
+                    return version.replace("v", "") if version.startswith("v") else version
 
     # Check line items sheet structure to infer version
     if "Line Items" in workbook.sheetnames:
         line_items_sheet = workbook["Line Items"]
 
-        # Check header row
+        # Get headers
         headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-        # Check for v1.0.0 specific headers
+        # Check for v1.0 specific headers
         if "Name" in headers and "Cost Total" in headers:
-            return "v1.0.0"
-        elif "Budget" in headers and "Platform" in headers:
-            return "v0.0.0"
+            return "1.0"
+        else:
+            # If it doesn't match v1.0 structure, it's likely an older version
+            logger.warning("Excel file appears to be from an older schema version")
+            return "unknown"
 
-    # Default to v1.0.0 if cannot determine
-    logger.warning("Could not determine schema version from Excel, defaulting to v1.0.0")
-    return "v1.0.0"
+    # Default to current version if cannot determine
+    logger.warning("Could not determine schema version from Excel, assuming current version 1.0")
+    return "1.0"
 
 
-def _import_v0_media_plan(workbook: Workbook) -> Dict[str, Any]:
+def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
     """
-    Import a v0.0.0 media plan from a workbook.
+    Import a v1.0 media plan from a workbook.
 
     Args:
         workbook: The workbook to import from.
 
     Returns:
-        The imported media plan data in v0.0.0 format.
+        The imported media plan data in v1.0 format.
     """
     media_plan = {
         "meta": {},
@@ -161,181 +183,9 @@ def _import_v0_media_plan(workbook: Workbook) -> Dict[str, Any]:
             value_cell = metadata_sheet.cell(row=row, column=2).value
 
             if key_cell == "Schema Version:":
-                media_plan["meta"]["schema_version"] = value_cell or "v0.0.0"
-            elif key_cell == "Created By:":
-                media_plan["meta"]["created_by"] = value_cell or ""
-            elif key_cell == "Created At:":
-                media_plan["meta"]["created_at"] = value_cell or datetime.now().isoformat()
-            elif key_cell == "Comments:":
-                media_plan["meta"]["comments"] = value_cell or ""
-
-    # Ensure required meta fields
-    if "schema_version" not in media_plan["meta"]:
-        media_plan["meta"]["schema_version"] = "v0.0.0"
-    if "created_by" not in media_plan["meta"]:
-        media_plan["meta"]["created_by"] = "excel_import"
-    if "created_at" not in media_plan["meta"]:
-        media_plan["meta"]["created_at"] = datetime.now().isoformat()
-
-    # Import campaign data
-    if "Campaign" in workbook.sheetnames:
-        campaign_sheet = workbook["Campaign"]
-        campaign = media_plan["campaign"]
-
-        for row in range(1, 30):  # Check first 30 rows
-            key_cell = campaign_sheet.cell(row=row, column=1).value
-            value_cell = campaign_sheet.cell(row=row, column=2).value
-
-            if key_cell == "Campaign ID:":
-                campaign["id"] = value_cell or f"campaign_{uuid.uuid4().hex[:8]}"
-            elif key_cell == "Campaign Name:":
-                campaign["name"] = value_cell or ""
-            elif key_cell == "Objective:":
-                campaign["objective"] = value_cell or ""
-            elif key_cell == "Start Date:":
-                # Handle date value
-                if isinstance(value_cell, date):
-                    campaign["start_date"] = value_cell.isoformat()
-                else:
-                    campaign["start_date"] = str(value_cell) if value_cell else ""
-            elif key_cell == "End Date:":
-                # Handle date value
-                if isinstance(value_cell, date):
-                    campaign["end_date"] = value_cell.isoformat()
-                else:
-                    campaign["end_date"] = str(value_cell) if value_cell else ""
-            elif key_cell == "Budget Total:":
-                # Create budget structure
-                campaign["budget"] = {"total": float(value_cell) if value_cell else 0}
-            elif key_cell == "Target Age Range:":
-                if "target_audience" not in campaign:
-                    campaign["target_audience"] = {}
-                campaign["target_audience"]["age_range"] = value_cell or ""
-            elif key_cell == "Target Location:":
-                if "target_audience" not in campaign:
-                    campaign["target_audience"] = {}
-                campaign["target_audience"]["location"] = value_cell or ""
-            elif key_cell == "Target Interests:":
-                if "target_audience" not in campaign:
-                    campaign["target_audience"] = {}
-                if value_cell:
-                    # Split comma-separated interests
-                    campaign["target_audience"]["interests"] = [
-                        interest.strip() for interest in str(value_cell).split(",")
-                    ]
-                else:
-                    campaign["target_audience"]["interests"] = []
-
-    # Ensure required campaign fields
-    if "id" not in media_plan["campaign"]:
-        media_plan["campaign"]["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
-    if "name" not in media_plan["campaign"]:
-        media_plan["campaign"]["name"] = "Campaign from Excel"
-    if "objective" not in media_plan["campaign"]:
-        media_plan["campaign"]["objective"] = "Imported from Excel"
-    if "start_date" not in media_plan["campaign"]:
-        media_plan["campaign"]["start_date"] = datetime.now().strftime("%Y-%m-%d")
-    if "end_date" not in media_plan["campaign"]:
-        # Default to end of year
-        end_date = datetime(datetime.now().year, 12, 31).strftime("%Y-%m-%d")
-        media_plan["campaign"]["end_date"] = end_date
-    if "budget" not in media_plan["campaign"]:
-        media_plan["campaign"]["budget"] = {"total": 100000}
-
-    # Import line items
-    if "Line Items" in workbook.sheetnames:
-        line_items_sheet = workbook["Line Items"]
-
-        # Get headers
-        headers = [cell.value for cell in line_items_sheet[1] if cell.value]
-
-        # Map column indices to headers
-        header_indices = {}
-        for col_idx, header in enumerate(headers, 1):
-            header_indices[header] = col_idx
-
-        # Process line items (skip header row)
-        for row in range(2, line_items_sheet.max_row + 1):
-            # Skip empty rows
-            if all(cell.value is None for cell in line_items_sheet[row]):
-                continue
-
-            line_item = {}
-
-            # Process standard fields
-            if "ID" in header_indices:
-                line_item["id"] = line_items_sheet.cell(row=row, column=header_indices["ID"]).value or f"li_{uuid.uuid4().hex[:8]}"
-
-            if "Channel" in header_indices:
-                line_item["channel"] = line_items_sheet.cell(row=row, column=header_indices["Channel"]).value or ""
-
-            if "Platform" in header_indices:
-                line_item["platform"] = line_items_sheet.cell(row=row, column=header_indices["Platform"]).value or ""
-
-            if "Publisher" in header_indices:
-                line_item["publisher"] = line_items_sheet.cell(row=row, column=header_indices["Publisher"]).value or ""
-
-            if "Start Date" in header_indices:
-                start_date_cell = line_items_sheet.cell(row=row, column=header_indices["Start Date"]).value
-                if isinstance(start_date_cell, date):
-                    line_item["start_date"] = start_date_cell.isoformat()
-                else:
-                    line_item["start_date"] = str(start_date_cell) if start_date_cell else ""
-
-            if "End Date" in header_indices:
-                end_date_cell = line_items_sheet.cell(row=row, column=header_indices["End Date"]).value
-                if isinstance(end_date_cell, date):
-                    line_item["end_date"] = end_date_cell.isoformat()
-                else:
-                    line_item["end_date"] = str(end_date_cell) if end_date_cell else ""
-
-            if "Budget" in header_indices:
-                budget_cell = line_items_sheet.cell(row=row, column=header_indices["Budget"]).value
-                line_item["budget"] = float(budget_cell) if budget_cell else 0
-
-            if "KPI" in header_indices:
-                line_item["kpi"] = line_items_sheet.cell(row=row, column=header_indices["KPI"]).value or ""
-
-            if "Creative IDs" in header_indices:
-                creative_ids_cell = line_items_sheet.cell(row=row, column=header_indices["Creative IDs"]).value
-                if creative_ids_cell:
-                    line_item["creative_ids"] = [
-                        id.strip() for id in str(creative_ids_cell).split(",")
-                    ]
-                else:
-                    line_item["creative_ids"] = []
-
-            # Add line item to list
-            media_plan["lineitems"].append(line_item)
-
-    return media_plan
-
-
-def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
-    """
-    Import a v1.0.0 media plan from a workbook.
-
-    Args:
-        workbook: The workbook to import from.
-
-    Returns:
-        The imported media plan data in v1.0.0 format.
-    """
-    media_plan = {
-        "meta": {},
-        "campaign": {},
-        "lineitems": []
-    }
-
-    # Import metadata (keep existing implementation)
-    if "Metadata" in workbook.sheetnames:
-        metadata_sheet = workbook["Metadata"]
-        for row in range(1, 20):  # Check first 20 rows
-            key_cell = metadata_sheet.cell(row=row, column=1).value
-            value_cell = metadata_sheet.cell(row=row, column=2).value
-
-            if key_cell == "Schema Version:":
-                media_plan["meta"]["schema_version"] = value_cell or "v1.0.0"
+                # UPDATE: Normalize to current format
+                version = value_cell or "1.0"
+                media_plan["meta"]["schema_version"] = version.replace("v", "") if version.startswith("v") else version
             elif key_cell == "Media Plan ID:":
                 media_plan["meta"]["id"] = value_cell or f"mediaplan_{uuid.uuid4().hex[:8]}"
             elif key_cell == "Media Plan Name:":
@@ -347,9 +197,9 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             elif key_cell == "Comments:":
                 media_plan["meta"]["comments"] = value_cell or ""
 
-    # Ensure required meta fields
+    # Ensure required meta fields with current version format
     if "schema_version" not in media_plan["meta"]:
-        media_plan["meta"]["schema_version"] = "v1.0.0"
+        media_plan["meta"]["schema_version"] = "1.0"  # UPDATE: Use current format
     if "id" not in media_plan["meta"]:
         media_plan["meta"]["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
     if "created_by" not in media_plan["meta"]:
@@ -411,7 +261,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
                 else:
                     campaign["locations"] = []
 
-    # Ensure required campaign fields (keep existing)
+    # Ensure required campaign fields
     if "id" not in media_plan["campaign"]:
         media_plan["campaign"]["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
     if "name" not in media_plan["campaign"]:
@@ -426,14 +276,14 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
     if "budget_total" not in media_plan["campaign"]:
         media_plan["campaign"]["budget_total"] = 100000
 
-    # Import line items with comprehensive field mapping
+    # Import line items with comprehensive field mapping (keep existing comprehensive implementation)
     if "Line Items" in workbook.sheetnames:
         line_items_sheet = workbook["Line Items"]
 
         # Get headers
         headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-        # Create comprehensive field mapping
+        # Create comprehensive field mapping (keep existing implementation)
         field_mapping = {
             # Required fields
             "ID": "id",
@@ -499,7 +349,7 @@ def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
             if header in field_mapping:
                 header_to_field[col_idx] = field_mapping[header]
 
-        # Process line items (skip header row)
+        # Process line items (skip header row) - keep existing implementation
         for row in range(2, line_items_sheet.max_row + 1):
             # Skip empty rows
             if all(cell.value is None for cell in line_items_sheet[row]):

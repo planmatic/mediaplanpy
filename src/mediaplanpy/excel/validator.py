@@ -50,6 +50,10 @@ def validate_excel(file_path: str, schema_validator: Optional[SchemaValidator] =
         if schema_version is None:
             schema_version = media_plan.get("meta", {}).get("schema_version")
 
+        # UPDATE: Validate schema version is current
+        if schema_version and not _is_current_schema_version(schema_version):
+            return [f"Excel file uses unsupported schema version: {schema_version}. Only version 1.0 is supported."]
+
         # Sanitize data to avoid validation errors
         sanitized_media_plan = _sanitize_for_validation(media_plan)
 
@@ -69,6 +73,21 @@ def validate_excel(file_path: str, schema_validator: Optional[SchemaValidator] =
 
     except Exception as e:
         raise ValidationError(f"Failed to validate Excel file: {e}")
+
+
+def _is_current_schema_version(version: str) -> bool:
+    """
+    Check if the schema version is the current supported version.
+
+    Args:
+        version: The schema version to check.
+
+    Returns:
+        True if the version is current and supported.
+    """
+    # Normalize version format (handle both "1.0" and "v1.0" for compatibility)
+    normalized = version.replace("v", "") if version.startswith("v") else version
+    return normalized == "1.0"
 
 
 def validate_excel_template(template_path: str, schema_version: Optional[str] = None) -> List[str]:
@@ -104,11 +123,8 @@ def validate_excel_template(template_path: str, schema_version: Optional[str] = 
             # Get headers
             headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-            # Check for required headers based on schema version
-            if schema_version and schema_version.startswith("v0.0.0"):
-                required_headers = ["ID", "Channel", "Platform", "Publisher", "Start Date", "End Date", "Budget", "KPI"]
-            else:  # Default to v1.0.0
-                required_headers = ["ID", "Name", "Start Date", "End Date", "Cost Total"]
+            # UPDATE: Only check for v1.0 required headers
+            required_headers = ["ID", "Name", "Start Date", "End Date", "Cost Total"]
 
             missing_headers = [header for header in required_headers if header not in headers]
 

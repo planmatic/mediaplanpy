@@ -13,12 +13,27 @@ from typing import Dict, Any, List, Optional, Union, Callable
 
 from mediaplanpy.exceptions import SchemaError, SchemaMigrationError, SchemaVersionError
 from mediaplanpy.schema.registry import SchemaRegistry
-from mediaplanpy.schema.version_utils import (
-    normalize_version,
-    validate_version_format,
-    get_compatibility_type,
-    compare_versions
-)
+
+# Import version utils with fallback
+try:
+    from mediaplanpy.schema.version_utils import (
+        normalize_version,
+        validate_version_format,
+        get_compatibility_type,
+        compare_versions
+    )
+except ImportError:
+    logger.warning("Could not import version_utils, using fallback functions")
+
+    def normalize_version(version):
+        """Fallback normalize_version function."""
+        if version.startswith('v'):
+            return '.'.join(version[1:].split('.')[:2])
+        return version
+
+    def get_compatibility_type(version):
+        """Fallback get_compatibility_type function."""
+        return "unknown"
 
 logger = logging.getLogger("mediaplanpy.schema.migration")
 
@@ -45,16 +60,17 @@ class SchemaMigrator:
         self._register_default_migrations()
 
     def _register_default_migrations(self):
-        """Register the default migration paths for both old and new version formats."""
-        # Register migration from v0.0.0 to v1.0.0 (legacy format)
-        self.register_migration("v0.0.0", "v1.0.0", self._migrate_v000_to_v100)
-
-        # Register migration from 0.0 to 1.0 (new 2-digit format)
+        """Register the default migration paths using supported 2-digit format."""
+        # Register migration from 0.0 to 1.0 (supported 2-digit format)
         self.register_migration("0.0", "1.0", self._migrate_00_to_10)
 
-        # Register cross-format migrations for compatibility
+        # Register legacy format support for input (but output to supported format)
+        # These handle legacy format inputs but migrate to 2-digit format
         self.register_migration("v0.0.0", "1.0", self._migrate_v000_to_10)
-        self.register_migration("0.0", "v1.0.0", self._migrate_00_to_v100)
+        self.register_migration("v1.0.0", "1.0", self._migrate_v100_to_10)
+
+        # Add the legacy migration for backward compatibility
+        self.register_migration("v0.0.0", "v1.0.0", self._migrate_v000_to_v100)
 
         logger.debug("Registered default migration paths for 2-digit versioning")
 
@@ -68,11 +84,15 @@ class SchemaMigrator:
             to_version: Target schema version (supports both old and new formats).
             migration_func: Function that transforms data from source to target version.
         """
-        # Validate version formats
-        try:
-            self._validate_migration_versions(from_version, to_version)
-        except Exception as e:
-            logger.warning(f"Version validation failed for migration {from_version} -> {to_version}: {e}")
+        # Only validate target version against registry (source might be legacy format)
+        if not self.registry.is_version_supported(to_version):
+            # Try normalizing the target version
+            try:
+                normalized_to = normalize_version(to_version)
+                if not self.registry.is_version_supported(normalized_to):
+                    logger.warning(f"Target version {to_version} (normalized: {normalized_to}) not supported by registry")
+            except Exception:
+                logger.warning(f"Target version {to_version} format validation failed")
 
         key = (from_version, to_version)
         self.migration_paths[key] = migration_func
@@ -243,12 +263,6 @@ class SchemaMigrator:
         """
         logger.debug(f"Starting migration from {from_version} to {to_version}")
 
-        # Validate input versions
-        try:
-            self._validate_migration_versions(from_version, to_version)
-        except SchemaVersionError as e:
-            raise SchemaVersionError(f"Migration validation failed: {e}")
-
         # Normalize versions for compatibility checking but preserve original formats
         try:
             normalized_from = normalize_version(from_version)
@@ -263,15 +277,7 @@ class SchemaMigrator:
             result = self._update_version_in_data(media_plan, to_version)
             return result
 
-        # Check if source version is supported by registry
-        if not self.registry.is_version_supported(from_version):
-            # Try with normalized version
-            if not self.registry.is_version_supported(normalized_from):
-                raise SchemaVersionError(
-                    f"Source schema version '{from_version}' (normalized: '{normalized_from}') is not supported"
-                )
-
-        # Check if target version is supported
+        # Check if target version is supported by registry
         if not self.registry.is_version_supported(to_version):
             # Try with normalized version
             if not self.registry.is_version_supported(normalized_to):
@@ -358,6 +364,32 @@ class SchemaMigrator:
             logger.debug(f"Could not find migration function for {from_version} -> {to_version}: {e}")
 
         return None
+
+    def _validate_migration_versions(self, from_version: str, to_version: str):
+        """
+        Validate that migration versions are in acceptable formats.
+
+        Args:
+            from_version: Source version to validate
+            to_version: Target version to validate
+
+        Raises:
+            SchemaVersionError: If version format is invalid
+        """
+        for version, version_type in [(from_version, "source"), (to_version, "target")]:
+            # Allow both old format (v1.0.0) and new format (1.0)
+            is_old_format = version.startswith('v') and version.count('.') >= 2
+            is_new_format = not version.startswith('v') and version.count('.') == 1
+
+            if not (is_old_format or is_new_format):
+                # Try to normalize to see if it's valid
+                try:
+                    normalize_version(version)
+                except Exception:
+                    raise SchemaVersionError(
+                        f"Invalid {version_type} version format: {version}. "
+                        f"Expected 'X.Y' (new format) or 'vX.Y.Z' (legacy format)"
+                    )
 
     def _update_version_in_data(self, data: Dict[str, Any], target_version: str) -> Dict[str, Any]:
         """
@@ -483,21 +515,6 @@ class SchemaMigrator:
 
     # Migration function implementations
 
-    def _migrate_v000_to_v100(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Migrate a media plan from schema v0.0.0 to v1.0.0 (legacy format).
-
-        Args:
-            data: Media plan data in v0.0.0 format.
-
-        Returns:
-            Media plan data in v1.0.0 format.
-        """
-        logger.debug("Migrating from v0.0.0 to v1.0.0")
-        result = self._perform_v0_to_v1_migration(data)
-        result["meta"]["schema_version"] = "v1.0.0"
-        return result
-
     def _migrate_00_to_10(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Migrate a media plan from schema 0.0 to 1.0 (new 2-digit format).
@@ -513,9 +530,23 @@ class SchemaMigrator:
         result["meta"]["schema_version"] = "1.0"
         return result
 
+    def _migrate_v000_to_v100(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Legacy migration method kept for compatibility.
+        Migrates from v0.0.0 to v1.0.0 but outputs in 1.0 format for registry compatibility.
+
+        Args:
+            data: Media plan data in v0.0.0 format.
+
+        Returns:
+            Media plan data in 1.0 format (registry-compatible).
+        """
+        logger.debug("Legacy migration v0.0.0 to v1.0.0 (redirected to 1.0)")
+        return self._migrate_v000_to_10(data)
+
     def _migrate_v000_to_10(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Migrate a media plan from schema v0.0.0 to 1.0 (cross-format migration).
+        Migrate a media plan from schema v0.0.0 (legacy) to 1.0 (new format).
 
         Args:
             data: Media plan data in v0.0.0 format.
@@ -523,24 +554,27 @@ class SchemaMigrator:
         Returns:
             Media plan data in 1.0 format.
         """
-        logger.debug("Migrating from v0.0.0 to 1.0 (cross-format)")
+        logger.debug("Migrating from v0.0.0 to 1.0 (legacy to new format)")
         result = self._perform_v0_to_v1_migration(data)
         result["meta"]["schema_version"] = "1.0"
         return result
 
-    def _migrate_00_to_v100(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _migrate_v100_to_10(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Migrate a media plan from schema 0.0 to v1.0.0 (cross-format migration).
+        Migrate a media plan from schema v1.0.0 (legacy) to 1.0 (new format).
+        This is mainly a version format conversion.
 
         Args:
-            data: Media plan data in 0.0 format.
+            data: Media plan data in v1.0.0 format.
 
         Returns:
-            Media plan data in v1.0.0 format.
+            Media plan data in 1.0 format.
         """
-        logger.debug("Migrating from 0.0 to v1.0.0 (cross-format)")
-        result = self._perform_v0_to_v1_migration(data)
-        result["meta"]["schema_version"] = "v1.0.0"
+        logger.debug("Migrating from v1.0.0 to 1.0 (format conversion)")
+        # This is mainly a version format update since both are v1 schema
+        import copy
+        result = copy.deepcopy(data)
+        result["meta"]["schema_version"] = "1.0"
         return result
 
     def _perform_v0_to_v1_migration(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -639,3 +673,168 @@ class SchemaMigrator:
 
         logger.debug("Completed v0 to v1 migration logic")
         return result
+
+    def get_supported_migration_paths(self) -> Dict[str, List[str]]:
+        """
+        Get all supported migration paths.
+
+        Returns:
+            Dictionary mapping source versions to lists of reachable target versions.
+        """
+        paths = {}
+
+        # Get all unique versions from migration keys
+        all_versions = set()
+        for from_v, to_v in self.migration_paths.keys():
+            all_versions.add(from_v)
+            all_versions.add(to_v)
+
+        # For each version, find all reachable versions
+        for version in all_versions:
+            reachable = []
+            for target in all_versions:
+                if version != target and self.find_migration_path(version, target):
+                    reachable.append(target)
+
+            if reachable:
+                paths[version] = sorted(reachable)
+
+        return paths
+
+    def validate_migration_compatibility(self, from_version: str, to_version: str) -> Dict[str, Any]:
+        """
+        Validate migration compatibility and provide detailed information.
+
+        Args:
+            from_version: Source schema version
+            to_version: Target schema version
+
+        Returns:
+            Dictionary with compatibility information and recommendations
+        """
+        result = {
+            "compatible": False,
+            "migration_path": [],
+            "warnings": [],
+            "errors": [],
+            "recommendations": []
+        }
+
+        try:
+            # Normalize versions for analysis
+            norm_from = normalize_version(from_version)
+            norm_to = normalize_version(to_version)
+
+            result["normalized_from"] = norm_from
+            result["normalized_to"] = norm_to
+
+            # Check if migration path exists
+            path = self.find_migration_path(from_version, to_version)
+            if path:
+                result["compatible"] = True
+                result["migration_path"] = path
+
+                # Analyze migration complexity
+                if len(path) == 1:
+                    result["migration_type"] = "direct"
+                else:
+                    result["migration_type"] = "multi_step"
+                    result["warnings"].append(f"Migration requires {len(path)} steps")
+
+            else:
+                result["errors"].append(f"No migration path found from {from_version} to {to_version}")
+
+            # Check version compatibility types using version_utils
+            try:
+                from_compat = get_compatibility_type(norm_from)
+                to_compat = get_compatibility_type(norm_to)
+
+                if from_compat == "unsupported":
+                    result["errors"].append(f"Source version {from_version} is not supported")
+                elif from_compat == "deprecated":
+                    result["warnings"].append(f"Source version {from_version} is deprecated")
+
+                if to_compat == "unsupported":
+                    result["errors"].append(f"Target version {to_version} is not supported")
+            except Exception as e:
+                result["warnings"].append(f"Could not determine version compatibility: {e}")
+
+            # Add recommendations
+            if result["compatible"]:
+                if len(path) > 1:
+                    result["recommendations"].append("Consider testing migration with sample data first")
+                if result["warnings"]:
+                    result["recommendations"].append("Review warnings before proceeding")
+            else:
+                result["recommendations"].append("Check if both versions are supported")
+                if not path:
+                    result["recommendations"].append("Consider migrating through intermediate versions")
+
+        except Exception as e:
+            result["errors"].append(f"Migration compatibility check failed: {str(e)}")
+
+        return result
+
+    def _update_version_in_data(self, data: Dict[str, Any], target_version: str) -> Dict[str, Any]:
+        """
+        Update the schema version field in media plan data.
+
+        Args:
+            data: Media plan data to update
+            target_version: Target version to set
+
+        Returns:
+            Updated media plan data
+        """
+        # Create a copy to avoid modifying the original
+        import copy
+        result = copy.deepcopy(data)
+
+        # Ensure meta section exists
+        if "meta" not in result:
+            result["meta"] = {}
+
+        # Update the schema version
+        result["meta"]["schema_version"] = target_version
+
+        return result
+
+    def _find_migration_function(self, from_version: str, to_version: str) -> Optional[Callable]:
+        """
+        Find the appropriate migration function for the given version pair.
+
+        Tries exact match first, then normalized versions with different format combinations.
+
+        Args:
+            from_version: Source version
+            to_version: Target version
+
+        Returns:
+            Migration function if found, None otherwise
+        """
+        # Try exact match first
+        migration_key = (from_version, to_version)
+        if migration_key in self.migration_paths:
+            return self.migration_paths[migration_key]
+
+        # Try various format combinations with normalization
+        try:
+            norm_from = normalize_version(from_version)
+            norm_to = normalize_version(to_version)
+
+            # Try different format combinations
+            format_combinations = [
+                (norm_from, norm_to),  # 2-digit to 2-digit
+                (f"v{norm_from}.0", f"v{norm_to}.0"),  # 3-digit to 3-digit
+                (f"v{norm_from}.0", norm_to),  # 3-digit to 2-digit
+                (norm_from, f"v{norm_to}.0"),  # 2-digit to 3-digit
+            ]
+
+            for from_fmt, to_fmt in format_combinations:
+                if (from_fmt, to_fmt) in self.migration_paths:
+                    return self.migration_paths[(from_fmt, to_fmt)]
+
+        except Exception as e:
+            logger.debug(f"Could not find migration function for {from_version} -> {to_version}: {e}")
+
+        return None
