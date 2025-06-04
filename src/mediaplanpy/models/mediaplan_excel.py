@@ -145,11 +145,12 @@ def export_to_excel_method(self, workspace_manager=None, file_path=None, file_na
         except Exception as e:
             raise StorageError(f"Failed to export media plan to Excel: {e}")
 
+
 @classmethod
 def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=None,
-                     **format_options):
+                             **format_options):
     """
-    Import a media plan from an Excel file.
+    Import a media plan from an Excel file with version handling.
 
     Args:
         file_name: Name of the file to import.
@@ -167,6 +168,7 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
         StorageError: If import fails or file doesn't exist.
         WorkspaceInactiveError: If workspace is inactive.
         FeatureDisabledError: If Excel functionality is disabled.
+        SchemaVersionError: If schema version is not supported.
     """
     # Validate that at least one storage location is provided
     if workspace_manager is None and file_path is None:
@@ -212,10 +214,11 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
                 with open(tmp_path, 'wb') as f:
                     f.write(content)
 
-                # Import from the temp file
+                # Import from the temp file using the importer module
                 data = importer.import_from_excel(tmp_path, **format_options)
 
-                # Create MediaPlan instance
+                # Create MediaPlan instance with version handling
+                # The from_dict method will handle version compatibility and migration
                 result = cls.from_dict(data)
 
                 # Clean up
@@ -223,6 +226,14 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
 
                 logger.info(f"Media plan imported from Excel in workspace storage: {full_path}")
                 return result
+
+            except SchemaVersionError:
+                # Clean up temp file and re-raise schema version errors
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
+                raise
             except Exception as e:
                 # Clean up temp file in case of error
                 try:
@@ -230,6 +241,10 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
                 except:
                     pass
                 raise e
+
+        except SchemaVersionError:
+            # Re-raise schema version errors as-is
+            raise
         except Exception as e:
             if not isinstance(e, StorageError):
                 raise StorageError(f"Failed to import media plan from Excel: {e}")
@@ -244,14 +259,93 @@ def import_from_excel_method(cls, file_name, workspace_manager=None, file_path=N
             raise StorageError(f"File not found: {full_path}")
 
         try:
-            # Import from Excel and create MediaPlan instance
+            # Import from Excel using the importer module and create MediaPlan instance
             data = importer.import_from_excel(full_path, **format_options)
+
+            # Create MediaPlan instance with version handling
+            # The from_dict method will handle version compatibility and migration
             result = cls.from_dict(data)
 
             logger.info(f"Media plan imported from Excel at: {full_path}")
             return result
+
+        except SchemaVersionError:
+            # Re-raise schema version errors as-is
+            raise
         except Exception as e:
             raise StorageError(f"Failed to import media plan from Excel: {e}")
+
+
+# Also update the update_from_excel_method to handle version compatibility
+def update_from_excel_method(self, file_path: str, **options) -> None:
+    """
+    Update the media plan from an Excel file with version handling.
+
+    Args:
+        file_path: Path to the Excel file.
+        **options: Additional import options.
+
+    Raises:
+        ValidationError: If the Excel file is invalid.
+        StorageError: If the update fails.
+        SchemaVersionError: If schema version compatibility issues arise.
+    """
+    try:
+        # Get current plan as dictionary
+        current_data = self.to_dict()
+
+        # Import from Excel
+        updated_data = importer.update_from_excel(current_data, file_path, **options)
+
+        # Handle enum field values to avoid validation errors
+        updated_data = _sanitize_data_for_model(updated_data)
+
+        # Apply version compatibility checking to the updated data
+        # This will handle any version differences and perform migration if needed
+        temp_instance = self.__class__.from_dict(updated_data)
+
+        # If we get here, the update is compatible, so apply changes in-place
+        if "meta" in updated_data:
+            # Update selectively to preserve ID and other metadata
+            if "comments" in updated_data["meta"]:
+                self.meta.comments = updated_data["meta"]["comments"]
+            # Update schema version if it was changed during compatibility handling
+            if "schema_version" in updated_data["meta"]:
+                self.meta.schema_version = updated_data["meta"]["schema_version"]
+
+        if "campaign" in updated_data:
+            # Create a new campaign object and replace the current one
+            from mediaplanpy.models.campaign import Campaign
+            new_campaign = Campaign.from_dict(updated_data["campaign"])
+
+            # Set each attribute
+            for key, value in updated_data["campaign"].items():
+                if hasattr(self.campaign, key):
+                    try:
+                        setattr(self.campaign, key, getattr(new_campaign, key))
+                    except Exception as e:
+                        # Skip attributes that cause validation errors
+                        logger.warning(f"Could not set campaign attribute {key}: {e}")
+
+        if "lineitems" in updated_data:
+            # Clear existing line items and add new ones
+            self.lineitems.clear()
+
+            # Add each line item
+            for line_item_data in updated_data["lineitems"]:
+                try:
+                    self.add_lineitem(line_item_data)
+                except Exception as e:
+                    # Log error but continue with other line items
+                    logger.warning(f"Could not add line item: {e}")
+
+        logger.info(f"Media plan updated from Excel: {file_path}")
+
+    except SchemaVersionError:
+        # Re-raise schema version errors as-is
+        raise
+    except Exception as e:
+        raise StorageError(f"Failed to update media plan from Excel: {e}")
 
 # Keep existing methods for update_from_excel_path and validate_excel
 def update_from_excel_method(self, file_path: str, **options) -> None:

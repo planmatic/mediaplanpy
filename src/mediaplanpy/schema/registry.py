@@ -164,9 +164,9 @@ class SchemaRegistry:
                 )
 
     def load_schema(self, version: Optional[str] = None,
-                   schema_name: str = "mediaplan.schema.json") -> Dict[str, Any]:
+                    schema_name: str = "mediaplan.schema.json") -> Dict[str, Any]:
         """
-        Load a specific schema version.
+        Load a specific schema version with 2-digit version normalization.
 
         Args:
             version: The schema version to load. If None, uses the current version.
@@ -188,6 +188,9 @@ class SchemaRegistry:
             normalized_version = normalize_version(version)
         except Exception as e:
             raise SchemaVersionError(f"Invalid version format '{version}': {e}")
+
+        # Log the version being loaded for debugging
+        logger.debug(f"Loading schema {schema_name} for version {normalized_version} (original: {version})")
 
         # Map schema filename to schema type
         schema_type_map = {
@@ -211,7 +214,7 @@ class SchemaRegistry:
 
     def load_all_schemas(self, version: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
-        Load all schemas for a specific version.
+        Load all schemas for a specific version with 2-digit version normalization.
 
         Args:
             version: The schema version to load. If None, uses the current version.
@@ -233,6 +236,8 @@ class SchemaRegistry:
         except Exception as e:
             raise SchemaVersionError(f"Invalid version format '{version}': {e}")
 
+        logger.debug(f"Loading all schemas for version {normalized_version} (original: {version})")
+
         try:
             schemas = self._schema_manager.get_all_schemas(normalized_version)
 
@@ -246,3 +251,25 @@ class SchemaRegistry:
 
         except Exception as e:
             raise SchemaRegistryError(f"Error loading schemas for version {normalized_version}: {e}")
+
+    def is_version_supported(self, version: str) -> bool:
+        """
+        Check if a specific schema version is supported with version normalization.
+
+        Args:
+            version: The schema version to check (supports both old and new formats).
+
+        Returns:
+            True if the version is supported, False otherwise.
+        """
+        try:
+            # Normalize version to 2-digit format for comparison
+            normalized_version = normalize_version(version)
+            supported_versions = self.get_supported_versions()
+
+            logger.debug(f"Checking if version {version} (normalized: {normalized_version}) is in {supported_versions}")
+
+            return normalized_version in supported_versions
+        except Exception as e:
+            logger.warning(f"Error checking version support for {version}: {e}")
+            return False

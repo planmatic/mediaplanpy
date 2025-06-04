@@ -84,6 +84,17 @@ class DatabaseError(StorageError):
     """Exception raised when a database operation fails."""
     pass
 
+
 class SQLQueryError(Exception):
     """Exception raised for SQL query errors."""
+    pass
+
+
+class UnsupportedVersionError(SchemaError):
+    """Exception raised when a schema version is not supported by the current SDK."""
+    pass
+
+
+class VersionCompatibilityError(SchemaError):
+    """Exception raised when there are version compatibility issues during import."""
     pass

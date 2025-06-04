@@ -15,6 +15,7 @@ from jsonschema import RefResolver
 
 from mediaplanpy.exceptions import ValidationError, SchemaError, SchemaVersionError, SchemaRegistryError
 from mediaplanpy.schema.registry import SchemaRegistry
+from mediaplanpy.schema.version_utils import normalize_version, is_backwards_compatible, is_unsupported
 
 logger = logging.getLogger("mediaplanpy.schema.validator")
 
@@ -37,7 +38,7 @@ class SchemaValidator:
 
     def validate(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> List[str]:
         """
-        Validate a media plan against a schema.
+        Validate a media plan against a schema with version compatibility checking.
 
         Args:
             media_plan: The media plan data to validate.
@@ -60,17 +61,25 @@ class SchemaValidator:
                 version = self.registry.get_current_version()
                 logger.warning(f"No schema version specified in media plan, using current: {version}")
 
-        # Check if version is supported
-        if not self.registry.is_version_supported(version):
+        # Normalize version to 2-digit format for schema loading
+        try:
+            normalized_version = normalize_version(version)
+        except Exception as e:
+            raise SchemaVersionError(f"Invalid version format '{version}': {e}")
+
+        logger.debug(f"Validating media plan against schema version {normalized_version} (original: {version})")
+
+        # Check if normalized version is supported
+        if not self.registry.is_version_supported(normalized_version):
             raise SchemaVersionError(
-                f"Schema version '{version}' is not supported. "
+                f"Schema version '{version}' (normalized: '{normalized_version}') is not supported. "
                 f"Supported versions: {', '.join(self.registry.get_supported_versions())}"
             )
 
         # Load the main schema and all related schemas for this version
         try:
-            main_schema = self.registry.load_schema(version, "mediaplan.schema.json")
-            all_schemas = self.registry.load_all_schemas(version)
+            main_schema = self.registry.load_schema(normalized_version, "mediaplan.schema.json")
+            all_schemas = self.registry.load_all_schemas(normalized_version)
         except SchemaRegistryError as e:
             raise SchemaRegistryError(f"Failed to load schema for validation: {str(e)}")
 
@@ -125,11 +134,12 @@ class SchemaValidator:
                         f"{item_end} > {campaign_end}"
                     )
 
+        logger.debug(f"Validation completed with {len(errors)} errors")
         return errors
 
     def validate_file(self, file_path: str, version: Optional[str] = None) -> List[str]:
         """
-        Validate a media plan JSON file against a schema.
+        Validate a media plan JSON file against a schema with version handling.
 
         Args:
             file_path: Path to the media plan JSON file.
@@ -147,6 +157,10 @@ class SchemaValidator:
         try:
             with open(file_path, 'r') as f:
                 media_plan = json.load(f)
+
+            # Log the file being validated
+            file_version = media_plan.get("meta", {}).get("schema_version", "unknown")
+            logger.debug(f"Validating file {file_path} with schema version {file_version}")
 
             return self.validate(media_plan, version)
 

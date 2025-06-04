@@ -131,11 +131,12 @@ def export_to_json(self, workspace_manager=None, file_path=None, file_name=None,
         except Exception as e:
             raise StorageError(f"Failed to export media plan to JSON: {e}")
 
+
 @classmethod
 def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
-                    **format_options):
+                     **format_options):
     """
-    Import a media plan from a JSON file.
+    Import a media plan from a JSON file with version handling.
 
     Args:
         file_name: Name of the file to import.
@@ -152,6 +153,7 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
         ValueError: If neither workspace_manager nor file_path is provided.
         StorageError: If import fails or file doesn't exist.
         WorkspaceInactiveError: If workspace is inactive.
+        SchemaVersionError: If schema version is not supported.
     """
     # Validate that at least one storage location is provided
     if workspace_manager is None and file_path is None:
@@ -195,8 +197,16 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
             except json.JSONDecodeError as e:
                 raise StorageError(f"Failed to parse JSON file: {e}")
 
-            # Create MediaPlan instance
-            return cls.from_dict(data)
+            # Create MediaPlan instance with version handling
+            # The from_dict method will handle version compatibility
+            result = cls.from_dict(data)
+
+            logger.info(f"Media plan imported from JSON in workspace storage: {full_path}")
+            return result
+
+        except SchemaVersionError:
+            # Re-raise schema version errors with file context
+            raise
         except Exception as e:
             if not isinstance(e, StorageError):
                 raise StorageError(f"Failed to import media plan from JSON: {e}")
@@ -215,10 +225,18 @@ def import_from_json(cls, file_name, workspace_manager=None, file_path=None,
             with open(full_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Create MediaPlan instance
-            return cls.from_dict(data)
+            # Create MediaPlan instance with version handling
+            # The from_dict method will handle version compatibility
+            result = cls.from_dict(data)
+
+            logger.info(f"Media plan imported from JSON at: {full_path}")
+            return result
+
         except json.JSONDecodeError as e:
             raise StorageError(f"Failed to parse JSON file: {e}")
+        except SchemaVersionError:
+            # Re-raise schema version errors with file context
+            raise
         except Exception as e:
             raise StorageError(f"Failed to import media plan from JSON: {e}")
 

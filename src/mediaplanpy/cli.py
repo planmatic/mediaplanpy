@@ -335,7 +335,7 @@ def handle_schema_versions(args):
 
 
 def handle_schema_validate(args):
-    """Handle the 'schema validate' command."""
+    """Handle the 'schema validate' command with enhanced version handling."""
     try:
         # Load workspace if specified
         if args.workspace:
@@ -346,25 +346,56 @@ def handle_schema_validate(args):
             # Use default validator
             validator = SchemaValidator()
 
+        # Load the media plan first to check its version
+        with open(args.file, 'r') as f:
+            media_plan_data = json.load(f)
+
+        file_version = media_plan_data.get("meta", {}).get("schema_version", "unknown")
+        target_version = args.version or file_version
+
+        print(f"📄 Validating file: {args.file}")
+        print(f"📋 File schema version: {file_version}")
+        print(f"🎯 Target validation version: {target_version}")
+
+        # Check version compatibility before validation
+        from mediaplanpy.schema.version_utils import get_compatibility_type, get_migration_recommendation
+        from mediaplanpy.schema.version_utils import normalize_version
+
+        if file_version != "unknown":
+            try:
+                compatibility = get_compatibility_type(normalize_version(file_version))
+                print(f"🔄 Version compatibility: {compatibility}")
+
+                if compatibility == "unsupported":
+                    recommendation = get_migration_recommendation(normalize_version(file_version))
+                    print(f"❌ {recommendation.get('message', 'Version not supported')}")
+                    return 1
+                elif compatibility in ["deprecated", "forward_minor"]:
+                    recommendation = get_migration_recommendation(normalize_version(file_version))
+                    print(f"⚠️  {recommendation.get('message', 'Version compatibility warning')}")
+
+            except Exception as e:
+                print(f"⚠️  Could not determine version compatibility: {e}")
+
         # Validate the file
-        errors = validator.validate_file(args.file, args.version)
+        errors = validator.validate(media_plan_data, target_version)
 
         if not errors:
             print(f"✅ Media plan '{args.file}' is valid")
+            return 0
         else:
             print(f"❌ Media plan validation failed with {len(errors)} errors:")
             for i, error in enumerate(errors, 1):
                 print(f"  {i}. {error}")
             return 1
 
-    except (WorkspaceError, SchemaError, ValidationError) as e:
+    except Exception as e:
         print(f"❌ Error validating media plan: {e}")
         return 1
-    return 0
 
 
 def handle_schema_migrate(args):
-    """Handle the 'schema migrate' command."""
+    """Handle the 'schema migrate' command with enhanced version handling."""
     try:
         # Load workspace if specified
         if args.workspace:
@@ -389,7 +420,20 @@ def handle_schema_migrate(args):
         to_version = args.to_version
         if not to_version:
             # If no target version specified, use current version
-            to_version = migrator.registry.get_current_version()
+            to_version = f"v{migrator.registry.get_current_version()}"
+
+        print(f"📄 Migrating file: {args.file}")
+        print(f"📋 From version: {from_version}")
+        print(f"🎯 To version: {to_version}")
+
+        # Check version compatibility
+        from mediaplanpy.schema.version_utils import get_compatibility_type, normalize_version
+
+        try:
+            compatibility = get_compatibility_type(normalize_version(from_version))
+            print(f"🔄 Source version compatibility: {compatibility}")
+        except Exception as e:
+            print(f"⚠️  Could not determine source version compatibility: {e}")
 
         # Migrate the media plan
         migrated_plan = migrator.migrate(media_plan, from_version, to_version)
@@ -400,19 +444,22 @@ def handle_schema_migrate(args):
         else:
             # Default to input file name with version suffix
             input_path = Path(args.file)
-            output_path = input_path.with_stem(f"{input_path.stem}_{to_version}")
+            # Extract just the version number for the filename
+            version_for_filename = to_version.replace('v', '').replace('.', '_')
+            output_path = input_path.with_stem(f"{input_path.stem}_v{version_for_filename}")
 
         # Write the migrated plan
         with open(output_path, 'w') as f:
             json.dump(migrated_plan, f, indent=2)
 
-        print(f"✅ Migrated media plan from {from_version} to {to_version}")
-        print(f"  Output saved to: {output_path}")
+        print(f"✅ Migration completed successfully")
+        print(f"💾 Output saved to: {output_path}")
 
-    except (WorkspaceError, SchemaError, ValidationError) as e:
+        return 0
+
+    except Exception as e:
         print(f"❌ Error migrating media plan: {e}")
         return 1
-    return 0
 
 
 def handle_excel_export(args):
@@ -477,12 +524,18 @@ def handle_excel_export(args):
 
 
 def handle_excel_import(args):
-    """Handle the 'excel import' command."""
+    """Handle the 'excel import' command with enhanced version handling."""
     try:
         from mediaplanpy.models import MediaPlan
 
+        print(f"📄 Importing from Excel: {args.file}")
+
         # Import from Excel
         media_plan = MediaPlan.import_from_excel_path(args.file)
+
+        # Display version information
+        schema_version = media_plan.meta.schema_version
+        print(f"📋 Imported schema version: {schema_version}")
 
         # Determine output path
         if args.output:

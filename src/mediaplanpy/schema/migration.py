@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Union, Callable
 
 from mediaplanpy.exceptions import SchemaError, SchemaMigrationError, SchemaVersionError
 from mediaplanpy.schema.registry import SchemaRegistry
+from mediaplanpy.schema.version_utils import normalize_version
 
 logger = logging.getLogger("mediaplanpy.schema.migration")
 
@@ -74,7 +75,15 @@ class SchemaMigrator:
         Returns:
             True if a direct migration path exists, False otherwise.
         """
-        return (from_version, to_version) in self.migration_paths
+        try:
+            # For migration path checking, we need to use the v-prefixed format
+            # since our migration functions are registered with those keys
+            migration_from = from_version if from_version.startswith('v') else f"v{normalize_version(from_version)}.0"
+            migration_to = to_version if to_version.startswith('v') else f"v{normalize_version(to_version)}.0"
+
+            return (migration_from, migration_to) in self.migration_paths
+        except Exception:
+            return False
 
     def find_migration_path(self, from_version: str, to_version: str) -> List[str]:
         """
@@ -89,17 +98,25 @@ class SchemaMigrator:
         Returns:
             List of intermediate versions to migrate through, or empty list if no path found.
         """
+        try:
+            # Normalize versions for migration path finding
+            migration_from = from_version if from_version.startswith('v') else f"v{normalize_version(from_version)}.0"
+            migration_to = to_version if to_version.startswith('v') else f"v{normalize_version(to_version)}.0"
+        except Exception:
+            logger.warning(f"Could not normalize versions for migration path: {from_version} -> {to_version}")
+            return []
+
         # If versions are the same, no migration needed
-        if from_version == to_version:
+        if migration_from == migration_to:
             return []
 
         # If direct path exists, use it
-        if self.can_migrate(from_version, to_version):
-            return [to_version]
+        if self.can_migrate(migration_from, migration_to):
+            return [migration_to]
 
         # Try to find a path using BFS
-        queue = [(from_version, [])]
-        visited = {from_version}
+        queue = [(migration_from, [])]
+        visited = {migration_from}
 
         while queue:
             current, path = queue.pop(0)
@@ -110,7 +127,7 @@ class SchemaMigrator:
                     next_version = key[1]
 
                     # If this is our target, we found a path
-                    if next_version == to_version:
+                    if next_version == migration_to:
                         return path + [next_version]
 
                     # Otherwise, add to queue if not visited
@@ -119,11 +136,12 @@ class SchemaMigrator:
                         queue.append((next_version, path + [next_version]))
 
         # No path found
+        logger.warning(f"No migration path found from {from_version} to {to_version}")
         return []
 
     def migrate(self, media_plan: Dict[str, Any], from_version: str, to_version: str) -> Dict[str, Any]:
         """
-        Migrate a media plan from one schema version to another.
+        Migrate a media plan from one schema version to another with 2-digit version support.
 
         Args:
             media_plan: The media plan data to migrate.
@@ -137,24 +155,43 @@ class SchemaMigrator:
             SchemaVersionError: If a version is not supported.
             SchemaMigrationError: If no migration path exists or migration fails.
         """
-        # Check if versions are supported
-        if not self.registry.is_version_supported(from_version):
-            raise SchemaVersionError(f"Source schema version '{from_version}' is not supported")
+        logger.debug(f"Starting migration from {from_version} to {to_version}")
 
-        if not self.registry.is_version_supported(to_version):
-            raise SchemaVersionError(f"Target schema version '{to_version}' is not supported")
+        # Normalize versions to 2-digit format for consistency
+        try:
+            normalized_from = normalize_version(from_version)
+            normalized_to = normalize_version(to_version)
+        except Exception as e:
+            raise SchemaVersionError(f"Invalid version format in migration: {e}")
+
+        # Check if versions are supported
+        if not self.registry.is_version_supported(normalized_from):
+            raise SchemaVersionError(
+                f"Source schema version '{from_version}' (normalized: '{normalized_from}') is not supported")
+
+        if not self.registry.is_version_supported(normalized_to):
+            raise SchemaVersionError(
+                f"Target schema version '{to_version}' (normalized: '{normalized_to}') is not supported")
 
         # If versions are the same, no migration needed
-        if from_version == to_version:
+        if normalized_from == normalized_to:
+            logger.debug("No migration needed - versions are the same")
             return media_plan
 
+        # For the migration paths, we need to use the original v-prefixed format
+        # since our migration functions are registered with those keys
+        migration_from = from_version if from_version.startswith('v') else f"v{normalized_from}.0"
+        migration_to = to_version if to_version.startswith('v') else f"v{normalized_to}.0"
+
         # Find migration path
-        path = self.find_migration_path(from_version, to_version)
+        path = self.find_migration_path(migration_from, migration_to)
         if not path:
             raise SchemaMigrationError(f"No migration path found from {from_version} to {to_version}")
 
+        logger.info(f"Found migration path: {migration_from} -> {' -> '.join(path)}")
+
         # Apply migrations in sequence
-        current_version = from_version
+        current_version = migration_from
         current_data = media_plan
 
         for next_version in path:
@@ -173,10 +210,11 @@ class SchemaMigrator:
                     f"Error during migration from {current_version} to {next_version}: {str(e)}"
                 )
 
-        # Update the schema version in the result
+        # Update the schema version in the result to the target version
         if "meta" in current_data:
             current_data["meta"]["schema_version"] = to_version
 
+        logger.info(f"Migration completed successfully from {from_version} to {to_version}")
         return current_data
 
     def _migrate_v000_to_v100(self, data: Dict[str, Any]) -> Dict[str, Any]:

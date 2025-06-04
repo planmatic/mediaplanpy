@@ -20,6 +20,17 @@ from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
+import logging
+from mediaplanpy.schema.version_utils import (
+    is_backwards_compatible,
+    is_forward_minor,
+    is_unsupported,
+    normalize_version,
+    get_compatibility_type,
+    get_migration_recommendation
+)
+
+logger = logging.getLogger("mediaplanpy.models.mediaplan")
 
 class Meta(BaseModel):
     """
@@ -52,24 +63,97 @@ class MediaPlan(BaseModel):
     @classmethod
     def check_schema_version(cls, data: Dict[str, Any]) -> None:
         """
-        Check that the schema version in the data is supported.
+        Check schema version compatibility and handle version differences.
 
         Args:
-            data: The data to check.
+            data: The data to check (will be modified if migration needed).
 
         Raises:
             SchemaVersionError: If the schema version is not supported.
         """
-        version = data.get("meta", {}).get("schema_version")
-        if not version:
-            # If no version specified, assume it's compatible
+        # Get version from data
+        file_version = data.get("meta", {}).get("schema_version")
+        if not file_version:
+            # If no version specified, assume current version and add it
+            from mediaplanpy import __schema_version__
+            logger.warning("No schema version found in data, assuming current version")
+            if "meta" not in data:
+                data["meta"] = {}
+            data["meta"]["schema_version"] = f"v{__schema_version__}"
             return
 
-        # Check if version matches the expected version
-        if version != cls.SCHEMA_VERSION:
-            raise SchemaVersionError(
-                f"Schema version mismatch: got {version}, expected {cls.SCHEMA_VERSION}"
+        # Normalize version to 2-digit format for comparison
+        try:
+            normalized_file_version = normalize_version(file_version)
+        except Exception as e:
+            raise SchemaVersionError(f"Invalid schema version format '{file_version}': {e}")
+
+        # Get compatibility type
+        compatibility = get_compatibility_type(normalized_file_version)
+
+        # Handle each compatibility case
+        if compatibility == "native":
+            # Native support - no action needed
+            logger.debug(f"Schema version {file_version} is natively supported")
+            return
+
+        elif compatibility == "forward_minor":
+            # Forward compatible - log warning about potential data loss
+            from mediaplanpy import __schema_version__
+            current_version = f"v{__schema_version__}"
+            logger.warning(
+                f"⚠️ Media plan uses schema {file_version}. Current SDK supports up to {current_version}. "
+                f"File imported and downgraded to {current_version} - new fields preserved but may be inactive."
             )
+            # Update version to current (Pydantic will preserve unknown fields)
+            data["meta"]["schema_version"] = current_version
+            return
+
+        elif compatibility == "backward_compatible":
+            # Backward compatible - version bump needed
+            from mediaplanpy import __schema_version__
+            current_version = f"v{__schema_version__}"
+            logger.info(f"ℹ️ Media plan migrated from schema {file_version} to {current_version}")
+
+            # Perform version bump (update version field)
+            data["meta"]["schema_version"] = current_version
+            return
+
+        elif compatibility == "deprecated":
+            # Deprecated but supported - migrate with warning
+            from mediaplanpy import __schema_version__
+            current_version = f"v{__schema_version__}"
+
+            # Import migration logic
+            from mediaplanpy.schema import SchemaMigrator
+            migrator = SchemaMigrator()
+
+            try:
+                # Perform migration
+                migrated_data = migrator.migrate(data, file_version, current_version)
+
+                # Update original data dict in place
+                data.clear()
+                data.update(migrated_data)
+
+                logger.warning(
+                    f"⚠️ Media plan migrated from deprecated schema {file_version} to {current_version}. "
+                    f"Support for this version may be removed in future releases."
+                )
+                return
+
+            except Exception as e:
+                raise SchemaVersionError(f"Failed to migrate from {file_version} to {current_version}: {e}")
+
+        elif compatibility == "unsupported":
+            # Unsupported version
+            recommendation = get_migration_recommendation(normalized_file_version)
+            error_msg = recommendation.get("error", f"Schema version {file_version} is not supported")
+            raise SchemaVersionError(f"❌ {error_msg}")
+
+        else:
+            # Unknown compatibility type
+            raise SchemaVersionError(f"❌ Cannot determine compatibility for schema version {file_version}")
 
     def validate_model(self) -> List[str]:
         """
@@ -614,3 +698,31 @@ class MediaPlan(BaseModel):
             campaign=campaign,
             lineitems=lineitems
         )
+
+@classmethod
+def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan":
+    """
+    Create a MediaPlan instance from a dictionary with version handling.
+
+    Args:
+        data: Dictionary containing the media plan data.
+
+    Returns:
+        A new MediaPlan instance.
+
+    Raises:
+        ValidationError: If the data fails validation.
+        SchemaVersionError: If the data uses an incompatible schema version.
+    """
+    try:
+        # Check and handle schema version compatibility
+        cls.check_schema_version(data)
+
+        # Create instance using Pydantic
+        return cls.model_validate(data)
+
+    except SchemaVersionError:
+        # Re-raise schema version errors as-is
+        raise
+    except Exception as e:
+        raise ValidationError(f"Validation failed for {cls.__name__}: {str(e)}")
