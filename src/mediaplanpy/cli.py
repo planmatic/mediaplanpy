@@ -139,6 +139,21 @@ def setup_argparse():
     delete_parser.add_argument("--media-plan-id", required=True, help="Media plan ID to delete")
     delete_parser.add_argument("--dry-run", action="store_true", help="Show what would be deleted without actually deleting")
 
+    # workspace upgrade
+    upgrade_parser = workspace_subparsers.add_parser("upgrade", help="Upgrade workspace to current SDK version")
+    upgrade_parser.add_argument("--workspace", help="Path to workspace.json")
+    upgrade_parser.add_argument("--target-version", help="Target SDK version (defaults to current)")
+    upgrade_parser.add_argument("--dry-run", action="store_true",
+                                help="Show what would be upgraded without making changes")
+
+    # workspace version
+    version_parser = workspace_subparsers.add_parser("version", help="Show workspace version information")
+    version_parser.add_argument("--workspace", help="Path to workspace.json")
+
+    # workspace check
+    check_parser = workspace_subparsers.add_parser("check", help="Check workspace compatibility and upgrade readiness")
+    check_parser.add_argument("--workspace", help="Path to workspace.json")
+
     return parser
 
 def handle_workspace_init(args):
@@ -785,10 +800,105 @@ def main():
         if args.mediaplan_command == "delete":
             return handle_mediaplan_delete(args)
 
+    def handle_workspace_upgrade(args):
+        """Handle the 'workspace upgrade' command."""
+        try:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            result = manager.upgrade_workspace(
+                target_sdk_version=args.target_version,
+                dry_run=args.dry_run
+            )
+
+            if args.dry_run:
+                print(f"🔍 DRY RUN - Workspace upgrade analysis:")
+            else:
+                print(f"✅ Workspace upgrade completed:")
+
+            print(f"  JSON files migrated: {result['json_files_migrated']}")
+            print(f"  Parquet files regenerated: {result['parquet_files_regenerated']}")
+            print(f"  Database upgraded: {result['database_upgraded']}")
+            print(f"  Workspace settings updated: {result['workspace_updated']}")
+
+            if result['errors']:
+                print(f"⚠️  Errors encountered:")
+                for error in result['errors']:
+                    print(f"    - {error}")
+                return 1
+
+            return 0
+
+        except Exception as e:
+            print(f"❌ Error upgrading workspace: {e}")
+            return 1
+
+    def handle_workspace_version(args):
+        """Handle the 'workspace version' command."""
+        try:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            version_info = manager.get_workspace_version_info()
+
+            print(f"Workspace Version Information:")
+            print(f"  Workspace: {version_info['workspace_name']}")
+            print(f"  Current SDK Version: {version_info['current_sdk_version']}")
+            print(f"  Current Schema Version: {version_info['current_schema_version']}")
+            print(f"  Workspace Schema Version: {version_info['workspace_schema_version'] or 'Not set'}")
+            print(f"  Required SDK Version: {version_info['workspace_sdk_required'] or 'Not set'}")
+            print(f"  Last Upgraded: {version_info['last_upgraded'] or 'Never'}")
+            print(f"  Compatibility Status: {version_info['compatibility_status']}")
+
+            if version_info['needs_upgrade']:
+                print(f"📋 Recommendation: Run 'workspace upgrade' to update to current versions")
+
+            return 0
+
+        except Exception as e:
+            print(f"❌ Error getting version information: {e}")
+            return 1
+
+    def handle_workspace_check(args):
+        """Handle the 'workspace check' command."""
+        try:
+            manager = WorkspaceManager(args.workspace)
+            manager.load()
+
+            compatibility = manager.check_workspace_compatibility()
+
+            if compatibility['is_compatible']:
+                print(f"✅ Workspace is compatible with current SDK")
+            else:
+                print(f"❌ Workspace compatibility issues found")
+
+            if compatibility['errors']:
+                print(f"Errors:")
+                for error in compatibility['errors']:
+                    print(f"  - {error}")
+
+            if compatibility['warnings']:
+                print(f"Warnings:")
+                for warning in compatibility['warnings']:
+                    print(f"  - {warning}")
+
+            if compatibility['recommendations']:
+                print(f"Recommendations:")
+                for rec in compatibility['recommendations']:
+                    print(f"  - {rec}")
+
+            return 0 if compatibility['is_compatible'] else 1
+
+        except Exception as e:
+            print(f"❌ Error checking workspace: {e}")
+            return 1
+
     # If we reach here, no command was handled
     parser.print_help()
     return 1
 
 
+
 if __name__ == "__main__":
     sys.exit(main())
+

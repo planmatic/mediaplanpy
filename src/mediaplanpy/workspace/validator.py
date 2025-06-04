@@ -1,11 +1,12 @@
 """
-Workspace configuration validation utilities.
+Updated workspace configuration validation utilities.
 """
 import json
 import logging
 import os
 import pathlib
 from typing import Dict, Any, List
+from datetime import datetime
 
 import jsonschema
 
@@ -29,7 +30,7 @@ WORKSPACE_SCHEMA = load_workspace_schema()
 
 def validate_workspace(config: Dict[str, Any]) -> List[str]:
     """
-    Validate a workspace configuration against the schema.
+    Validate a workspace configuration against the updated schema.
 
     Args:
         config: The workspace configuration to validate.
@@ -52,7 +53,8 @@ def validate_workspace(config: Dict[str, Any]) -> List[str]:
     # Additional validations beyond the schema
     errors.extend(validate_storage_config(config))
     errors.extend(validate_database_config(config))
-    errors.extend(validate_schema_settings(config))
+    errors.extend(validate_workspace_settings(config))
+    errors.extend(validate_schema_settings_migration(config))
 
     # Validate workspace_id existence
     if "workspace_id" not in config:
@@ -140,9 +142,9 @@ def validate_database_config(config: Dict[str, Any]) -> List[str]:
     return errors
 
 
-def validate_schema_settings(config: Dict[str, Any]) -> List[str]:
+def validate_workspace_settings(config: Dict[str, Any]) -> List[str]:
     """
-    Validate schema-specific configuration.
+    Validate workspace_settings configuration for version tracking.
 
     Args:
         config: The workspace configuration to validate.
@@ -151,17 +153,84 @@ def validate_schema_settings(config: Dict[str, Any]) -> List[str]:
         A list of validation errors, if any.
     """
     errors = []
+    workspace_settings = config.get('workspace_settings', {})
+
+    # Validate schema_version format (2-digit: X.Y)
+    schema_version = workspace_settings.get('schema_version')
+    if schema_version:
+        if not _is_valid_2digit_version(schema_version):
+            errors.append(f"Invalid schema_version format: {schema_version}. Expected format: 'X.Y' (e.g., '1.0')")
+        else:
+            # Check if schema version is supported
+            try:
+                from mediaplanpy.schema.version_utils import get_compatibility_type, normalize_version
+
+                normalized_version = normalize_version(schema_version)
+                compatibility = get_compatibility_type(normalized_version)
+
+                if compatibility == "unsupported":
+                    errors.append(f"Workspace schema version {schema_version} is not supported by current SDK")
+                elif compatibility == "unknown":
+                    errors.append(f"Cannot determine compatibility for schema version {schema_version}")
+
+            except Exception as e:
+                logger.warning(f"Could not validate schema version compatibility: {e}")
+
+    # Validate sdk_version_required format (X.Y.Z or X.Y.x)
+    sdk_version_required = workspace_settings.get('sdk_version_required')
+    if sdk_version_required:
+        if not _is_valid_sdk_version_pattern(sdk_version_required):
+            errors.append(f"Invalid sdk_version_required format: {sdk_version_required}. Expected format: 'X.Y.Z' or 'X.Y.x'")
+        else:
+            # Check SDK version compatibility
+            try:
+                from mediaplanpy import __version__
+                current_sdk_version = __version__
+
+                # Convert X.Y.x to X.Y.0 for comparison
+                required_version = sdk_version_required.replace('.x', '.0')
+
+                from mediaplanpy.schema.version_utils import compare_versions
+                if compare_versions(current_sdk_version, required_version) < 0:
+                    errors.append(f"Current SDK version {current_sdk_version} is below workspace required version {sdk_version_required}")
+
+            except Exception as e:
+                logger.warning(f"Could not validate SDK version compatibility: {e}")
+
+    # Validate last_upgraded date format
+    last_upgraded = workspace_settings.get('last_upgraded')
+    if last_upgraded:
+        if not _is_valid_date_format(last_upgraded):
+            errors.append(f"Invalid last_upgraded date format: {last_upgraded}. Expected format: 'YYYY-MM-DD'")
+
+    return errors
+
+
+def validate_schema_settings_migration(config: Dict[str, Any]) -> List[str]:
+    """
+    Validate that deprecated schema_settings fields have been properly migrated.
+
+    Args:
+        config: The workspace configuration to validate.
+
+    Returns:
+        A list of validation errors and warnings, if any.
+    """
+    errors = []
     schema_settings = config.get('schema_settings', {})
 
-    # Verify preferred_version, if specified, is a valid format (v followed by digits and dots)
-    preferred_version = schema_settings.get('preferred_version')
-    if preferred_version and not preferred_version.startswith('v'):
-        errors.append(f"Schema version should start with 'v': {preferred_version}")
+    # Check for deprecated fields and warn
+    deprecated_fields = ['preferred_version', 'auto_migrate']
+    found_deprecated = []
 
-    # If we have a repository_url, make sure it's a proper URL
-    repo_url = schema_settings.get('repository_url')
-    if repo_url and not (repo_url.startswith('http://') or repo_url.startswith('https://')):
-        errors.append(f"Repository URL should start with http:// or https://: {repo_url}")
+    for field in deprecated_fields:
+        if field in schema_settings:
+            found_deprecated.append(field)
+
+    if found_deprecated:
+        errors.append(f"Deprecated schema_settings fields found: {', '.join(found_deprecated)}. "
+                     f"These fields have been moved to workspace_settings or are no longer used. "
+                     f"Run workspace.upgrade_workspace() to migrate configuration.")
 
     return errors
 
@@ -204,6 +273,68 @@ def test_database_connection(config: Dict[str, Any]) -> List[str]:
     return errors
 
 
+def validate_workspace_upgrade_readiness(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Check if a workspace is ready for upgrade and identify potential issues.
+
+    Args:
+        config: The workspace configuration to check.
+
+    Returns:
+        Dictionary with readiness assessment and recommendations.
+    """
+    readiness = {
+        "ready_for_upgrade": True,
+        "blocking_issues": [],
+        "warnings": [],
+        "recommendations": []
+    }
+
+    # Check workspace status
+    workspace_status = config.get('workspace_status', 'active')
+    if workspace_status != 'active':
+        readiness["ready_for_upgrade"] = False
+        readiness["blocking_issues"].append(f"Workspace status is '{workspace_status}', must be 'active' for upgrade")
+
+    # Check storage configuration
+    storage_errors = validate_storage_config(config)
+    if storage_errors:
+        readiness["ready_for_upgrade"] = False
+        readiness["blocking_issues"].extend([f"Storage config error: {error}" for error in storage_errors])
+
+    # Check database configuration if enabled
+    db_config = config.get('database', {})
+    if db_config.get('enabled', False):
+        db_errors = validate_database_config(config)
+        if db_errors:
+            readiness["warnings"].extend([f"Database config warning: {error}" for error in db_errors])
+            readiness["recommendations"].append("Fix database configuration issues before upgrade")
+
+        # Test database connection
+        connection_errors = test_database_connection(config)
+        if connection_errors:
+            readiness["warnings"].extend([f"Database connection issue: {error}" for error in connection_errors])
+            readiness["recommendations"].append("Ensure database is accessible before upgrade")
+
+    # Check for deprecated fields
+    migration_errors = validate_schema_settings_migration(config)
+    if migration_errors:
+        readiness["warnings"].extend(migration_errors)
+        readiness["recommendations"].append("Configuration contains deprecated fields that will be migrated")
+
+    # Check workspace_settings existence
+    workspace_settings = config.get('workspace_settings')
+    if not workspace_settings:
+        readiness["recommendations"].append("Workspace settings will be initialized during upgrade")
+    else:
+        # Validate existing workspace_settings
+        ws_errors = validate_workspace_settings(config)
+        if ws_errors:
+            readiness["warnings"].extend([f"Workspace settings issue: {error}" for error in ws_errors])
+
+    return readiness
+
+
 def _is_valid_identifier(name: str) -> bool:
     """
     Check if a name is a valid SQL identifier.
@@ -238,3 +369,57 @@ def _is_valid_env_var_name(name: str) -> bool:
     # Environment variable names should be uppercase letters, digits, and underscores
     import re
     return bool(re.match(r'^[A-Z][A-Z0-9_]*$', name))
+
+
+def _is_valid_2digit_version(version: str) -> bool:
+    """
+    Check if a version string follows the 2-digit format (X.Y).
+
+    Args:
+        version: Version string to validate.
+
+    Returns:
+        True if valid 2-digit version format, False otherwise.
+    """
+    if not version:
+        return False
+
+    import re
+    return bool(re.match(r'^[0-9]+\.[0-9]+$', version))
+
+
+def _is_valid_sdk_version_pattern(version: str) -> bool:
+    """
+    Check if a version string follows the SDK version pattern (X.Y.Z or X.Y.x).
+
+    Args:
+        version: Version string to validate.
+
+    Returns:
+        True if valid SDK version pattern, False otherwise.
+    """
+    if not version:
+        return False
+
+    import re
+    return bool(re.match(r'^[0-9]+\.[0-9]+\.[0-9x]+$', version))
+
+
+def _is_valid_date_format(date_str: str) -> bool:
+    """
+    Check if a date string follows the YYYY-MM-DD format.
+
+    Args:
+        date_str: Date string to validate.
+
+    Returns:
+        True if valid date format, False otherwise.
+    """
+    if not date_str:
+        return False
+
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+        return True
+    except ValueError:
+        return False
