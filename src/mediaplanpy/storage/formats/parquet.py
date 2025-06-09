@@ -261,23 +261,30 @@ class ParquetFormatHandler(FormatHandler):
     def _get_arrow_schema(self) -> pa.Schema:
         """
         Define explicit schema for the Parquet file with version metadata.
+        Updated for v2.0 schema support.
 
         Returns:
             PyArrow schema with proper data types and version fields.
         """
         fields = []
 
-        # Meta fields (all strings except created_at) - updated schema version handling
+        # Meta fields (all strings except created_at) - updated for v2.0
         fields.extend([
             pa.field("meta_id", pa.string()),
             pa.field("meta_schema_version", pa.string()),  # 2-digit format (e.g., "1.0")
-            pa.field("meta_created_by", pa.string()),
+            pa.field("meta_created_by", pa.string()),  # Legacy field for backward compatibility
             pa.field("meta_created_at", pa.timestamp('ns')),
             pa.field("meta_name", pa.string()),
             pa.field("meta_comments", pa.string()),
+            # NEW v2.0 meta fields
+            pa.field("meta_created_by_id", pa.string()),
+            pa.field("meta_created_by_name", pa.string()),  # Required in v2.0
+            pa.field("meta_is_current", pa.bool_()),
+            pa.field("meta_is_archived", pa.bool_()),
+            pa.field("meta_parent_id", pa.string()),
         ])
 
-        # Campaign fields
+        # Campaign fields - existing v1.0 fields
         fields.extend([
             pa.field("campaign_id", pa.string()),
             pa.field("campaign_name", pa.string()),
@@ -296,7 +303,21 @@ class ParquetFormatHandler(FormatHandler):
             pa.field("campaign_locations", pa.string()),  # JSON string
         ])
 
-        # Line item fields
+        # NEW v2.0 Campaign fields
+        fields.extend([
+            pa.field("campaign_budget_currency", pa.string()),
+            pa.field("campaign_agency_id", pa.string()),
+            pa.field("campaign_agency_name", pa.string()),
+            pa.field("campaign_advertiser_id", pa.string()),
+            pa.field("campaign_advertiser_name", pa.string()),
+            pa.field("campaign_product_id", pa.string()),
+            pa.field("campaign_campaign_type_id", pa.string()),
+            pa.field("campaign_campaign_type_name", pa.string()),
+            pa.field("campaign_workflow_status_id", pa.string()),
+            pa.field("campaign_workflow_status_name", pa.string()),
+        ])
+
+        # Line item fields - existing v1.0 fields
         fields.extend([
             pa.field("lineitem_id", pa.string()),
             pa.field("lineitem_name", pa.string()),
@@ -320,11 +341,20 @@ class ParquetFormatHandler(FormatHandler):
             pa.field("lineitem_kpi_custom", pa.string()),
         ])
 
-        # Custom dimension fields (all strings)
+        # NEW v2.0 Line item fields
+        fields.extend([
+            pa.field("lineitem_cost_currency", pa.string()),
+            pa.field("lineitem_dayparts", pa.string()),
+            pa.field("lineitem_dayparts_custom", pa.string()),
+            pa.field("lineitem_inventory", pa.string()),
+            pa.field("lineitem_inventory_custom", pa.string()),
+        ])
+
+        # Custom dimension fields (all strings) - unchanged from v1.0
         for i in range(1, 11):
             fields.append(pa.field(f"lineitem_dim_custom{i}", pa.string()))
 
-        # Cost fields (all floats)
+        # Cost fields (all floats) - unchanged from v1.0
         cost_fields = [
             "lineitem_cost_media", "lineitem_cost_buying",
             "lineitem_cost_platform", "lineitem_cost_data",
@@ -332,18 +362,28 @@ class ParquetFormatHandler(FormatHandler):
         ]
         fields.extend([pa.field(name, pa.float64()) for name in cost_fields])
 
-        # Custom cost fields (all floats)
+        # Custom cost fields (all floats) - unchanged from v1.0
         for i in range(1, 11):
             fields.append(pa.field(f"lineitem_cost_custom{i}", pa.float64()))
 
-        # Metric fields (all floats)
+        # Existing v1.0 metric fields (all floats)
         metric_fields = [
             "lineitem_metric_impressions", "lineitem_metric_clicks",
             "lineitem_metric_views"
         ]
         fields.extend([pa.field(name, pa.float64()) for name in metric_fields])
 
-        # Custom metric fields (all floats)
+        # NEW v2.0 standard metric fields (all floats) - 17 new metrics
+        new_metric_fields = [
+            "lineitem_metric_engagements", "lineitem_metric_followers", "lineitem_metric_visits",
+            "lineitem_metric_leads", "lineitem_metric_sales", "lineitem_metric_add_to_cart",
+            "lineitem_metric_app_install", "lineitem_metric_application_start", "lineitem_metric_application_complete",
+            "lineitem_metric_contact_us", "lineitem_metric_download", "lineitem_metric_signup",
+            "lineitem_metric_max_daily_spend", "lineitem_metric_max_daily_impressions", "lineitem_metric_audience_size"
+        ]
+        fields.extend([pa.field(name, pa.float64()) for name in new_metric_fields])
+
+        # Custom metric fields (all floats) - unchanged from v1.0
         for i in range(1, 11):
             fields.append(pa.field(f"lineitem_metric_custom{i}", pa.float64()))
 
@@ -466,6 +506,7 @@ class ParquetFormatHandler(FormatHandler):
     def _apply_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply explicit data types to DataFrame columns with enhanced version handling.
+        Updated for v2.0 field support.
 
         Args:
             df: The DataFrame to type.
@@ -480,7 +521,7 @@ class ParquetFormatHandler(FormatHandler):
                and not any(col.endswith(x) for x in [
                 '_age_start', '_age_end', '_total', '_cost_', '_metric_',
                 '_impressions', '_clicks', '_views', '_created_at',
-                '_start_date', '_end_date'
+                '_start_date', '_end_date', '_is_current', '_is_archived'
             ])
         ]
 
@@ -494,13 +535,13 @@ class ParquetFormatHandler(FormatHandler):
                 lambda x: x.lstrip('v') if isinstance(x, str) else str(x) if x else ''
             )
 
-        # Integer columns
+        # Integer columns (unchanged from v1.0)
         int_columns = ['campaign_audience_age_start', 'campaign_audience_age_end']
         for col in int_columns:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('Int32')
 
-        # Float columns
+        # Float columns - existing v1.0 fields plus new v2.0 metric fields
         float_columns = [
             col for col in df.columns
             if col.endswith(('_total', '_cost_media', '_cost_buying',
@@ -508,29 +549,37 @@ class ParquetFormatHandler(FormatHandler):
                              '_impressions', '_clicks', '_views'))
                or ('_cost_custom' in col)
                or ('_metric_custom' in col)
+               # NEW v2.0 metric fields
+               or col.endswith(('_metric_engagements', '_metric_followers', '_metric_visits',
+                                '_metric_leads', '_metric_sales', '_metric_add_to_cart',
+                                '_metric_app_install', '_metric_application_start', '_metric_application_complete',
+                                '_metric_contact_us', '_metric_download', '_metric_signup',
+                                '_metric_max_daily_spend', '_metric_max_daily_impressions', '_metric_audience_size'))
         ]
 
         for col in float_columns:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(float)
 
-        # Date columns
+        # Date columns (unchanged from v1.0)
         date_columns = [col for col in df.columns if col.endswith(('_start_date', '_end_date'))]
         for col in date_columns:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # Timestamp columns
+        # Timestamp columns (unchanged from v1.0)
         timestamp_columns = ['meta_created_at', 'export_timestamp']
         for col in timestamp_columns:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
-        # Boolean columns
-        if 'is_placeholder' in df.columns:
-            df['is_placeholder'] = df['is_placeholder'].fillna(False).astype(bool)
+        # Boolean columns - existing and NEW v2.0 fields
+        boolean_columns = ['is_placeholder', 'meta_is_current', 'meta_is_archived']
+        for col in boolean_columns:
+            if col in df.columns:
+                df[col] = df[col].fillna(False).astype(bool)
 
-        # SDK version should be string
+        # SDK version should be string (unchanged from v1.0)
         if 'sdk_version' in df.columns:
             df['sdk_version'] = df['sdk_version'].fillna('unknown').astype(str)
 
@@ -560,15 +609,21 @@ class ParquetFormatHandler(FormatHandler):
     def _get_all_columns(self) -> List[str]:
         """
         Get all expected columns for v1.0.0+ schema with version metadata.
+        Updated for v2.0 schema support.
 
         Returns:
             List of column names in order.
         """
+        # Meta fields - updated for v2.0
         meta_fields = [
             "meta_id", "meta_schema_version", "meta_created_by",
-            "meta_created_at", "meta_name", "meta_comments"
+            "meta_created_at", "meta_name", "meta_comments",
+            # NEW v2.0 meta fields
+            "meta_created_by_id", "meta_created_by_name",
+            "meta_is_current", "meta_is_archived", "meta_parent_id"
         ]
 
+        # Campaign fields - existing v1.0 fields
         campaign_fields = [
             "campaign_id", "campaign_name", "campaign_objective",
             "campaign_start_date", "campaign_end_date", "campaign_budget_total",
@@ -579,6 +634,17 @@ class ParquetFormatHandler(FormatHandler):
             "campaign_locations"
         ]
 
+        # NEW v2.0 campaign fields
+        campaign_fields.extend([
+            "campaign_budget_currency",
+            "campaign_agency_id", "campaign_agency_name",
+            "campaign_advertiser_id", "campaign_advertiser_name",
+            "campaign_product_id",
+            "campaign_campaign_type_id", "campaign_campaign_type_name",
+            "campaign_workflow_status_id", "campaign_workflow_status_name"
+        ])
+
+        # Line item fields - existing v1.0 fields
         lineitem_fields = [
             "lineitem_id", "lineitem_name", "lineitem_start_date",
             "lineitem_end_date", "lineitem_cost_total",
@@ -591,11 +657,18 @@ class ParquetFormatHandler(FormatHandler):
             "lineitem_adformat_custom", "lineitem_kpi", "lineitem_kpi_custom"
         ]
 
-        # Add dimension custom fields
+        # NEW v2.0 line item fields
+        lineitem_fields.extend([
+            "lineitem_cost_currency",
+            "lineitem_dayparts", "lineitem_dayparts_custom",
+            "lineitem_inventory", "lineitem_inventory_custom"
+        ])
+
+        # Add dimension custom fields (unchanged from v1.0)
         for i in range(1, 11):
             lineitem_fields.append(f"lineitem_dim_custom{i}")
 
-        # Add cost fields
+        # Add cost fields (unchanged from v1.0)
         cost_fields = [
             "lineitem_cost_media", "lineitem_cost_buying",
             "lineitem_cost_platform", "lineitem_cost_data",
@@ -603,18 +676,28 @@ class ParquetFormatHandler(FormatHandler):
         ]
         lineitem_fields.extend(cost_fields)
 
-        # Add cost custom fields
+        # Add cost custom fields (unchanged from v1.0)
         for i in range(1, 11):
             lineitem_fields.append(f"lineitem_cost_custom{i}")
 
-        # Add metric fields
+        # Add existing v1.0 metric fields
         metric_fields = [
             "lineitem_metric_impressions", "lineitem_metric_clicks",
             "lineitem_metric_views"
         ]
         lineitem_fields.extend(metric_fields)
 
-        # Add metric custom fields
+        # Add NEW v2.0 standard metric fields (17 new metrics)
+        new_metric_fields = [
+            "lineitem_metric_engagements", "lineitem_metric_followers", "lineitem_metric_visits",
+            "lineitem_metric_leads", "lineitem_metric_sales", "lineitem_metric_add_to_cart",
+            "lineitem_metric_app_install", "lineitem_metric_application_start", "lineitem_metric_application_complete",
+            "lineitem_metric_contact_us", "lineitem_metric_download", "lineitem_metric_signup",
+            "lineitem_metric_max_daily_spend", "lineitem_metric_max_daily_impressions", "lineitem_metric_audience_size"
+        ]
+        lineitem_fields.extend(new_metric_fields)
+
+        # Add metric custom fields (unchanged from v1.0)
         for i in range(1, 11):
             lineitem_fields.append(f"lineitem_metric_custom{i}")
 
