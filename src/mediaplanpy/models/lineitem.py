@@ -242,95 +242,95 @@ class LineItem(BaseModel):
             errors.append(f"start_date ({self.start_date}) must be before or equal to end_date ({self.end_date})")
 
         # Cost validation
-        cost_fields = [
-            ("cost_total", self.cost_total),
-            ("cost_media", self.cost_media),
-            ("cost_buying", self.cost_buying),
-            ("cost_platform", self.cost_platform),
-            ("cost_data", self.cost_data),
-            ("cost_creative", self.cost_creative),
-        ]
+        # cost_fields = [
+        #     ("cost_total", self.cost_total),
+        #     ("cost_media", self.cost_media),
+        #     ("cost_buying", self.cost_buying),
+        #     ("cost_platform", self.cost_platform),
+        #     ("cost_data", self.cost_data),
+        #     ("cost_creative", self.cost_creative),
+        # ]
 
         # Add custom cost fields
-        for i in range(1, 11):
-            field_name = f"cost_custom{i}"
-            field_value = getattr(self, field_name)
-            cost_fields.append((field_name, field_value))
+        # for i in range(1, 11):
+        #     field_name = f"cost_custom{i}"
+        #     field_value = getattr(self, field_name)
+        #     cost_fields.append((field_name, field_value))
 
         # Validate all cost fields are non-negative
-        for field_name, field_value in cost_fields:
-            if field_value is not None and field_value < 0:
-                errors.append(f"{field_name} must be non-negative, got: {field_value}")
+        # for field_name, field_value in cost_fields:
+        #     if field_value is not None and field_value < 0:
+        #         errors.append(f"{field_name} must be non-negative, got: {field_value}")
 
         # Metric validation - includes all v1.0 and new v2.0 metrics
-        metric_fields = [
-            ("metric_impressions", self.metric_impressions),
-            ("metric_clicks", self.metric_clicks),
-            ("metric_views", self.metric_views),
-            # New v2.0 standard metrics
-            ("metric_engagements", self.metric_engagements),
-            ("metric_followers", self.metric_followers),
-            ("metric_visits", self.metric_visits),
-            ("metric_leads", self.metric_leads),
-            ("metric_sales", self.metric_sales),
-            ("metric_add_to_cart", self.metric_add_to_cart),
-            ("metric_app_install", self.metric_app_install),
-            ("metric_application_start", self.metric_application_start),
-            ("metric_application_complete", self.metric_application_complete),
-            ("metric_contact_us", self.metric_contact_us),
-            ("metric_download", self.metric_download),
-            ("metric_signup", self.metric_signup),
-            ("metric_max_daily_spend", self.metric_max_daily_spend),
-            ("metric_max_daily_impressions", self.metric_max_daily_impressions),
-            ("metric_audience_size", self.metric_audience_size),
-        ]
+        # metric_fields = [
+        #     ("metric_impressions", self.metric_impressions),
+        #     ("metric_clicks", self.metric_clicks),
+        #     ("metric_views", self.metric_views),
+        #     # New v2.0 standard metrics
+        #     ("metric_engagements", self.metric_engagements),
+        #     ("metric_followers", self.metric_followers),
+        #     ("metric_visits", self.metric_visits),
+        #     ("metric_leads", self.metric_leads),
+        #     ("metric_sales", self.metric_sales),
+        #     ("metric_add_to_cart", self.metric_add_to_cart),
+        #     ("metric_app_install", self.metric_app_install),
+        #     ("metric_application_start", self.metric_application_start),
+        #     ("metric_application_complete", self.metric_application_complete),
+        #     ("metric_contact_us", self.metric_contact_us),
+        #     ("metric_download", self.metric_download),
+        #     ("metric_signup", self.metric_signup),
+        #     ("metric_max_daily_spend", self.metric_max_daily_spend),
+        #     ("metric_max_daily_impressions", self.metric_max_daily_impressions),
+        #     ("metric_audience_size", self.metric_audience_size),
+        # ]
 
         # Add custom metric fields
-        for i in range(1, 11):
-            field_name = f"metric_custom{i}"
-            field_value = getattr(self, field_name)
-            metric_fields.append((field_name, field_value))
+        # for i in range(1, 11):
+        #     field_name = f"metric_custom{i}"
+        #     field_value = getattr(self, field_name)
+        #     metric_fields.append((field_name, field_value))
 
         # Validate all metric fields are non-negative
-        for field_name, field_value in metric_fields:
-            if field_value is not None and field_value < 0:
-                errors.append(f"{field_name} must be non-negative, got: {field_value}")
+        # for field_name, field_value in metric_fields:
+        #     if field_value is not None and field_value < 0:
+        #         errors.append(f"{field_name} must be non-negative, got: {field_value}")
 
         # Custom field validation - ensure custom fields only have values when main field is 'other'
-        custom_field_validations = [
-            (self.channel, self.channel_custom, "channel_custom", "channel"),
-            (self.vehicle, self.vehicle_custom, "vehicle_custom", "vehicle"),
-            (self.partner, self.partner_custom, "partner_custom", "partner"),
-            (self.media_product, self.media_product_custom, "media_product_custom", "media_product"),
-            (self.adformat, self.adformat_custom, "adformat_custom", "adformat"),
-            (self.kpi, self.kpi_custom, "kpi_custom", "kpi"),
-            # New v2.0 custom field validations
-            (self.dayparts, self.dayparts_custom, "dayparts_custom", "dayparts"),
-            (self.inventory, self.inventory_custom, "inventory_custom", "inventory"),
-        ]
+        # custom_field_validations = [
+        #     (self.channel, self.channel_custom, "channel_custom", "channel"),
+        #     (self.vehicle, self.vehicle_custom, "vehicle_custom", "vehicle"),
+        #     (self.partner, self.partner_custom, "partner_custom", "partner"),
+        #     (self.media_product, self.media_product_custom, "media_product_custom", "media_product"),
+        #     (self.adformat, self.adformat_custom, "adformat_custom", "adformat"),
+        #     (self.kpi, self.kpi_custom, "kpi_custom", "kpi"),
+        #     # New v2.0 custom field validations
+        #     (self.dayparts, self.dayparts_custom, "dayparts_custom", "dayparts"),
+        #     (self.inventory, self.inventory_custom, "inventory_custom", "inventory"),
+        # ]
 
-        for main_field, custom_field, custom_field_name, main_field_name in custom_field_validations:
-            if main_field and main_field.lower() != 'other' and custom_field:
-                errors.append(f"{custom_field_name} should only be set when {main_field_name} is 'other'")
+        # for main_field, custom_field, custom_field_name, main_field_name in custom_field_validations:
+        #     if main_field and main_field.lower() != 'other' and custom_field:
+        #         errors.append(f"{custom_field_name} should only be set when {main_field_name} is 'other'")
 
         # Cost breakdown validation - check if all cost breakdown fields sum to total cost
-        cost_breakdown_fields = [
-            self.cost_media, self.cost_buying, self.cost_platform,
-            self.cost_data, self.cost_creative
-        ]
+        # cost_breakdown_fields = [
+        #     self.cost_media, self.cost_buying, self.cost_platform,
+        #     self.cost_data, self.cost_creative
+        # ]
 
         # Only check if all cost breakdown fields are provided
-        if all(cost is not None for cost in cost_breakdown_fields):
-            cost_sum = sum(cost_breakdown_fields)
-            # Allow small rounding differences (0.01)
-            if abs(cost_sum - self.cost_total) > Decimal('0.01'):
-                errors.append(f"Sum of cost breakdowns ({cost_sum}) does not match cost_total ({self.cost_total})")
+        # if all(cost is not None for cost in cost_breakdown_fields):
+        #     cost_sum = sum(cost_breakdown_fields)
+        #     # Allow small rounding differences (0.01)
+        #     if abs(cost_sum - self.cost_total) > Decimal('0.01'):
+        #         errors.append(f"Sum of cost breakdowns ({cost_sum}) does not match cost_total ({self.cost_total})")
 
         # NEW v2.0 validation: Application funnel consistency
-        if (self.metric_application_start is not None and
-                self.metric_application_complete is not None and
-                self.metric_application_complete > self.metric_application_start):
-            errors.append("metric_application_complete cannot be greater than metric_application_start")
+        # if (self.metric_application_start is not None and
+        #         self.metric_application_complete is not None and
+        #         self.metric_application_complete > self.metric_application_start):
+        #     errors.append("metric_application_complete cannot be greater than metric_application_start")
 
         return errors
 

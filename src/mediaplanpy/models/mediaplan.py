@@ -705,6 +705,9 @@ class MediaPlan(BaseModel):
         """
         Create a new media plan with the required fields.
 
+        This method dynamically routes parameters to the appropriate model objects
+        based on their field definitions, ensuring proper JSON structure.
+
         Args:
             created_by: Email or name of the creator
             campaign_name: Name of the campaign
@@ -714,7 +717,7 @@ class MediaPlan(BaseModel):
             campaign_budget: Total budget amount
             schema_version: Version of the schema to use, defaults to current version
             workspace_manager: Optional WorkspaceManager for workspace status checking
-            **kwargs: Additional fields to set on the media plan
+            **kwargs: Additional fields - automatically routed to Campaign, Meta, or MediaPlan
 
         Returns:
             A new MediaPlan instance.
@@ -742,73 +745,54 @@ class MediaPlan(BaseModel):
             from mediaplanpy import __schema_version__
             schema_version = f"v{__schema_version__}"
 
-        # Generate a campaign ID if not provided
+        # Generate IDs if not provided
         campaign_id = kwargs.pop("campaign_id", f"campaign_{uuid.uuid4().hex[:8]}")
-
-        # Generate a media plan ID if not provided
         mediaplan_id = kwargs.pop("mediaplan_id", f"mediaplan_{uuid.uuid4().hex[:8]}")
 
-        # Handle audience-related parameters for v1.0 compatibility
-        audience_fields = {}
-        target_audience = kwargs.pop("target_audience", None)
+        # === DYNAMIC FIELD ROUTING ===
+        # Get the field definitions for each model to route kwargs appropriately
+        campaign_fields, meta_fields, mediaplan_fields = cls._route_creation_fields(kwargs, schema_version)
 
-        if target_audience:
-            # Extract audience fields from target_audience
-            if isinstance(target_audience, dict):
-                # Extract age range
-                age_range = target_audience.get("age_range")
-                if age_range and "-" in age_range:
-                    try:
-                        start, end = age_range.split("-")
-                        audience_fields["audience_age_start"] = int(start.strip())
-                        audience_fields["audience_age_end"] = int(end.strip())
-                    except (ValueError, TypeError):
-                        pass
+        # === CAMPAIGN CREATION ===
+        # Build campaign with core required fields plus dynamic fields
+        campaign_data = {
+            "id": campaign_id,
+            "name": campaign_name,
+            "objective": campaign_objective,
+            "start_date": campaign_start_date,
+            "end_date": campaign_end_date,
+            "budget_total": campaign_budget,
+            **campaign_fields  # Dynamic campaign fields from kwargs
+        }
 
-                # Extract other audience fields
-                if "location" in target_audience:
-                    audience_fields["location_type"] = "Country"
-                    audience_fields["locations"] = [target_audience["location"]]
+        try:
+            campaign = Campaign.from_dict(campaign_data)
+        except Exception as e:
+            raise ValidationError(f"Failed to create campaign: {str(e)}")
 
-                if "interests" in target_audience:
-                    audience_fields["audience_interests"] = target_audience["interests"]
+        # === META CREATION ===
+        # Handle v2.0 required field mapping
+        created_by_name = meta_fields.pop("created_by_name", created_by)  # Use created_by as fallback
+        media_plan_name = mediaplan_fields.pop("media_plan_name", campaign_name)  # Use campaign name as fallback
 
-        # Create the campaign
-        campaign = Campaign(
-            id=campaign_id,
-            name=campaign_name,
-            objective=campaign_objective,
-            start_date=campaign_start_date,
-            end_date=campaign_end_date,
-            budget_total=campaign_budget,
-            **audience_fields
-        )
+        meta_data = {
+            "id": mediaplan_id,
+            "schema_version": schema_version,
+            "created_by_name": created_by_name,  # Required in v2.0
+            "created_at": datetime.now(),
+            "name": media_plan_name,
+            **meta_fields  # Dynamic meta fields from kwargs
+        }
 
-        # Extract media plan name if provided
-        media_plan_name = kwargs.pop("media_plan_name", campaign_name)
+        try:
+            meta = Meta.from_dict(meta_data)
+        except Exception as e:
+            raise ValidationError(f"Failed to create meta: {str(e)}")
 
-        # NEW v2.0: Handle created_by_name (required) and created_by_id (optional)
-        created_by_name = kwargs.pop("created_by_name", created_by)  # Use created_by as fallback
-        created_by_id = kwargs.pop("created_by_id", None)
-
-        # Create meta information with v2.0 fields
-        meta = Meta(
-            id=mediaplan_id,
-            schema_version=schema_version,
-            created_by_name=created_by_name,  # Required in v2.0
-            created_by_id=created_by_id,      # Optional in v2.0
-            created_at=datetime.now(),
-            name=media_plan_name,
-            comments=kwargs.pop("comments", None),
-            is_current=kwargs.pop("is_current", None),
-            is_archived=kwargs.pop("is_archived", None),
-            parent_id=kwargs.pop("parent_id", None)
-        )
-
-        # Extract line items if provided
-        lineitems_data = kwargs.pop("lineitems", [])
+        # === LINE ITEMS CREATION ===
+        lineitems_data = mediaplan_fields.pop("lineitems", [])
         lineitems = []
-        for item_data in lineitems_data:
+        for i, item_data in enumerate(lineitems_data):
             try:
                 if isinstance(item_data, dict):
                     # For v1.0 compatibility, ensure budget is renamed to cost_total
@@ -817,36 +801,189 @@ class MediaPlan(BaseModel):
 
                     # Ensure line item has a name
                     if "name" not in item_data:
-                        item_data["name"] = item_data.get("id", f"Item {len(lineitems) + 1}")
+                        item_data["name"] = item_data.get("id", f"Item {i + 1}")
 
                     lineitems.append(LineItem.from_dict(item_data))
                 else:
                     lineitems.append(item_data)
             except ValidationError as e:
-                raise ValidationError(f"Invalid line item in lineitems: {str(e)}")
+                raise ValidationError(f"Invalid line item {i}: {str(e)}")
 
-        # Extract dictionary configuration if provided
-        dictionary_data = kwargs.pop("dictionary", None)
+        # === DICTIONARY CREATION ===
+        dictionary_data = mediaplan_fields.pop("dictionary", None)
         dictionary = None
         if dictionary_data:
-            if isinstance(dictionary_data, dict):
-                dictionary = Dictionary.from_dict(dictionary_data)
+            try:
+                if isinstance(dictionary_data, dict):
+                    dictionary = Dictionary.from_dict(dictionary_data)
+                else:
+                    dictionary = dictionary_data
+            except Exception as e:
+                raise ValidationError(f"Failed to create dictionary: {str(e)}")
+
+        # === MEDIA PLAN CREATION ===
+        # Create the media plan with remaining mediaplan-specific fields
+        try:
+            media_plan = cls(
+                meta=meta,
+                campaign=campaign,
+                lineitems=lineitems,
+                dictionary=dictionary,
+                **mediaplan_fields  # Any remaining MediaPlan-specific fields
+            )
+
+            # Validate the complete media plan
+            media_plan.assert_valid()
+
+            return media_plan
+
+        except Exception as e:
+            raise ValidationError(f"Failed to create media plan: {str(e)}")
+
+    @classmethod
+    def _route_creation_fields(cls, kwargs: Dict[str, Any], schema_version: str) -> tuple[
+        Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+        """
+        Dynamically route kwargs to appropriate model objects based on their field definitions.
+
+        This method inspects the actual model field definitions to determine where
+        each parameter should go, making it schema-aware and maintainable.
+
+        Args:
+            kwargs: All the extra parameters passed to create()
+            schema_version: Schema version being used
+
+        Returns:
+            Tuple of (campaign_fields, meta_fields, mediaplan_fields)
+        """
+        # Get field definitions from the models
+        campaign_field_names = cls._get_model_field_names(Campaign)
+        meta_field_names = cls._get_model_field_names(Meta)
+
+        # MediaPlan fields are the ones defined directly on MediaPlan (excluding nested objects)
+        mediaplan_field_names = cls._get_model_field_names(cls, exclude_nested=['meta', 'campaign', 'lineitems',
+                                                                                'dictionary'])
+
+        # Special handling for certain fields that might be ambiguous
+        # These fields should always go to specific models regardless of field name overlaps
+        force_campaign_fields = {
+            'budget_currency', 'agency_id', 'agency_name', 'advertiser_id', 'advertiser_name',
+            'product_id', 'product_name', 'product_description', 'campaign_type_id', 'campaign_type_name',
+            'audience_name', 'audience_age_start', 'audience_age_end', 'audience_gender', 'audience_interests',
+            'location_type', 'locations', 'workflow_status_id', 'workflow_status_name'
+        }
+
+        force_meta_fields = {
+            'created_by_name', 'created_by_id', 'is_current', 'is_archived', 'parent_id', 'comments'
+        }
+
+        force_mediaplan_fields = {
+            'media_plan_name', 'lineitems', 'dictionary'
+        }
+
+        # Route the fields
+        campaign_fields = {}
+        meta_fields = {}
+        mediaplan_fields = {}
+
+        for key, value in kwargs.items():
+            if key in force_campaign_fields or key in campaign_field_names:
+                campaign_fields[key] = value
+            elif key in force_meta_fields or key in meta_field_names:
+                meta_fields[key] = value
+            elif key in force_mediaplan_fields or key in mediaplan_field_names:
+                mediaplan_fields[key] = value
             else:
-                dictionary = dictionary_data
+                # Unknown field - log warning and put in mediaplan fields as fallback
+                logger.warning(f"Unknown field '{key}' in MediaPlan.create(), adding to MediaPlan level")
+                mediaplan_fields[key] = value
 
-        # Create the media plan
-        media_plan = cls(
-            meta=meta,
-            campaign=campaign,
-            lineitems=lineitems,
-            dictionary=dictionary,
-            **kwargs
-        )
+        return campaign_fields, meta_fields, mediaplan_fields
 
-        # Validate the complete media plan
-        media_plan.assert_valid()
+    @classmethod
+    def _get_model_field_names(cls, model_class: type, exclude_nested: Optional[List[str]] = None) -> Set[str]:
+        """
+        Get the field names defined on a Pydantic model.
 
-        return media_plan
+        Args:
+            model_class: The Pydantic model class to inspect
+            exclude_nested: List of field names to exclude (for nested objects)
+
+        Returns:
+            Set of field names defined on the model
+        """
+        exclude_nested = exclude_nested or []
+
+        try:
+            # For Pydantic v2
+            if hasattr(model_class, 'model_fields'):
+                field_names = set(model_class.model_fields.keys())
+            # For Pydantic v1 fallback
+            elif hasattr(model_class, '__fields__'):
+                field_names = set(model_class.__fields__.keys())
+            else:
+                # Manual fallback - inspect the class annotations
+                field_names = set(getattr(model_class, '__annotations__', {}).keys())
+
+            # Remove excluded nested fields
+            return field_names - set(exclude_nested)
+
+        except Exception as e:
+            logger.warning(f"Could not inspect fields for {model_class.__name__}: {e}")
+            return set()
+
+    @classmethod
+    def _get_campaign_fields_from_schema(cls, schema_version: str) -> Set[str]:
+        """
+        Get campaign field names from the JSON schema (alternative approach).
+
+        This method can be used as a fallback or primary method if you prefer
+        to use the JSON schema as the source of truth.
+
+        Args:
+            schema_version: Schema version to use
+
+        Returns:
+            Set of campaign field names from the schema
+        """
+        try:
+            from mediaplanpy.schema import SchemaRegistry
+
+            registry = SchemaRegistry()
+            schema = registry.get_schema(schema_version)
+
+            # Navigate to campaign properties in the schema
+            campaign_properties = schema.get('properties', {}).get('campaign', {}).get('properties', {})
+            return set(campaign_properties.keys())
+
+        except Exception as e:
+            logger.warning(f"Could not load campaign fields from schema {schema_version}: {e}")
+            return set()
+
+    @classmethod
+    def _get_meta_fields_from_schema(cls, schema_version: str) -> Set[str]:
+        """
+        Get meta field names from the JSON schema (alternative approach).
+
+        Args:
+            schema_version: Schema version to use
+
+        Returns:
+            Set of meta field names from the schema
+        """
+        try:
+            from mediaplanpy.schema import SchemaRegistry
+
+            registry = SchemaRegistry()
+            schema = registry.get_schema(schema_version)
+
+            # Navigate to meta properties in the schema
+            meta_properties = schema.get('properties', {}).get('meta', {}).get('properties', {})
+            return set(meta_properties.keys())
+
+        except Exception as e:
+            logger.warning(f"Could not load meta fields from schema {schema_version}: {e}")
+            return set()
 
     @classmethod
     def from_v0_mediaplan(cls, v0_mediaplan: Dict[str, Any]) -> "MediaPlan":

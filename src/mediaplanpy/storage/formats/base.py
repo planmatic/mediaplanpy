@@ -65,7 +65,10 @@ class FormatHandler(abc.ABC):
 
     def validate_media_plan_structure(self, data: Dict[str, Any]) -> List[str]:
         """
-        Validate basic media plan structure.
+        Validate media plan structure using JSON schema validation.
+
+        This method now leverages the actual JSON schema definitions instead of
+        hard-coding required fields, ensuring version-aware validation.
 
         Args:
             data: Media plan data to validate
@@ -75,45 +78,188 @@ class FormatHandler(abc.ABC):
         """
         errors = []
 
-        # Check for required top-level sections
+        # Get schema version from data to use appropriate validation
+        schema_version = self.get_version_from_data(data)
+
+        try:
+            # Try to use the actual schema validator
+            from mediaplanpy.schema import SchemaValidator
+
+            validator = SchemaValidator()
+            schema_errors = validator.validate(data, schema_version)
+
+            if schema_errors:
+                # Convert schema validation errors to format handler errors
+                errors.extend([str(error) for error in schema_errors])
+
+            return errors
+
+        except ImportError:
+            logger.warning("Schema validator not available, falling back to basic validation")
+            return self._basic_structure_validation(data, schema_version)
+        except Exception as e:
+            logger.warning(f"Schema validation failed: {e}, falling back to basic validation")
+            return self._basic_structure_validation(data, schema_version)
+
+    def _basic_structure_validation(self, data: Dict[str, Any], schema_version: Optional[str] = None) -> List[str]:
+        """
+        Basic fallback validation when JSON schema validation is not available.
+
+        This provides minimal validation and is version-aware for known differences.
+
+        Args:
+            data: Media plan data to validate
+            schema_version: Schema version to guide validation
+
+        Returns:
+            List of validation errors
+        """
+        errors = []
+
+        # Check for required top-level sections (consistent across versions)
         required_sections = ["meta", "campaign"]
         for section in required_sections:
             if section not in data:
                 errors.append(f"Missing required section: {section}")
 
-        # Check meta section
+        # Version-aware meta field validation
         if "meta" in data:
-            meta = data["meta"]
-            required_meta_fields = ["id", "schema_version", "created_by"]
-            for field in required_meta_fields:
-                if field not in meta:
-                    errors.append(f"Missing required meta field: {field}")
+            errors.extend(self._validate_meta_section(data["meta"], schema_version))
 
-        # Check campaign section
+        # Version-aware campaign field validation
         if "campaign" in data:
-            campaign = data["campaign"]
-            required_campaign_fields = ["id", "name", "objective", "start_date", "end_date"]
-            for field in required_campaign_fields:
-                if field not in campaign:
-                    errors.append(f"Missing required campaign field: {field}")
+            errors.extend(self._validate_campaign_section(data["campaign"], schema_version))
 
         # Validate line items if present
         if "lineitems" in data:
-            lineitems = data["lineitems"]
-            if not isinstance(lineitems, list):
-                errors.append("lineitems must be a list")
-            else:
-                for i, lineitem in enumerate(lineitems):
-                    if not isinstance(lineitem, dict):
-                        errors.append(f"Line item {i} must be a dictionary")
-                        continue
-
-                    required_lineitem_fields = ["id", "name", "start_date", "end_date", "cost_total"]
-                    for field in required_lineitem_fields:
-                        if field not in lineitem:
-                            errors.append(f"Line item {i}: missing required field: {field}")
+            errors.extend(self._validate_lineitems_section(data["lineitems"], schema_version))
 
         return errors
+
+    def _validate_meta_section(self, meta: Dict[str, Any], schema_version: Optional[str] = None) -> List[str]:
+        """
+        Validate meta section with version-aware field requirements.
+
+        Args:
+            meta: Meta section data
+            schema_version: Schema version for validation context
+
+        Returns:
+            List of validation errors for meta section
+        """
+        errors = []
+
+        # Core fields required across all versions
+        core_required_fields = ["id", "schema_version"]
+
+        # Version-specific required fields
+        if schema_version and schema_version.startswith(('v2.', '2.')):
+            # v2.0 requires created_by_name instead of created_by
+            version_required_fields = ["created_by_name"]
+        else:
+            # v1.0 and fallback requires created_by
+            version_required_fields = ["created_by"]
+
+        all_required_fields = core_required_fields + version_required_fields
+
+        for field in all_required_fields:
+            if field not in meta:
+                errors.append(f"Missing required meta field: {field}")
+
+        return errors
+
+    def _validate_campaign_section(self, campaign: Dict[str, Any], schema_version: Optional[str] = None) -> List[str]:
+        """
+        Validate campaign section with version-aware field requirements.
+
+        Args:
+            campaign: Campaign section data
+            schema_version: Schema version for validation context
+
+        Returns:
+            List of validation errors for campaign section
+        """
+        errors = []
+
+        # Core fields required across all versions
+        required_campaign_fields = ["id", "name", "objective", "start_date", "end_date"]
+
+        for field in required_campaign_fields:
+            if field not in campaign:
+                errors.append(f"Missing required campaign field: {field}")
+
+        # Optional v2.0 specific validations could be added here
+        # but we avoid hard-coding them since they're optional
+
+        return errors
+
+    def _validate_lineitems_section(self, lineitems: Any, schema_version: Optional[str] = None) -> List[str]:
+        """
+        Validate lineitems section with version-aware field requirements.
+
+        Args:
+            lineitems: Lineitems section data
+            schema_version: Schema version for validation context
+
+        Returns:
+            List of validation errors for lineitems section
+        """
+        errors = []
+
+        if not isinstance(lineitems, list):
+            errors.append("lineitems must be a list")
+            return errors
+
+        # Core fields required across all versions
+        required_lineitem_fields = ["id", "name", "start_date", "end_date", "cost_total"]
+
+        for i, lineitem in enumerate(lineitems):
+            if not isinstance(lineitem, dict):
+                errors.append(f"Line item {i} must be a dictionary")
+                continue
+
+            for field in required_lineitem_fields:
+                if field not in lineitem:
+                    errors.append(f"Line item {i}: missing required field: {field}")
+
+        return errors
+
+    def validate_with_schema_registry(self, data: Dict[str, Any]) -> List[str]:
+        """
+        Validate using the schema registry if available.
+
+        This is the preferred validation method as it uses the actual
+        JSON schema definitions and is fully version-aware.
+
+        Args:
+            data: Media plan data to validate
+
+        Returns:
+            List of validation errors, empty if valid
+        """
+        try:
+            from mediaplanpy.schema import SchemaRegistry, SchemaValidator
+
+            # Get the schema version
+            schema_version = self.get_version_from_data(data)
+            if not schema_version:
+                return ["No schema version found in data"]
+
+            # Create validator with registry
+            registry = SchemaRegistry()
+            validator = SchemaValidator(registry=registry)
+
+            # Validate against the specific schema version
+            errors = validator.validate(data, schema_version)
+
+            return [str(error) for error in errors] if errors else []
+
+        except ImportError as e:
+            logger.debug(f"Schema registry not available: {e}")
+            return []  # Will fall back to basic validation
+        except Exception as e:
+            logger.warning(f"Schema registry validation failed: {e}")
+            return [f"Schema validation error: {str(e)}"]
 
     def get_version_from_data(self, data: Dict[str, Any]) -> Optional[str]:
         """

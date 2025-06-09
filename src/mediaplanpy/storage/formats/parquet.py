@@ -396,6 +396,53 @@ class ParquetFormatHandler(FormatHandler):
 
         return pa.schema(fields)
 
+    def _create_complete_dataframe(self, rows: List[Dict[str, Any]]) -> pd.DataFrame:
+        """
+        Create a complete DataFrame with all expected columns efficiently.
+
+        This method creates the DataFrame with all required columns upfront,
+        avoiding the performance issues of adding columns one by one.
+
+        Args:
+            rows: List of row dictionaries
+
+        Returns:
+            Complete DataFrame with all expected columns and proper types
+        """
+        # Get all expected columns
+        all_columns = self._get_all_columns()
+
+        # Add metadata columns that might not be in the column list
+        metadata_columns = ["is_placeholder", "export_timestamp", "sdk_version"]
+        for col in metadata_columns:
+            if col not in all_columns:
+                all_columns.append(col)
+
+        if not rows:
+            # Create empty DataFrame with all columns
+            df = pd.DataFrame(columns=all_columns)
+        else:
+            # Create DataFrame from rows
+            df = pd.DataFrame(rows)
+
+            # Find missing columns
+            missing_columns = [col for col in all_columns if col not in df.columns]
+
+            if missing_columns:
+                # Create a DataFrame with missing columns filled with None
+                missing_df = pd.DataFrame({col: [None] * len(df) for col in missing_columns})
+
+                # Concatenate efficiently - this is much faster than adding columns one by one
+                df = pd.concat([df, missing_df], axis=1)
+
+        # Reorder columns for consistency
+        df = df[all_columns]
+
+        # Apply data types efficiently
+        df = self._apply_data_types(df)
+
+        return df
+
     def _flatten_media_plan(self, data: Dict[str, Any]) -> pd.DataFrame:
         """
         Flatten hierarchical media plan to tabular format with version metadata.
@@ -420,9 +467,11 @@ class ParquetFormatHandler(FormatHandler):
         except ImportError:
             sdk_version = "unknown"
 
+        # Prepare rows
+        rows = []
+
         # If no line items, create a placeholder row with meta and campaign info only
         if not lineitems:
-            # Create a placeholder row
             row = {}
 
             # Add meta fields with prefix
@@ -438,75 +487,38 @@ class ParquetFormatHandler(FormatHandler):
             row["export_timestamp"] = export_timestamp
             row["sdk_version"] = sdk_version
 
-            # Create a DataFrame with the placeholder row
-            df = pd.DataFrame([row])
-
-            # Ensure all expected columns exist (fill missing with None)
-            all_columns = self._get_all_columns()
-            for col in all_columns:
-                if col not in df.columns:
-                    df[col] = None
-
-            # Reorder columns for consistency
-            columns = all_columns.copy()
-            for meta_col in ["is_placeholder", "export_timestamp", "sdk_version"]:
-                if meta_col not in columns:
-                    columns.append(meta_col)
-            df = df[columns]
-
-            # Apply explicit data types
-            df = self._apply_data_types(df)
-
-            return df
-
-        # Create rows with denormalized data for actual line items
-        rows = []
-        for lineitem in lineitems:
-            row = {}
-
-            # Add meta fields with prefix
-            for key, value in meta.items():
-                row[f"meta_{key}"] = self._convert_value(value)
-
-            # Add campaign fields with prefix
-            for key, value in campaign.items():
-                row[f"campaign_{key}"] = self._convert_value(value)
-
-            # Add lineitem fields with prefix
-            for key, value in lineitem.items():
-                row[f"lineitem_{key}"] = self._convert_value(value)
-
-            # Add export metadata
-            row["is_placeholder"] = False
-            row["export_timestamp"] = export_timestamp
-            row["sdk_version"] = sdk_version
-
             rows.append(row)
+        else:
+            # Create rows with denormalized data for actual line items
+            for lineitem in lineitems:
+                row = {}
 
-        df = pd.DataFrame(rows)
+                # Add meta fields with prefix
+                for key, value in meta.items():
+                    row[f"meta_{key}"] = self._convert_value(value)
 
-        # Ensure all expected columns exist (fill missing with None)
-        all_columns = self._get_all_columns()
-        for col in all_columns:
-            if col not in df.columns:
-                df[col] = None
+                # Add campaign fields with prefix
+                for key, value in campaign.items():
+                    row[f"campaign_{key}"] = self._convert_value(value)
 
-        # Reorder columns for consistency
-        columns = all_columns.copy()
-        for meta_col in ["is_placeholder", "export_timestamp", "sdk_version"]:
-            if meta_col not in columns:
-                columns.append(meta_col)
-        df = df[columns]
+                # Add lineitem fields with prefix
+                for key, value in lineitem.items():
+                    row[f"lineitem_{key}"] = self._convert_value(value)
 
-        # Apply explicit data types
-        df = self._apply_data_types(df)
+                # Add export metadata
+                row["is_placeholder"] = False
+                row["export_timestamp"] = export_timestamp
+                row["sdk_version"] = sdk_version
 
-        return df
+                rows.append(row)
+
+        # Create complete DataFrame efficiently
+        return self._create_complete_dataframe(rows)
 
     def _apply_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply explicit data types to DataFrame columns with enhanced version handling.
-        Updated for v2.0 field support.
+        Updated for v2.0 field support and optimized for pandas future compatibility.
 
         Args:
             df: The DataFrame to type.
@@ -514,6 +526,9 @@ class ParquetFormatHandler(FormatHandler):
         Returns:
             DataFrame with proper types.
         """
+        # Make a copy to avoid SettingWithCopyWarning
+        df = df.copy()
+
         # String columns (convert None to empty string)
         string_columns = [
             col for col in df.columns
@@ -526,7 +541,8 @@ class ParquetFormatHandler(FormatHandler):
         ]
 
         for col in string_columns:
-            df[col] = df[col].fillna('').astype(str)
+            if col in df.columns:
+                df[col] = df[col].fillna('').astype(str)
 
         # Ensure schema version is properly formatted
         if 'meta_schema_version' in df.columns:
@@ -574,10 +590,12 @@ class ParquetFormatHandler(FormatHandler):
                 df[col] = pd.to_datetime(df[col], errors='coerce')
 
         # Boolean columns - existing and NEW v2.0 fields
+        # Explicit boolean conversion to avoid FutureWarning about downcasting
         boolean_columns = ['is_placeholder', 'meta_is_current', 'meta_is_archived']
         for col in boolean_columns:
             if col in df.columns:
-                df[col] = df[col].fillna(False).astype(bool)
+                # Simple approach: replace NaN with False first, then convert to bool
+                df[col] = df[col].where(df[col].notna(), False).astype(bool)
 
         # SDK version should be string (unchanged from v1.0)
         if 'sdk_version' in df.columns:

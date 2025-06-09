@@ -71,9 +71,8 @@
         },
         "caption": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 100,
-          "description": "Display caption for this custom field (required when status is enabled)"
+          "description": "Display caption for this custom field (required when status is enabled, optional when disabled)"
         }
       },
       "if": {
@@ -82,7 +81,24 @@
         }
       },
       "then": {
-        "required": ["caption"]
+        "required": ["caption"],
+        "properties": {
+          "caption": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Display caption for this custom field (must be non-empty when enabled)"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "caption": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "Display caption for this custom field (optional when disabled, can be empty)"
+          }
+        }
       },
       "additionalProperties": false
     }

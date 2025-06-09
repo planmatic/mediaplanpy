@@ -383,20 +383,20 @@ class SchemaValidator:
             return warnings
 
         # Get all enabled custom fields from dictionary
-        enabled_fields = self._get_enabled_custom_fields(dictionary)
+        # enabled_fields = self._get_enabled_custom_fields(dictionary)
 
         # Get all custom fields that have data in line items
-        fields_with_data = self._get_custom_fields_with_data(lineitems)
+        # fields_with_data = self._get_custom_fields_with_data(lineitems)
 
         # Check for enabled fields with no data (potential configuration issue)
-        unused_enabled_fields = enabled_fields - fields_with_data
-        for field in unused_enabled_fields:
-            warnings.append(f"Warning: Custom field '{field}' is enabled in dictionary but has no data in any line items")
+        # unused_enabled_fields = enabled_fields - fields_with_data
+        # for field in unused_enabled_fields:
+        #     warnings.append(f"Warning: Custom field '{field}' is enabled in dictionary but has no data in any line items")
 
         # Check for fields with data that aren't enabled (potential missing configuration)
-        unenabled_fields_with_data = fields_with_data - enabled_fields
-        for field in unenabled_fields_with_data:
-            warnings.append(f"Warning: Custom field '{field}' has data in line items but is not enabled in dictionary")
+        # unenabled_fields_with_data = fields_with_data - enabled_fields
+        # for field in unenabled_fields_with_data:
+        #     warnings.append(f"Warning: Custom field '{field}' has data in line items but is not enabled in dictionary")
 
         return warnings
 
@@ -536,16 +536,16 @@ class SchemaValidator:
         errors = []
 
         # Validate application funnel consistency (new v2.0 metrics)
-        app_start = lineitem.get("metric_application_start")
-        app_complete = lineitem.get("metric_application_complete")
-
-        if (app_start is not None and app_complete is not None and
-            app_complete > app_start):
-            errors.append(
-                f"Line item {lineitem_index} ({lineitem.get('id', 'unnamed')}): "
-                f"metric_application_complete ({app_complete}) cannot be greater than "
-                f"metric_application_start ({app_start})"
-            )
+        # app_start = lineitem.get("metric_application_start")
+        # app_complete = lineitem.get("metric_application_complete")
+        #
+        # if (app_start is not None and app_complete is not None and
+        #     app_complete > app_start):
+        #     errors.append(
+        #         f"Line item {lineitem_index} ({lineitem.get('id', 'unnamed')}): "
+        #         f"metric_application_complete ({app_complete}) cannot be greater than "
+        #         f"metric_application_start ({app_start})"
+        #     )
 
         # Validate currency consistency
         budget_currency = lineitem.get("cost_currency")
