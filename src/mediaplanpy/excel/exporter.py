@@ -1,7 +1,8 @@
 """
-Excel exporter for mediaplanpy.
+Excel exporter for mediaplanpy - Updated for v2.0 Schema Support Only.
 
-This module provides functionality for exporting media plans to Excel format.
+This module provides functionality for exporting media plans to Excel format,
+supporting only v2.0 schema with all new fields and dictionary configuration.
 """
 
 import os
@@ -29,8 +30,21 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
                     workspace_manager: Optional[WorkspaceManager] = None,
                     **kwargs) -> str:
     """
-    Export a media plan to Excel format.
-    [existing docstring...]
+    Export a media plan to Excel format using v2.0 schema.
+
+    Args:
+        media_plan: The media plan data to export (must be v2.0 schema)
+        path: Optional path for the output file
+        template_path: Optional path to an Excel template file
+        include_documentation: Whether to include a documentation sheet
+        workspace_manager: Optional WorkspaceManager for workspace storage
+        **kwargs: Additional export options
+
+    Returns:
+        The path to the exported Excel file
+
+    Raises:
+        StorageError: If export fails or schema version is not v2.0
     """
     try:
         # Determine the path if not provided
@@ -39,26 +53,24 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"{media_plan_id}_{timestamp}.xlsx"
 
-        # Get the schema version - UPDATE: use current schema version format
-        schema_version = media_plan.get("meta", {}).get("schema_version", "1.0")
+        # Validate schema version - only v2.0 supported
+        schema_version = media_plan.get("meta", {}).get("schema_version", "unknown")
+        if not _is_v2_schema_version(schema_version):
+            raise StorageError(f"Excel export only supports v2.0 schema. Found: {schema_version}")
 
-        # Validate schema version compatibility - UPDATE: only support current version
-        if not _is_current_schema_version(schema_version):
-            raise StorageError(f"Excel export only supports current schema version 1.0. Found: {schema_version}")
-
-        # Create workbook - UPDATE: simplified, no template branching needed
+        # Create workbook
         if template_path and os.path.exists(template_path):
             workbook = openpyxl.load_workbook(template_path)
         else:
-            workbook = _create_default_workbook()
+            workbook = _create_v2_workbook()
 
-        # Populate the workbook - UPDATE: simplified, only v1.0 logic
-        _populate_v1_workbook(workbook, media_plan, include_documentation)
+        # Populate the workbook with v2.0 data
+        _populate_v2_workbook(workbook, media_plan, include_documentation)
 
         # Add validation and formatting
-        _add_validation_and_formatting(workbook)
+        _add_v2_validation_and_formatting(workbook)
 
-        # Save the workbook to the storage or local path
+        # Save the workbook
         if workspace_manager is not None:
             # Make sure workspace is loaded
             if not workspace_manager.is_loaded:
@@ -95,27 +107,30 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
         raise StorageError(f"Failed to export media plan to Excel: {e}")
 
 
-def _is_current_schema_version(version: str) -> bool:
+def _is_v2_schema_version(version: str) -> bool:
     """
-    Check if the schema version is the current supported version.
+    Check if the schema version is v2.0.
 
     Args:
-        version: The schema version to check.
+        version: The schema version to check
 
     Returns:
-        True if the version is current and supported.
+        True if the version is v2.0, False otherwise
     """
-    # Normalize version format (handle both "1.0" and "v1.0" for compatibility)
+    if not version:
+        return False
+
+    # Normalize version format (handle both "2.0" and "v2.0")
     normalized = version.replace("v", "") if version.startswith("v") else version
-    return normalized == "1.0"
+    return normalized == "2.0"
 
 
-def _create_default_workbook() -> Workbook:
+def _create_v2_workbook() -> Workbook:
     """
-    Create a default workbook with necessary sheets.
+    Create a default workbook with v2.0 schema sheets.
 
     Returns:
-        A new Workbook with standard sheets.
+        A new Workbook with v2.0 schema sheets
     """
     workbook = Workbook()
 
@@ -123,23 +138,24 @@ def _create_default_workbook() -> Workbook:
     metadata_sheet = workbook.active
     metadata_sheet.title = "Metadata"
 
-    # Create other required sheets
+    # Create other required sheets for v2.0
     campaign_sheet = workbook.create_sheet("Campaign")
     lineitems_sheet = workbook.create_sheet("Line Items")
+    dictionary_sheet = workbook.create_sheet("Dictionary")  # NEW for v2.0
     documentation_sheet = workbook.create_sheet("Documentation")
 
-    # Create basic styles
-    _create_default_styles(workbook)
+    # Create v2.0 styles
+    _create_v2_styles(workbook)
 
     return workbook
 
 
-def _create_default_styles(workbook: Workbook) -> None:
+def _create_v2_styles(workbook: Workbook) -> None:
     """
-    Create default named styles for the workbook.
+    Create styles for v2.0 Excel export.
 
     Args:
-        workbook: The workbook to add styles to.
+        workbook: The workbook to add styles to
     """
     # Header style
     header_style = NamedStyle(name="header_style")
@@ -168,14 +184,48 @@ def _create_default_styles(workbook: Workbook) -> None:
     date_style.alignment = Alignment(horizontal="center", vertical="center")
     workbook.add_named_style(date_style)
 
+    # Dictionary header style (for custom fields configuration)
+    dict_header_style = NamedStyle(name="dict_header_style")
+    dict_header_style.font = Font(bold=True, size=11, color="FFFFFF")
+    dict_header_style.fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
+    dict_header_style.alignment = Alignment(horizontal="center", vertical="center")
+    workbook.add_named_style(dict_header_style)
 
-def _populate_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
+
+def _populate_v2_workbook(workbook: Workbook, media_plan: Dict[str, Any], include_documentation: bool) -> None:
     """
-    Populate the metadata sheet with information about the media plan.
+    Populate a workbook with v2.0 schema data.
 
     Args:
-        sheet: The worksheet to populate.
-        media_plan: The media plan data.
+        workbook: The workbook to populate
+        media_plan: The media plan data (v2.0 schema)
+        include_documentation: Whether to include a documentation sheet
+    """
+    meta = media_plan.get("meta", {})
+    campaign = media_plan.get("campaign", {})
+    line_items = media_plan.get("lineitems", [])
+    dictionary = media_plan.get("dictionary", {})  # NEW for v2.0
+
+    # Populate all sheets
+    _populate_v2_metadata_sheet(workbook["Metadata"], media_plan)
+    _populate_v2_campaign_sheet(workbook["Campaign"], campaign)
+    _populate_v2_lineitems_sheet(workbook["Line Items"], line_items)
+    _populate_v2_dictionary_sheet(workbook["Dictionary"], dictionary)  # NEW for v2.0
+
+    # Populate documentation sheet if needed
+    if include_documentation:
+        _populate_v2_documentation_sheet(workbook["Documentation"])
+    elif "Documentation" in workbook.sheetnames:
+        workbook.remove(workbook["Documentation"])
+
+
+def _populate_v2_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
+    """
+    Populate the metadata sheet with v2.0 schema information.
+
+    Args:
+        sheet: The worksheet to populate
+        media_plan: The media plan data
     """
     meta = media_plan.get("meta", {})
 
@@ -184,14 +234,14 @@ def _populate_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
     sheet.column_dimensions["B"].width = 50
 
     # Add title
-    sheet['A1'] = "Media Plan Metadata"
+    sheet['A1'] = "Media Plan Metadata (v2.0)"
     sheet['A1'].style = "header_style"
     sheet.merge_cells('A1:B1')
 
-    # Add metadata fields
+    # Add v2.0 metadata fields
     row = 2
     sheet[f'A{row}'] = "Schema Version:"
-    sheet[f'B{row}'] = "1.0"  # UPDATE: Always use current version
+    sheet[f'B{row}'] = "2.0"
 
     row += 1
     sheet[f'A{row}'] = "Media Plan ID:"
@@ -201,13 +251,32 @@ def _populate_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
     sheet[f'A{row}'] = "Media Plan Name:"
     sheet[f'B{row}'] = meta.get("name", "")
 
+    # v2.0: created_by_name is required
     row += 1
-    sheet[f'A{row}'] = "Created By:"
-    sheet[f'B{row}'] = meta.get("created_by", "")
+    sheet[f'A{row}'] = "Created By Name:"
+    sheet[f'B{row}'] = meta.get("created_by_name", "")
+
+    # v2.0: created_by_id is optional
+    row += 1
+    sheet[f'A{row}'] = "Created By ID:"
+    sheet[f'B{row}'] = meta.get("created_by_id", "")
 
     row += 1
     sheet[f'A{row}'] = "Created At:"
     sheet[f'B{row}'] = meta.get("created_at", "")
+
+    # v2.0: New status fields
+    row += 1
+    sheet[f'A{row}'] = "Is Current:"
+    sheet[f'B{row}'] = meta.get("is_current", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Is Archived:"
+    sheet[f'B{row}'] = meta.get("is_archived", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Parent ID:"
+    sheet[f'B{row}'] = meta.get("parent_id", "")
 
     row += 1
     sheet[f'A{row}'] = "Export Date:"
@@ -219,24 +288,24 @@ def _populate_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
         sheet[f'B{row}'] = meta.get("comments", "")
 
 
-def _populate_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
+def _populate_v2_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     """
-    Populate the campaign sheet with campaign information.
+    Populate the campaign sheet with v2.0 schema information.
 
     Args:
-        sheet: The worksheet to populate.
-        campaign: The campaign data.
+        sheet: The worksheet to populate
+        campaign: The campaign data
     """
     # Set column widths
     sheet.column_dimensions["A"].width = 25
     sheet.column_dimensions["B"].width = 50
 
     # Add title
-    sheet['A1'] = "Campaign Information"
+    sheet['A1'] = "Campaign Information (v2.0)"
     sheet['A1'].style = "header_style"
     sheet.merge_cells('A1:B1')
 
-    # Add campaign fields (v1.0 format only)
+    # Add campaign fields (existing + new v2.0 fields)
     row = 2
     sheet[f'A{row}'] = "Campaign ID:"
     sheet[f'B{row}'] = campaign.get("id", "")
@@ -259,13 +328,66 @@ def _populate_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     sheet[f'B{row}'] = campaign.get("end_date", "")
     sheet[f'B{row}'].style = "date_style"
 
-    # UPDATE: Use v1.0 budget structure only
     row += 1
     sheet[f'A{row}'] = "Budget Total:"
     sheet[f'B{row}'] = campaign.get("budget_total", 0)
     sheet[f'B{row}'].style = "currency_style"
 
-    # UPDATE: Use v1.0 structured audience fields only
+    # NEW v2.0: Budget currency
+    row += 1
+    sheet[f'A{row}'] = "Budget Currency:"
+    sheet[f'B{row}'] = campaign.get("budget_currency", "")
+
+    # NEW v2.0: Agency fields
+    row += 1
+    sheet[f'A{row}'] = "Agency ID:"
+    sheet[f'B{row}'] = campaign.get("agency_id", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Agency Name:"
+    sheet[f'B{row}'] = campaign.get("agency_name", "")
+
+    # NEW v2.0: Advertiser fields
+    row += 1
+    sheet[f'A{row}'] = "Advertiser ID:"
+    sheet[f'B{row}'] = campaign.get("advertiser_id", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Advertiser Name:"
+    sheet[f'B{row}'] = campaign.get("advertiser_name", "")
+
+    # Product fields (existing + new v2.0 product_id)
+    row += 1
+    sheet[f'A{row}'] = "Product ID:"
+    sheet[f'B{row}'] = campaign.get("product_id", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Product Name:"
+    sheet[f'B{row}'] = campaign.get("product_name", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Product Description:"
+    sheet[f'B{row}'] = campaign.get("product_description", "")
+
+    # NEW v2.0: Campaign type fields
+    row += 1
+    sheet[f'A{row}'] = "Campaign Type ID:"
+    sheet[f'B{row}'] = campaign.get("campaign_type_id", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Campaign Type Name:"
+    sheet[f'B{row}'] = campaign.get("campaign_type_name", "")
+
+    # NEW v2.0: Workflow status fields
+    row += 1
+    sheet[f'A{row}'] = "Workflow Status ID:"
+    sheet[f'B{row}'] = campaign.get("workflow_status_id", "")
+
+    row += 1
+    sheet[f'A{row}'] = "Workflow Status Name:"
+    sheet[f'B{row}'] = campaign.get("workflow_status_name", "")
+
+    # Existing audience fields
     row += 1
     sheet[f'A{row}'] = "Audience Name:"
     sheet[f'B{row}'] = campaign.get("audience_name", "")
@@ -297,17 +419,15 @@ def _populate_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     sheet[f'B{row}'] = ", ".join(locations) if locations else ""
 
 
-def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
+def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
     """
-    Populate the line items sheet with line item data.
+    Populate the line items sheet with v2.0 schema data.
 
     Args:
-        sheet: The worksheet to populate.
-        line_items: List of line item data.
+        sheet: The worksheet to populate
+        line_items: List of line item data
     """
-    # UPDATE: Remove v0.0.0 logic, only use v1.0 implementation
-
-    # Define field order and header mapping based on v1.0 schema
+    # Define field order for v2.0 schema (with all new fields)
     field_order = [
         # Required fields
         ("id", "ID"),
@@ -338,37 +458,64 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
         # KPI fields
         ("kpi", "KPI"),
         ("kpi_custom", "KPI Custom"),
+
+        # NEW v2.0: Dayparts and inventory fields
+        ("dayparts", "Dayparts"),
+        ("dayparts_custom", "Dayparts Custom"),
+        ("inventory", "Inventory"),
+        ("inventory_custom", "Inventory Custom"),
     ]
 
     # Add custom dimension fields
     for i in range(1, 11):
         field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
 
-    # Add cost breakdown fields
-    field_order.extend([
+    # Cost fields (including new v2.0 cost_currency)
+    cost_fields = [
+        ("cost_currency", "Cost Currency"),  # NEW v2.0
         ("cost_media", "Cost Media"),
         ("cost_buying", "Cost Buying"),
         ("cost_platform", "Cost Platform"),
         ("cost_data", "Cost Data"),
         ("cost_creative", "Cost Creative"),
-    ])
+    ]
+    field_order.extend(cost_fields)
 
     # Add custom cost fields
     for i in range(1, 11):
         field_order.append((f"cost_custom{i}", f"Cost Custom {i}"))
 
-    # Add metric fields
-    field_order.extend([
+    # Metric fields - existing 3 + NEW 17 v2.0 standard metrics in schema order
+    metric_fields = [
+        # Existing 3 metrics
         ("metric_impressions", "Impressions"),
         ("metric_clicks", "Clicks"),
         ("metric_views", "Views"),
-    ])
+
+        # NEW v2.0: 17 new standard metrics in schema order
+        ("metric_engagements", "Engagements"),
+        ("metric_followers", "Followers"),
+        ("metric_visits", "Visits"),
+        ("metric_leads", "Leads"),
+        ("metric_sales", "Sales"),
+        ("metric_add_to_cart", "Add to Cart"),
+        ("metric_app_install", "App Install"),
+        ("metric_application_start", "Application Start"),
+        ("metric_application_complete", "Application Complete"),
+        ("metric_contact_us", "Contact Us"),
+        ("metric_download", "Download"),
+        ("metric_signup", "Signup"),
+        ("metric_max_daily_spend", "Max Daily Spend"),
+        ("metric_max_daily_impressions", "Max Daily Impressions"),
+        ("metric_audience_size", "Audience Size"),
+    ]
+    field_order.extend(metric_fields)
 
     # Add custom metric fields
     for i in range(1, 11):
         field_order.append((f"metric_custom{i}", f"Metric Custom {i}"))
 
-    # Determine which fields are actually present in any line item
+    # Determine which fields are actually present in line items
     fields_present = set()
     for line_item in line_items:
         fields_present.update(line_item.keys())
@@ -383,7 +530,6 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
     # Set column widths
     for col_idx in range(1, len(active_fields) + 1):
         width = 15
-        # Wider columns for certain fields
         field_name = active_fields[col_idx - 1][0]
         if field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
             width = 25
@@ -420,12 +566,99 @@ def _populate_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
                 sheet.cell(row=row_idx, column=col_idx, value=value)
 
 
-def _populate_documentation_sheet(sheet) -> None:
+def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     """
-    Populate the documentation sheet with helpful information.
+    Populate the dictionary configuration sheet (NEW for v2.0).
 
     Args:
-        sheet: The worksheet to populate.
+        sheet: The worksheet to populate
+        dictionary: The dictionary configuration data
+    """
+    # Set column widths
+    sheet.column_dimensions["A"].width = 20
+    sheet.column_dimensions["B"].width = 15
+    sheet.column_dimensions["C"].width = 40
+    sheet.column_dimensions["D"].width = 15
+
+    # Add title
+    sheet['A1'] = "Custom Fields Configuration (v2.0)"
+    sheet['A1'].style = "header_style"
+    sheet.merge_cells('A1:D1')
+
+    # Add headers
+    row = 2
+    sheet[f'A{row}'] = "Field Name"
+    sheet[f'B{row}'] = "Field Type"
+    sheet[f'C{row}'] = "Caption"
+    sheet[f'D{row}'] = "Status"
+
+    for col in ['A', 'B', 'C', 'D']:
+        sheet[f'{col}{row}'].style = "dict_header_style"
+
+    # Add all possible custom fields with their current configuration
+    row = 3
+
+    # Custom dimensions
+    custom_dimensions = dictionary.get("custom_dimensions", {})
+    for i in range(1, 11):
+        field_name = f"dim_custom{i}"
+        config = custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "Dimension"
+        sheet[f'C{row}'] = config.get("caption", "")
+        sheet[f'D{row}'] = config.get("status", "disabled")
+        row += 1
+
+    # Custom metrics
+    custom_metrics = dictionary.get("custom_metrics", {})
+    for i in range(1, 11):
+        field_name = f"metric_custom{i}"
+        config = custom_metrics.get(field_name, {"status": "disabled", "caption": ""})
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "Metric"
+        sheet[f'C{row}'] = config.get("caption", "")
+        sheet[f'D{row}'] = config.get("status", "disabled")
+        row += 1
+
+    # Custom costs
+    custom_costs = dictionary.get("custom_costs", {})
+    for i in range(1, 11):
+        field_name = f"cost_custom{i}"
+        config = custom_costs.get(field_name, {"status": "disabled", "caption": ""})
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "Cost"
+        sheet[f'C{row}'] = config.get("caption", "")
+        sheet[f'D{row}'] = config.get("status", "disabled")
+        row += 1
+
+    # Add instructions
+    row += 2
+    sheet[f'A{row}'] = "Instructions:"
+    sheet[f'A{row}'].font = Font(bold=True)
+    sheet.merge_cells(f'A{row}:D{row}')
+
+    row += 1
+    sheet[f'A{row}'] = "- Set Status to 'enabled' or 'disabled'"
+    sheet.merge_cells(f'A{row}:D{row}')
+
+    row += 1
+    sheet[f'A{row}'] = "- Caption is required when Status is 'enabled'"
+    sheet.merge_cells(f'A{row}:D{row}')
+
+    row += 1
+    sheet[f'A{row}'] = "- Caption should describe what the custom field represents"
+    sheet.merge_cells(f'A{row}:D{row}')
+
+
+def _populate_v2_documentation_sheet(sheet) -> None:
+    """
+    Populate the documentation sheet with v2.0 schema information.
+
+    Args:
+        sheet: The worksheet to populate
     """
     # Set column widths
     sheet.column_dimensions["A"].width = 25
@@ -434,14 +667,14 @@ def _populate_documentation_sheet(sheet) -> None:
     sheet.column_dimensions["D"].width = 15
 
     # Add title
-    sheet['A1'] = "Media Plan Excel Documentation"
+    sheet['A1'] = "Media Plan Excel Documentation (v2.0)"
     sheet['A1'].style = "header_style"
     sheet.merge_cells('A1:D1')
 
     # Add documentation content
     row = 2
     sheet[f'A{row}'] = "Schema Version:"
-    sheet[f'B{row}'] = "1.0"  # UPDATE: Use current version
+    sheet[f'B{row}'] = "2.0"
 
     row += 1
     sheet[f'A{row}'] = "Export Date:"
@@ -449,7 +682,7 @@ def _populate_documentation_sheet(sheet) -> None:
 
     row += 2
     sheet[f'A{row}'] = "Instructions:"
-    sheet[f'B{row}'] = "This Excel file contains a media plan following the Media Plan Open Data Standard v1.0."
+    sheet[f'B{row}'] = "This Excel file contains a media plan following the Media Plan Open Data Standard v2.0."
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
@@ -469,9 +702,13 @@ def _populate_documentation_sheet(sheet) -> None:
     sheet[f'B{row}'] = "Line Items: Contains all line items in the campaign."
     sheet.merge_cells(f'B{row}:D{row}')
 
-    # UPDATE: Only include v1.0 field documentation (remove v0.0.0 check)
+    row += 1
+    sheet[f'B{row}'] = "Dictionary: Configuration for custom fields (NEW in v2.0)."
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    # v2.0 field documentation
     row += 2
-    sheet[f'A{row}'] = "Line Items Column Reference"
+    sheet[f'A{row}'] = "v2.0 New Features"
     sheet[f'A{row}'].font = Font(bold=True, size=12)
     sheet.merge_cells(f'A{row}:D{row}')
 
@@ -483,71 +720,47 @@ def _populate_documentation_sheet(sheet) -> None:
     for col in ['A', 'B', 'C', 'D']:
         sheet[f'{col}{row}'].style = "header_style"
 
-    # Define all fields with their properties (v1.0 only)
-    fields_documentation = [
-        # Required fields
-        ("ID", "Text", "Unique identifier for the line item", "Yes"),
-        ("Name", "Text", "Descriptive name for the line item", "Yes"),
-        ("Start Date", "Date", "Start date of the line item (YYYY-MM-DD)", "Yes"),
-        ("End Date", "Date", "End date of the line item (YYYY-MM-DD)", "Yes"),
-        ("Cost Total", "Currency", "Total cost for the line item", "Yes"),
+    # Define v2.0 new fields documentation
+    v2_fields_documentation = [
+        # Campaign new fields
+        ("Budget Currency", "Text", "Currency code for campaign budget (e.g., USD, EUR)", "No"),
+        ("Agency ID", "Text", "Unique identifier for the agency", "No"),
+        ("Agency Name", "Text", "Name of the agency managing the campaign", "No"),
+        ("Advertiser ID", "Text", "Unique identifier for the advertiser/client", "No"),
+        ("Advertiser Name", "Text", "Name of the advertiser/client organization", "No"),
+        ("Product ID", "Text", "Unique identifier for the product being advertised", "No"),
+        ("Campaign Type ID", "Text", "Unique identifier for campaign type classification", "No"),
+        ("Campaign Type Name", "Text", "Campaign type (e.g., Brand Awareness, Performance)", "No"),
+        ("Workflow Status ID", "Text", "Unique identifier for workflow status", "No"),
+        ("Workflow Status Name", "Text", "Workflow status (e.g., Draft, Approved, Live)", "No"),
 
-        # Channel-related fields
-        ("Channel", "Text", "Primary channel category (e.g., Social, Search, Display, Video, Audio, TV, OOH, Print)", "No"),
-        ("Channel Custom", "Text", "Custom channel label if standard category doesn't apply", "No"),
-        ("Vehicle", "Text", "Vehicle or platform where ads will run (e.g., Facebook, Google, YouTube)", "No"),
-        ("Vehicle Custom", "Text", "Custom vehicle label if standard name doesn't apply", "No"),
-        ("Partner", "Text", "Partner or publisher (e.g., Meta, Google, Amazon)", "No"),
-        ("Partner Custom", "Text", "Custom partner name if standard name doesn't apply", "No"),
-        ("Media Product", "Text", "Media product offering (e.g., Feed Ads, Search Ads, Pre-roll)", "No"),
-        ("Media Product Custom", "Text", "Custom media product if standard name doesn't apply", "No"),
+        # Line item new fields
+        ("Cost Currency", "Text", "Currency code for line item costs", "No"),
+        ("Dayparts", "Text", "Time periods for ad delivery (e.g., Primetime, Morning)", "No"),
+        ("Dayparts Custom", "Text", "Custom daypart specification", "No"),
+        ("Inventory", "Text", "Type of inventory (e.g., Premium, Remnant)", "No"),
+        ("Inventory Custom", "Text", "Custom inventory specification", "No"),
 
-        # Location fields
-        ("Location Type", "Text", "Type of location targeting (Country or State)", "No"),
-        ("Location Name", "Text", "Name of targeted location (e.g., US, NY, UK)", "No"),
-
-        # Audience and format fields
-        ("Target Audience", "Text", "Description of target audience", "No"),
-        ("Ad Format", "Text", "Format of the advertisement (e.g., Banner, Video, Audio, Text)", "No"),
-        ("Ad Format Custom", "Text", "Custom ad format if standard format doesn't apply", "No"),
-
-        # KPI fields
-        ("KPI", "Text", "Key Performance Indicator (e.g., CPM, CPC, CPA, CTR, CPV, CPL, ROAS)", "No"),
-        ("KPI Custom", "Text", "Custom KPI if standard KPI doesn't apply", "No"),
-
-        # Cost breakdown fields
-        ("Cost Media", "Currency", "Cost of media placement", "No"),
-        ("Cost Buying", "Currency", "Cost of buying or trading desk fees", "No"),
-        ("Cost Platform", "Currency", "Cost of platform or tech fees", "No"),
-        ("Cost Data", "Currency", "Cost of data", "No"),
-        ("Cost Creative", "Currency", "Cost of creative production", "No"),
-
-        # Metric fields
-        ("Impressions", "Number", "Number of impressions", "No"),
-        ("Clicks", "Number", "Number of clicks", "No"),
-        ("Views", "Number", "Number of views (for video)", "No"),
+        # New standard metrics (17 new ones)
+        ("Engagements", "Number", "User engagements (likes, shares, comments)", "No"),
+        ("Followers", "Number", "New followers gained", "No"),
+        ("Visits", "Number", "Website visits or page visits", "No"),
+        ("Leads", "Number", "Leads generated", "No"),
+        ("Sales", "Number", "Sales or purchases", "No"),
+        ("Add to Cart", "Number", "Add-to-cart actions", "No"),
+        ("App Install", "Number", "App installations", "No"),
+        ("Application Start", "Number", "Application forms started", "No"),
+        ("Application Complete", "Number", "Application forms completed", "No"),
+        ("Contact Us", "Number", "Contact form submissions", "No"),
+        ("Download", "Number", "Downloads (files, apps, content)", "No"),
+        ("Signup", "Number", "Signups or registrations", "No"),
+        ("Max Daily Spend", "Number", "Maximum daily spend limit", "No"),
+        ("Max Daily Impressions", "Number", "Maximum daily impressions limit", "No"),
+        ("Audience Size", "Number", "Size of targetable audience", "No"),
     ]
 
-    # Add custom dimension fields
-    for i in range(1, 11):
-        fields_documentation.append(
-            (f"Dim Custom {i}", "Text", f"Custom dimension field {i} for additional categorization", "No")
-        )
-
-    # Add custom cost fields
-    for i in range(1, 11):
-        fields_documentation.append(
-            (f"Cost Custom {i}", "Currency", f"Custom cost field {i} for additional cost tracking", "No")
-        )
-
-    # Add custom metric fields
-    for i in range(1, 11):
-        fields_documentation.append(
-            (f"Metric Custom {i}", "Number", f"Custom metric field {i} for additional performance tracking", "No")
-        )
-
     # Populate the field documentation
-    for field_name, data_type, description, required in fields_documentation:
+    for field_name, data_type, description, required in v2_fields_documentation:
         row += 1
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = data_type
@@ -559,47 +772,18 @@ def _populate_documentation_sheet(sheet) -> None:
             for col in ['A', 'B', 'C', 'D']:
                 sheet[f'{col}{row}'].fill = PatternFill(start_color="F5F5F5", end_color="F5F5F5", fill_type="solid")
 
-    # Add validation information
+    # Add additional v2.0 information
     row += 2
-    sheet[f'A{row}'] = "Data Validation:"
-    sheet[f'B{row}'] = "Some fields have data validation to ensure consistent data entry."
+    sheet[f'A{row}'] = "Dictionary Configuration:"
+    sheet[f'B{row}'] = "v2.0 introduces custom field configuration via the Dictionary sheet."
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
-    sheet[f'B{row}'] = "- Channel: Dropdown list of standard channels"
+    sheet[f'B{row}'] = "- Configure which custom fields are enabled/disabled"
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
-    sheet[f'B{row}'] = "- KPI: Dropdown list of standard KPIs"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Location Type: Country or State"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Date fields: Must be in YYYY-MM-DD format"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 2
-    sheet[f'A{row}'] = "Custom Fields:"
-    sheet[f'B{row}'] = "Custom fields allow for extensibility while maintaining standard structure."
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Use 'Custom' fields when standard options don't fit your needs"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Dim Custom fields: For additional categorization dimensions"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Cost Custom fields: For tracking additional cost types"
-    sheet.merge_cells(f'B{row}:D{row}')
-
-    row += 1
-    sheet[f'B{row}'] = "- Metric Custom fields: For tracking additional performance metrics"
+    sheet[f'B{row}'] = "- Add captions to describe what each custom field represents"
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 2
@@ -607,68 +791,61 @@ def _populate_documentation_sheet(sheet) -> None:
     sheet[f'B{row}'] = "For more information, see: https://github.com/laurent-colard-l5i/mediaplanschema"
     sheet.merge_cells(f'B{row}:D{row}')
 
-def _add_validation_and_formatting(workbook: Workbook) -> None:
+
+def _add_v2_validation_and_formatting(workbook: Workbook) -> None:
     """
-    Add data validation and formatting to the workbook.
+    Add data validation and formatting for v2.0 Excel export.
 
     Args:
-        workbook: The workbook to add validation to.
+        workbook: The workbook to add validation to
     """
-    # UPDATE: Remove v0.0.0 logic, only use v1.0 validation
     line_items_sheet = workbook["Line Items"]
+    dictionary_sheet = workbook["Dictionary"]
 
-    # Channel validation
+    # Channel validation (existing)
     channel_validation = DataValidation(
         type="list",
         formula1='"social,search,display,video,audio,tv,ooh,print,other"',
         allow_blank=True
     )
     line_items_sheet.add_data_validation(channel_validation)
-    channel_validation.add(f'C2:C1000')  # Channel column
+    # Find channel column dynamically
+    for col in range(1, line_items_sheet.max_column + 1):
+        if line_items_sheet.cell(1, col).value == "Channel":
+            channel_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+            break
 
-    # KPI validation
+    # KPI validation (existing)
     kpi_validation = DataValidation(
         type="list",
         formula1='"CPM,CPC,CPA,CTR,CPV,CPI,ROAS,other"',
         allow_blank=True
     )
     line_items_sheet.add_data_validation(kpi_validation)
-    kpi_validation.add(f'J2:J1000')  # KPI column
+    # Find KPI column dynamically
+    for col in range(1, line_items_sheet.max_column + 1):
+        if line_items_sheet.cell(1, col).value == "KPI":
+            kpi_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+            break
 
-    # Location type validation
+    # Location type validation (existing)
     location_validation = DataValidation(
         type="list",
         formula1='"Country,State"',
         allow_blank=True
     )
     line_items_sheet.add_data_validation(location_validation)
-    location_validation.add(f'K2:K1000')  # Location type column
+    # Find Location Type column dynamically
+    for col in range(1, line_items_sheet.max_column + 1):
+        if line_items_sheet.cell(1, col).value == "Location Type":
+            location_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+            break
 
-
-def _populate_v1_workbook(workbook: Workbook, media_plan: Dict[str, Any], include_documentation: bool) -> None:
-    """
-    Populate a workbook based on v1.0 schema.
-
-    Args:
-        workbook: The workbook to populate.
-        media_plan: The media plan data.
-        include_documentation: Whether to include a documentation sheet.
-    """
-    meta = media_plan.get("meta", {})
-    campaign = media_plan.get("campaign", {})
-    line_items = media_plan.get("lineitems", [])
-
-    # Populate metadata sheet
-    _populate_metadata_sheet(workbook["Metadata"], media_plan)
-
-    # Populate campaign sheet
-    _populate_campaign_sheet(workbook["Campaign"], campaign)
-
-    # Populate line items sheet
-    _populate_lineitems_sheet(workbook["Line Items"], line_items)
-
-    # Populate documentation sheet if needed
-    if include_documentation:
-        _populate_documentation_sheet(workbook["Documentation"])
-    elif "Documentation" in workbook.sheetnames:
-        workbook.remove(workbook["Documentation"])
+    # NEW v2.0: Dictionary Status validation
+    status_validation = DataValidation(
+        type="list",
+        formula1='"enabled,disabled"',
+        allow_blank=False
+    )
+    dictionary_sheet.add_data_validation(status_validation)
+    status_validation.add('D3:D32')  # Status column for all 30 custom fields

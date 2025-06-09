@@ -1,7 +1,8 @@
 """
-Excel importer for mediaplanpy.
+Excel importer for mediaplanpy - Updated for v2.0 Schema Support Only.
 
-This module provides functionality for importing media plans from Excel format.
+This module provides functionality for importing media plans from Excel format,
+supporting only v2.0 schema with all new fields and dictionary configuration.
 """
 
 import os
@@ -23,98 +24,109 @@ logger = logging.getLogger("mediaplanpy.excel.importer")
 
 def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
     """
-    Import a media plan from an Excel file.
+    Import a media plan from an Excel file using v2.0 schema.
 
     Args:
-        file_path: Path to the Excel file.
-        **kwargs: Additional import options.
+        file_path: Path to the Excel file
+        **kwargs: Additional import options
 
     Returns:
-        The imported media plan data.
+        The imported media plan data in v2.0 schema format
 
     Raises:
-        StorageError: If the import fails.
-        ValidationError: If the Excel file contains invalid data.
+        StorageError: If the import fails
+        ValidationError: If the Excel file contains invalid data or wrong schema version
     """
     try:
         # Load the workbook
         workbook = openpyxl.load_workbook(file_path, data_only=True)
 
-        # Determine schema version
+        # Detect and validate schema version
         schema_version = _detect_schema_version(workbook)
-
-        # UPDATE: Only support current schema version
-        if not _is_current_schema_version(schema_version):
+        if not _is_v2_schema_version(schema_version):
             raise ValidationError(
-                f"Excel import only supports schema version 1.0. Found: {schema_version}. "
-                f"Please update your Excel file to use the current schema version."
+                f"Excel import only supports v2.0 schema. Found: {schema_version}. "
+                f"Please use a v2.0 compatible Excel file."
             )
 
-        # UPDATE: Simplified import logic - only v1.0 support
-        media_plan = _import_v1_media_plan(workbook)
+        # Import v2.0 media plan
+        media_plan = _import_v2_media_plan(workbook)
 
         # Sanitize the data to avoid validation issues
-        sanitized_media_plan = _sanitize_media_plan_data(media_plan)
+        sanitized_media_plan = _sanitize_v2_media_plan_data(media_plan)
 
-        logger.info(f"Media plan imported from Excel: {file_path}")
+        logger.info(f"Media plan imported from Excel (v2.0): {file_path}")
         return sanitized_media_plan
 
     except Exception as e:
         raise StorageError(f"Failed to import media plan from Excel: {e}")
 
 
-def _is_current_schema_version(version: str) -> bool:
-    """
-    Check if the schema version is the current supported version.
-
-    Args:
-        version: The schema version to check.
-
-    Returns:
-        True if the version is current and supported.
-    """
-    # Normalize version format (handle both "1.0" and "v1.0" for compatibility)
-    normalized = version.replace("v", "") if version.startswith("v") else version
-    return normalized == "1.0"
-
-
 def update_from_excel(media_plan: Dict[str, Any], file_path: str, **kwargs) -> Dict[str, Any]:
     """
-    Update a media plan from an Excel file.
+    Update a media plan from an Excel file using v2.0 schema.
 
     Args:
-        media_plan: The existing media plan data to update.
-        file_path: Path to the Excel file.
-        **kwargs: Additional import options.
+        media_plan: The existing media plan data to update
+        file_path: Path to the Excel file
+        **kwargs: Additional import options
 
     Returns:
-        The updated media plan data.
+        The updated media plan data in v2.0 schema format
 
     Raises:
-        StorageError: If the update fails.
-        ValidationError: If the Excel file contains invalid data.
+        StorageError: If the update fails
+        ValidationError: If the Excel file contains invalid data
     """
     try:
         # Import the Excel file
         updated_plan = import_from_excel(file_path, **kwargs)
 
-        # Keep original meta data, but update campaign and line items
+        # Keep original meta data, but update relevant fields
         result = media_plan.copy()
 
-        # Preserve original meta data except comments which may have been updated
-        meta = result.get("meta", {})
-        if "comments" in updated_plan.get("meta", {}):
-            meta["comments"] = updated_plan["meta"]["comments"]
+        # Preserve original meta ID and timestamps, but update other meta fields
+        original_meta = result.get("meta", {})
+        updated_meta = updated_plan.get("meta", {})
+
+        # Keep original ID and timestamps
+        updated_meta["id"] = original_meta.get("id", updated_meta.get("id"))
+        updated_meta["created_at"] = original_meta.get("created_at", updated_meta.get("created_at"))
+
+        # Update meta with new values from Excel
+        result["meta"] = updated_meta
 
         # Update campaign and line items
         result["campaign"] = updated_plan["campaign"]
         result["lineitems"] = updated_plan["lineitems"]
 
-        logger.info(f"Media plan updated from Excel: {file_path}")
+        # Update dictionary if present
+        if "dictionary" in updated_plan:
+            result["dictionary"] = updated_plan["dictionary"]
+
+        logger.info(f"Media plan updated from Excel (v2.0): {file_path}")
         return result
 
     except Exception as e:
         raise StorageError(f"Failed to update media plan from Excel: {e}")
+
+
+def _is_v2_schema_version(version: str) -> bool:
+    """
+    Check if the schema version is v2.0.
+
+    Args:
+        version: The schema version to check
+
+    Returns:
+        True if the version is v2.0, False otherwise
+    """
+    if not version:
+        return False
+
+    # Normalize version format (handle both "2.0" and "v2.0")
+    normalized = version.replace("v", "") if version.startswith("v") else version
+    return normalized == "2.0"
 
 
 def _detect_schema_version(workbook: Workbook) -> str:
@@ -122,10 +134,10 @@ def _detect_schema_version(workbook: Workbook) -> str:
     Detect the schema version from an Excel workbook.
 
     Args:
-        workbook: The workbook to analyze.
+        workbook: The workbook to analyze
 
     Returns:
-        The detected schema version.
+        The detected schema version
     """
     # Check if metadata sheet exists
     if "Metadata" in workbook.sheetnames:
@@ -139,6 +151,11 @@ def _detect_schema_version(workbook: Workbook) -> str:
                     # Normalize version format
                     return version.replace("v", "") if version.startswith("v") else version
 
+    # Check for v2.0 specific features (Dictionary sheet)
+    if "Dictionary" in workbook.sheetnames:
+        logger.info("Found Dictionary sheet - assuming v2.0 schema")
+        return "2.0"
+
     # Check line items sheet structure to infer version
     if "Line Items" in workbook.sheetnames:
         line_items_sheet = workbook["Line Items"]
@@ -146,279 +163,532 @@ def _detect_schema_version(workbook: Workbook) -> str:
         # Get headers
         headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-        # Check for v1.0 specific headers
+        # Check for v2.0 specific headers
+        v2_headers = {"Cost Currency", "Dayparts", "Inventory", "Engagements", "Followers", "Visits"}
+        if any(header in headers for header in v2_headers):
+            logger.info("Found v2.0 specific headers - assuming v2.0 schema")
+            return "2.0"
+
+        # Check for basic required headers
         if "Name" in headers and "Cost Total" in headers:
-            return "1.0"
-        else:
-            # If it doesn't match v1.0 structure, it's likely an older version
             logger.warning("Excel file appears to be from an older schema version")
             return "unknown"
 
-    # Default to current version if cannot determine
-    logger.warning("Could not determine schema version from Excel, assuming current version 1.0")
-    return "1.0"
+    # Default to unknown if cannot determine
+    logger.warning("Could not determine schema version from Excel, assuming unknown")
+    return "unknown"
 
 
-def _import_v1_media_plan(workbook: Workbook) -> Dict[str, Any]:
+def _import_v2_media_plan(workbook: Workbook) -> Dict[str, Any]:
     """
-    Import a v1.0 media plan from a workbook.
+    Import a v2.0 media plan from a workbook.
 
     Args:
-        workbook: The workbook to import from.
+        workbook: The workbook to import from
 
     Returns:
-        The imported media plan data in v1.0 format.
+        The imported media plan data in v2.0 format
     """
     media_plan = {
         "meta": {},
         "campaign": {},
-        "lineitems": []
+        "lineitems": [],
+        "dictionary": {}  # NEW for v2.0
     }
 
-    # Import metadata
+    # Import metadata with v2.0 fields
     if "Metadata" in workbook.sheetnames:
         metadata_sheet = workbook["Metadata"]
-        for row in range(1, 20):  # Check first 20 rows
-            key_cell = metadata_sheet.cell(row=row, column=1).value
-            value_cell = metadata_sheet.cell(row=row, column=2).value
+        meta = _import_v2_metadata(metadata_sheet)
+        media_plan["meta"] = meta
 
-            if key_cell == "Schema Version:":
-                # UPDATE: Normalize to current format
-                version = value_cell or "1.0"
-                media_plan["meta"]["schema_version"] = version.replace("v", "") if version.startswith("v") else version
-            elif key_cell == "Media Plan ID:":
-                media_plan["meta"]["id"] = value_cell or f"mediaplan_{uuid.uuid4().hex[:8]}"
-            elif key_cell == "Media Plan Name:":
-                media_plan["meta"]["name"] = value_cell or ""
-            elif key_cell == "Created By:":
-                media_plan["meta"]["created_by"] = value_cell or ""
-            elif key_cell == "Created At:":
-                media_plan["meta"]["created_at"] = value_cell or datetime.now().isoformat()
-            elif key_cell == "Comments:":
-                media_plan["meta"]["comments"] = value_cell or ""
-
-    # Ensure required meta fields with current version format
-    if "schema_version" not in media_plan["meta"]:
-        media_plan["meta"]["schema_version"] = "1.0"  # UPDATE: Use current format
-    if "id" not in media_plan["meta"]:
-        media_plan["meta"]["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
-    if "created_by" not in media_plan["meta"]:
-        media_plan["meta"]["created_by"] = "excel_import"
-    if "created_at" not in media_plan["meta"]:
-        media_plan["meta"]["created_at"] = datetime.now().isoformat()
-
-    # Import campaign data (keep existing implementation)
+    # Import campaign with v2.0 fields
     if "Campaign" in workbook.sheetnames:
         campaign_sheet = workbook["Campaign"]
-        campaign = media_plan["campaign"]
+        campaign = _import_v2_campaign(campaign_sheet)
+        media_plan["campaign"] = campaign
 
-        for row in range(1, 30):
-            key_cell = campaign_sheet.cell(row=row, column=1).value
-            value_cell = campaign_sheet.cell(row=row, column=2).value
-
-            if key_cell == "Campaign ID:":
-                campaign["id"] = value_cell or f"campaign_{uuid.uuid4().hex[:8]}"
-            elif key_cell == "Campaign Name:":
-                campaign["name"] = value_cell or ""
-            elif key_cell == "Objective:":
-                campaign["objective"] = value_cell or ""
-            elif key_cell == "Start Date:":
-                if isinstance(value_cell, date):
-                    campaign["start_date"] = value_cell.isoformat()
-                else:
-                    campaign["start_date"] = str(value_cell) if value_cell else ""
-            elif key_cell == "End Date:":
-                if isinstance(value_cell, date):
-                    campaign["end_date"] = value_cell.isoformat()
-                else:
-                    campaign["end_date"] = str(value_cell) if value_cell else ""
-            elif key_cell == "Budget Total:":
-                campaign["budget_total"] = float(value_cell) if value_cell else 0
-            elif key_cell == "Audience Name:":
-                campaign["audience_name"] = value_cell or ""
-            elif key_cell == "Audience Age Start:":
-                campaign["audience_age_start"] = int(value_cell) if value_cell else None
-            elif key_cell == "Audience Age End:":
-                campaign["audience_age_end"] = int(value_cell) if value_cell else None
-            elif key_cell == "Audience Gender:":
-                if value_cell and str(value_cell).strip():
-                    campaign["audience_gender"] = str(value_cell).strip()
-            elif key_cell == "Audience Interests:":
-                if value_cell:
-                    campaign["audience_interests"] = [
-                        interest.strip() for interest in str(value_cell).split(",")
-                    ]
-                else:
-                    campaign["audience_interests"] = []
-            elif key_cell == "Location Type:":
-                if value_cell and str(value_cell).strip():
-                    campaign["location_type"] = str(value_cell).strip()
-            elif key_cell == "Locations:":
-                if value_cell:
-                    campaign["locations"] = [
-                        location.strip() for location in str(value_cell).split(",")
-                    ]
-                else:
-                    campaign["locations"] = []
-
-    # Ensure required campaign fields
-    if "id" not in media_plan["campaign"]:
-        media_plan["campaign"]["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
-    if "name" not in media_plan["campaign"]:
-        media_plan["campaign"]["name"] = "Campaign from Excel"
-    if "objective" not in media_plan["campaign"]:
-        media_plan["campaign"]["objective"] = "Imported from Excel"
-    if "start_date" not in media_plan["campaign"]:
-        media_plan["campaign"]["start_date"] = datetime.now().strftime("%Y-%m-%d")
-    if "end_date" not in media_plan["campaign"]:
-        end_date = datetime(datetime.now().year, 12, 31).strftime("%Y-%m-%d")
-        media_plan["campaign"]["end_date"] = end_date
-    if "budget_total" not in media_plan["campaign"]:
-        media_plan["campaign"]["budget_total"] = 100000
-
-    # Import line items with comprehensive field mapping (keep existing comprehensive implementation)
+    # Import line items with v2.0 fields
     if "Line Items" in workbook.sheetnames:
         line_items_sheet = workbook["Line Items"]
+        lineitems = _import_v2_lineitems(line_items_sheet)
+        media_plan["lineitems"] = lineitems
 
-        # Get headers
-        headers = [cell.value for cell in line_items_sheet[1] if cell.value]
+    # Import dictionary configuration (NEW for v2.0, optional)
+    if "Dictionary" in workbook.sheetnames:
+        dictionary_sheet = workbook["Dictionary"]
+        dictionary = _import_v2_dictionary(dictionary_sheet)
+        if dictionary:  # Only include if not empty
+            media_plan["dictionary"] = dictionary
 
-        # Create comprehensive field mapping (keep existing implementation)
-        field_mapping = {
-            # Required fields
-            "ID": "id",
-            "Name": "name",
-            "Start Date": "start_date",
-            "End Date": "end_date",
-            "Cost Total": "cost_total",
+    # Ensure required meta fields with v2.0 format
+    _ensure_v2_meta_fields(media_plan["meta"])
 
-            # Channel-related fields
-            "Channel": "channel",
-            "Channel Custom": "channel_custom",
-            "Vehicle": "vehicle",
-            "Vehicle Custom": "vehicle_custom",
-            "Partner": "partner",
-            "Partner Custom": "partner_custom",
-            "Media Product": "media_product",
-            "Media Product Custom": "media_product_custom",
-
-            # Location fields
-            "Location Type": "location_type",
-            "Location Name": "location_name",
-
-            # Audience and format fields
-            "Target Audience": "target_audience",
-            "Ad Format": "adformat",
-            "Ad Format Custom": "adformat_custom",
-
-            # KPI fields
-            "KPI": "kpi",
-            "KPI Custom": "kpi_custom",
-
-            # Cost breakdown fields
-            "Cost Media": "cost_media",
-            "Cost Buying": "cost_buying",
-            "Cost Platform": "cost_platform",
-            "Cost Data": "cost_data",
-            "Cost Creative": "cost_creative",
-
-            # Metric fields
-            "Impressions": "metric_impressions",
-            "Clicks": "metric_clicks",
-            "Views": "metric_views",
-        }
-
-        # Add custom dimension fields
-        for i in range(1, 11):
-            field_mapping[f"Dim Custom {i}"] = f"dim_custom{i}"
-            field_mapping[f"Dim Custom{i}"] = f"dim_custom{i}"  # Alternative format
-
-        # Add custom cost fields
-        for i in range(1, 11):
-            field_mapping[f"Cost Custom {i}"] = f"cost_custom{i}"
-            field_mapping[f"Cost Custom{i}"] = f"cost_custom{i}"  # Alternative format
-
-        # Add custom metric fields
-        for i in range(1, 11):
-            field_mapping[f"Metric Custom {i}"] = f"metric_custom{i}"
-            field_mapping[f"Metric Custom{i}"] = f"metric_custom{i}"  # Alternative format
-
-        # Map column indices to field names
-        header_to_field = {}
-        for col_idx, header in enumerate(headers, 1):
-            if header in field_mapping:
-                header_to_field[col_idx] = field_mapping[header]
-
-        # Process line items (skip header row) - keep existing implementation
-        for row in range(2, line_items_sheet.max_row + 1):
-            # Skip empty rows
-            if all(cell.value is None for cell in line_items_sheet[row]):
-                continue
-
-            line_item = {}
-
-            # Process all mapped fields
-            for col_idx, field_name in header_to_field.items():
-                cell_value = line_items_sheet.cell(row=row, column=col_idx).value
-
-                if cell_value is not None:
-                    # Handle different field types
-                    if field_name in ["id", "name"] and not cell_value:
-                        # Generate ID if missing
-                        if field_name == "id":
-                            line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
-                        continue
-
-                    elif field_name in ["start_date", "end_date"]:
-                        # Handle date fields
-                        if isinstance(cell_value, date):
-                            line_item[field_name] = cell_value.isoformat()
-                        else:
-                            line_item[field_name] = str(cell_value) if cell_value else ""
-
-                    elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
-                        # Handle numeric fields
-                        try:
-                            line_item[field_name] = float(cell_value)
-                        except (ValueError, TypeError):
-                            # Skip invalid numeric values
-                            pass
-
-                    elif field_name == "location_type":
-                        # Handle enum field with validation
-                        if cell_value and str(cell_value).strip():
-                            line_item[field_name] = str(cell_value).strip()
-
-                    else:
-                        # Handle string fields
-                        line_item[field_name] = str(cell_value).strip() if str(cell_value).strip() else ""
-
-            # Ensure required fields have defaults
-            if "id" not in line_item:
-                line_item["id"] = f"li_{uuid.uuid4().hex[:8]}"
-            if "name" not in line_item:
-                line_item["name"] = line_item.get("id", "")
-            if "start_date" not in line_item:
-                line_item["start_date"] = media_plan["campaign"]["start_date"]
-            if "end_date" not in line_item:
-                line_item["end_date"] = media_plan["campaign"]["end_date"]
-            if "cost_total" not in line_item:
-                line_item["cost_total"] = 0
-
-            # Add line item to list
-            media_plan["lineitems"].append(line_item)
+    # Ensure required campaign fields
+    _ensure_v2_campaign_fields(media_plan["campaign"])
 
     return media_plan
 
-def _sanitize_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
+
+def _import_v2_metadata(metadata_sheet) -> Dict[str, Any]:
     """
-    Sanitize media plan data to avoid common validation errors.
+    Import metadata section with v2.0 fields.
 
     Args:
-        data: The media plan data to sanitize.
+        metadata_sheet: The metadata worksheet
 
     Returns:
-        Sanitized media plan data.
+        Dictionary containing metadata
+    """
+    meta = {}
+
+    for row in range(1, 20):  # Check first 20 rows
+        key_cell = metadata_sheet.cell(row=row, column=1).value
+        value_cell = metadata_sheet.cell(row=row, column=2).value
+
+        if key_cell == "Schema Version:":
+            meta["schema_version"] = "2.0"  # Force v2.0
+        elif key_cell == "Media Plan ID:":
+            meta["id"] = value_cell or f"mediaplan_{uuid.uuid4().hex[:8]}"
+        elif key_cell == "Media Plan Name:":
+            meta["name"] = value_cell or ""
+        elif key_cell == "Created By Name:":  # v2.0 required field
+            meta["created_by_name"] = value_cell or ""
+        elif key_cell == "Created By ID:":  # v2.0 optional field
+            meta["created_by_id"] = value_cell or None
+        elif key_cell == "Created At:":
+            meta["created_at"] = value_cell or datetime.now().isoformat()
+        elif key_cell == "Is Current:":  # v2.0 field
+            if value_cell:
+                meta["is_current"] = str(value_cell).lower() in ['true', 'yes', '1']
+        elif key_cell == "Is Archived:":  # v2.0 field
+            if value_cell:
+                meta["is_archived"] = str(value_cell).lower() in ['true', 'yes', '1']
+        elif key_cell == "Parent ID:":  # v2.0 field
+            meta["parent_id"] = value_cell or None
+        elif key_cell == "Comments:":
+            meta["comments"] = value_cell or ""
+
+    return meta
+
+
+def _import_v2_campaign(campaign_sheet) -> Dict[str, Any]:
+    """
+    Import campaign section with v2.0 fields.
+
+    Args:
+        campaign_sheet: The campaign worksheet
+
+    Returns:
+        Dictionary containing campaign data
+    """
+    campaign = {}
+
+    for row in range(1, 50):  # Check more rows for v2.0 fields
+        key_cell = campaign_sheet.cell(row=row, column=1).value
+        value_cell = campaign_sheet.cell(row=row, column=2).value
+
+        if key_cell == "Campaign ID:":
+            campaign["id"] = value_cell or f"campaign_{uuid.uuid4().hex[:8]}"
+        elif key_cell == "Campaign Name:":
+            campaign["name"] = value_cell or ""
+        elif key_cell == "Objective:":
+            campaign["objective"] = value_cell or ""
+        elif key_cell == "Start Date:":
+            if isinstance(value_cell, date):
+                campaign["start_date"] = value_cell.isoformat()
+            else:
+                campaign["start_date"] = str(value_cell) if value_cell else ""
+        elif key_cell == "End Date:":
+            if isinstance(value_cell, date):
+                campaign["end_date"] = value_cell.isoformat()
+            else:
+                campaign["end_date"] = str(value_cell) if value_cell else ""
+        elif key_cell == "Budget Total:":
+            campaign["budget_total"] = float(value_cell) if value_cell else 0
+
+        # NEW v2.0 budget field
+        elif key_cell == "Budget Currency:":
+            if value_cell and str(value_cell).strip():
+                campaign["budget_currency"] = str(value_cell).strip()
+
+        # NEW v2.0 agency fields
+        elif key_cell == "Agency ID:":
+            if value_cell and str(value_cell).strip():
+                campaign["agency_id"] = str(value_cell).strip()
+        elif key_cell == "Agency Name:":
+            if value_cell and str(value_cell).strip():
+                campaign["agency_name"] = str(value_cell).strip()
+
+        # NEW v2.0 advertiser fields
+        elif key_cell == "Advertiser ID:":
+            if value_cell and str(value_cell).strip():
+                campaign["advertiser_id"] = str(value_cell).strip()
+        elif key_cell == "Advertiser Name:":
+            if value_cell and str(value_cell).strip():
+                campaign["advertiser_name"] = str(value_cell).strip()
+
+        # Product fields (existing + new v2.0 product_id)
+        elif key_cell == "Product ID:":
+            if value_cell and str(value_cell).strip():
+                campaign["product_id"] = str(value_cell).strip()
+        elif key_cell == "Product Name:":
+            if value_cell and str(value_cell).strip():
+                campaign["product_name"] = str(value_cell).strip()
+        elif key_cell == "Product Description:":
+            if value_cell and str(value_cell).strip():
+                campaign["product_description"] = str(value_cell).strip()
+
+        # NEW v2.0 campaign type fields
+        elif key_cell == "Campaign Type ID:":
+            if value_cell and str(value_cell).strip():
+                campaign["campaign_type_id"] = str(value_cell).strip()
+        elif key_cell == "Campaign Type Name:":
+            if value_cell and str(value_cell).strip():
+                campaign["campaign_type_name"] = str(value_cell).strip()
+
+        # NEW v2.0 workflow status fields
+        elif key_cell == "Workflow Status ID:":
+            if value_cell and str(value_cell).strip():
+                campaign["workflow_status_id"] = str(value_cell).strip()
+        elif key_cell == "Workflow Status Name:":
+            if value_cell and str(value_cell).strip():
+                campaign["workflow_status_name"] = str(value_cell).strip()
+
+        # Existing audience fields
+        elif key_cell == "Audience Name:":
+            campaign["audience_name"] = value_cell or ""
+        elif key_cell == "Audience Age Start:":
+            campaign["audience_age_start"] = int(value_cell) if value_cell else None
+        elif key_cell == "Audience Age End:":
+            campaign["audience_age_end"] = int(value_cell) if value_cell else None
+        elif key_cell == "Audience Gender:":
+            if value_cell and str(value_cell).strip():
+                campaign["audience_gender"] = str(value_cell).strip()
+        elif key_cell == "Audience Interests:":
+            if value_cell:
+                campaign["audience_interests"] = [
+                    interest.strip() for interest in str(value_cell).split(",")
+                ]
+            else:
+                campaign["audience_interests"] = []
+        elif key_cell == "Location Type:":
+            if value_cell and str(value_cell).strip():
+                campaign["location_type"] = str(value_cell).strip()
+        elif key_cell == "Locations:":
+            if value_cell:
+                campaign["locations"] = [
+                    location.strip() for location in str(value_cell).split(",")
+                ]
+            else:
+                campaign["locations"] = []
+
+    return campaign
+
+
+def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
+    """
+    Import line items section with v2.0 fields.
+
+    Args:
+        line_items_sheet: The line items worksheet
+
+    Returns:
+        List of line item dictionaries
+    """
+    # Get headers
+    headers = [cell.value for cell in line_items_sheet[1] if cell.value]
+
+    # Create comprehensive field mapping for v2.0
+    field_mapping = {
+        # Required fields
+        "ID": "id",
+        "Name": "name",
+        "Start Date": "start_date",
+        "End Date": "end_date",
+        "Cost Total": "cost_total",
+
+        # Channel-related fields
+        "Channel": "channel",
+        "Channel Custom": "channel_custom",
+        "Vehicle": "vehicle",
+        "Vehicle Custom": "vehicle_custom",
+        "Partner": "partner",
+        "Partner Custom": "partner_custom",
+        "Media Product": "media_product",
+        "Media Product Custom": "media_product_custom",
+
+        # Location fields
+        "Location Type": "location_type",
+        "Location Name": "location_name",
+
+        # Audience and format fields
+        "Target Audience": "target_audience",
+        "Ad Format": "adformat",
+        "Ad Format Custom": "adformat_custom",
+
+        # KPI fields
+        "KPI": "kpi",
+        "KPI Custom": "kpi_custom",
+
+        # NEW v2.0: Dayparts and inventory fields
+        "Dayparts": "dayparts",
+        "Dayparts Custom": "dayparts_custom",
+        "Inventory": "inventory",
+        "Inventory Custom": "inventory_custom",
+
+        # Cost fields (including NEW v2.0 cost_currency)
+        "Cost Currency": "cost_currency",  # NEW v2.0
+        "Cost Media": "cost_media",
+        "Cost Buying": "cost_buying",
+        "Cost Platform": "cost_platform",
+        "Cost Data": "cost_data",
+        "Cost Creative": "cost_creative",
+
+        # Metric fields - existing 3 + NEW 17 v2.0 standard metrics
+        "Impressions": "metric_impressions",
+        "Clicks": "metric_clicks",
+        "Views": "metric_views",
+        # NEW v2.0 standard metrics
+        "Engagements": "metric_engagements",
+        "Followers": "metric_followers",
+        "Visits": "metric_visits",
+        "Leads": "metric_leads",
+        "Sales": "metric_sales",
+        "Add to Cart": "metric_add_to_cart",
+        "App Install": "metric_app_install",
+        "Application Start": "metric_application_start",
+        "Application Complete": "metric_application_complete",
+        "Contact Us": "metric_contact_us",
+        "Download": "metric_download",
+        "Signup": "metric_signup",
+        "Max Daily Spend": "metric_max_daily_spend",
+        "Max Daily Impressions": "metric_max_daily_impressions",
+        "Audience Size": "metric_audience_size",
+    }
+
+    # Add custom dimension fields
+    for i in range(1, 11):
+        field_mapping[f"Dim Custom {i}"] = f"dim_custom{i}"
+        field_mapping[f"Dim Custom{i}"] = f"dim_custom{i}"  # Alternative format
+
+    # Add custom cost fields
+    for i in range(1, 11):
+        field_mapping[f"Cost Custom {i}"] = f"cost_custom{i}"
+        field_mapping[f"Cost Custom{i}"] = f"cost_custom{i}"  # Alternative format
+
+    # Add custom metric fields
+    for i in range(1, 11):
+        field_mapping[f"Metric Custom {i}"] = f"metric_custom{i}"
+        field_mapping[f"Metric Custom{i}"] = f"metric_custom{i}"  # Alternative format
+
+    # Map column indices to field names
+    header_to_field = {}
+    for col_idx, header in enumerate(headers, 1):
+        if header in field_mapping:
+            header_to_field[col_idx] = field_mapping[header]
+
+    # Process line items (skip header row)
+    lineitems = []
+    for row in range(2, line_items_sheet.max_row + 1):
+        # Skip empty rows
+        if all(cell.value is None for cell in line_items_sheet[row]):
+            continue
+
+        line_item = {}
+
+        # Process all mapped fields
+        for col_idx, field_name in header_to_field.items():
+            cell_value = line_items_sheet.cell(row=row, column=col_idx).value
+
+            if cell_value is not None:
+                # Handle different field types
+                if field_name in ["id", "name"] and not cell_value:
+                    # Generate ID if missing
+                    if field_name == "id":
+                        line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
+                    continue
+
+                elif field_name in ["start_date", "end_date"]:
+                    # Handle date fields
+                    if isinstance(cell_value, date):
+                        line_item[field_name] = cell_value.isoformat()
+                    else:
+                        line_item[field_name] = str(cell_value) if cell_value else ""
+
+                elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
+                    # Handle numeric fields
+                    try:
+                        line_item[field_name] = float(cell_value)
+                    except (ValueError, TypeError):
+                        # Skip invalid numeric values
+                        pass
+
+                elif field_name == "location_type":
+                    # Handle enum field with validation
+                    if cell_value and str(cell_value).strip():
+                        line_item[field_name] = str(cell_value).strip()
+
+                else:
+                    # Handle string fields
+                    line_item[field_name] = str(cell_value).strip() if str(cell_value).strip() else ""
+
+        # Ensure required fields have defaults
+        if "id" not in line_item:
+            line_item["id"] = f"li_{uuid.uuid4().hex[:8]}"
+        if "name" not in line_item:
+            line_item["name"] = line_item.get("id", "")
+        if "start_date" not in line_item:
+            line_item["start_date"] = "2025-01-01"  # Default start date
+        if "end_date" not in line_item:
+            line_item["end_date"] = "2025-12-31"  # Default end date
+        if "cost_total" not in line_item:
+            line_item["cost_total"] = 0
+
+        # Add line item to list
+        lineitems.append(line_item)
+
+    return lineitems
+
+
+def _import_v2_dictionary(dictionary_sheet) -> Dict[str, Any]:
+    """
+    Import dictionary configuration (NEW for v2.0).
+
+    Args:
+        dictionary_sheet: The dictionary worksheet
+
+    Returns:
+        Dictionary containing custom field configuration
+    """
+    dictionary = {
+        "custom_dimensions": {},
+        "custom_metrics": {},
+        "custom_costs": {}
+    }
+
+    # Find the headers
+    field_name_col = None
+    field_type_col = None
+    caption_col = None
+    status_col = None
+
+    # Look for header row
+    for row in range(1, 5):  # Check first few rows
+        for col in range(1, 10):
+            cell_value = dictionary_sheet.cell(row=row, column=col).value
+            if cell_value == "Field Name":
+                field_name_col = col
+            elif cell_value == "Field Type":
+                field_type_col = col
+            elif cell_value == "Caption":
+                caption_col = col
+            elif cell_value == "Status":
+                status_col = col
+
+        # If we found all headers, this is the header row
+        if all(col is not None for col in [field_name_col, field_type_col, caption_col, status_col]):
+            break
+
+    if not all(col is not None for col in [field_name_col, field_type_col, caption_col, status_col]):
+        logger.warning("Could not find dictionary headers, returning empty dictionary")
+        return {}
+
+    # Process data rows
+    for row in range(3, dictionary_sheet.max_row + 1):  # Start from row 3 (after headers)
+        field_name = dictionary_sheet.cell(row=row, column=field_name_col).value
+        field_type = dictionary_sheet.cell(row=row, column=field_type_col).value
+        caption = dictionary_sheet.cell(row=row, column=caption_col).value
+        status = dictionary_sheet.cell(row=row, column=status_col).value
+
+        if not field_name or not field_type or not status:
+            continue  # Skip incomplete rows
+
+        # Normalize values
+        field_name = str(field_name).strip()
+        field_type = str(field_type).strip().lower()
+        status = str(status).strip().lower()
+        caption = str(caption).strip() if caption else ""
+
+        # Validate status
+        if status not in ["enabled", "disabled"]:
+            continue  # Skip invalid status
+
+        # Create field configuration
+        config = {
+            "status": status,
+            "caption": caption
+        }
+
+        # Add to appropriate section based on field type
+        if field_type == "dimension" and field_name.startswith("dim_custom"):
+            dictionary["custom_dimensions"][field_name] = config
+        elif field_type == "metric" and field_name.startswith("metric_custom"):
+            dictionary["custom_metrics"][field_name] = config
+        elif field_type == "cost" and field_name.startswith("cost_custom"):
+            dictionary["custom_costs"][field_name] = config
+
+    # Remove empty sections
+    dictionary = {k: v for k, v in dictionary.items() if v}
+
+    return dictionary
+
+
+def _ensure_v2_meta_fields(meta: Dict[str, Any]) -> None:
+    """
+    Ensure required v2.0 meta fields are present with defaults.
+
+    Args:
+        meta: The meta dictionary to update
+    """
+    # v2.0: schema_version is required
+    if "schema_version" not in meta:
+        meta["schema_version"] = "2.0"
+
+    # v2.0: id is required
+    if "id" not in meta:
+        meta["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
+
+    # v2.0: created_by_name is required (vs optional created_by in v1.0)
+    if "created_by_name" not in meta:
+        meta["created_by_name"] = meta.get("created_by", "Excel Import User")
+
+    # v2.0: created_at is required
+    if "created_at" not in meta:
+        meta["created_at"] = datetime.now().isoformat()
+
+
+def _ensure_v2_campaign_fields(campaign: Dict[str, Any]) -> None:
+    """
+    Ensure required campaign fields are present with defaults.
+
+    Args:
+        campaign: The campaign dictionary to update
+    """
+    # Required campaign fields (same in v1.0 and v2.0)
+    if "id" not in campaign:
+        campaign["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
+    if "name" not in campaign:
+        campaign["name"] = "Campaign from Excel"
+    if "objective" not in campaign:
+        campaign["objective"] = "Imported from Excel"
+    if "start_date" not in campaign:
+        campaign["start_date"] = "2025-01-01"
+    if "end_date" not in campaign:
+        campaign["end_date"] = "2025-12-31"
+    if "budget_total" not in campaign:
+        campaign["budget_total"] = 100000
+
+
+def _sanitize_v2_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Sanitize media plan data to avoid common validation errors for v2.0.
+
+    Args:
+        data: The media plan data to sanitize
+
+    Returns:
+        Sanitized media plan data
     """
     # Deep copy to avoid modifying the original
     sanitized = copy.deepcopy(data)
@@ -429,8 +699,7 @@ def _sanitize_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
         # Convert empty strings to None for enum fields
         if "audience_gender" in campaign and (campaign["audience_gender"] == "" or campaign["audience_gender"] is None):
-            # Set a default valid value for audience_gender
-            campaign["audience_gender"] = "Any"
+            campaign["audience_gender"] = "Any"  # Default valid value
 
         if "location_type" in campaign and (campaign["location_type"] == "" or campaign["location_type"] is None):
             campaign["location_type"] = "Country"  # Default to Country
@@ -441,5 +710,35 @@ def _sanitize_media_plan_data(data: Dict[str, Any]) -> Dict[str, Any]:
             # Handle location_type field
             if "location_type" in line_item and (line_item["location_type"] == "" or line_item["location_type"] is None):
                 line_item["location_type"] = "Country"  # Default to Country
+
+    # Handle dictionary (NEW for v2.0)
+    if "dictionary" in sanitized:
+        dictionary = sanitized["dictionary"]
+
+        # Validate and clean dictionary configuration
+        for section_name in ["custom_dimensions", "custom_metrics", "custom_costs"]:
+            if section_name in dictionary:
+                section = dictionary[section_name]
+                cleaned_section = {}
+
+                for field_name, config in section.items():
+                    if isinstance(config, dict) and "status" in config:
+                        # Ensure status is valid
+                        if config["status"] in ["enabled", "disabled"]:
+                            cleaned_config = {
+                                "status": config["status"],
+                                "caption": config.get("caption", "")
+                            }
+                            # Ensure caption is provided for enabled fields
+                            if config["status"] == "enabled" and not cleaned_config["caption"]:
+                                cleaned_config["caption"] = f"Custom {field_name}"
+
+                            cleaned_section[field_name] = cleaned_config
+
+                if cleaned_section:
+                    dictionary[section_name] = cleaned_section
+                else:
+                    # Remove empty sections
+                    del dictionary[section_name]
 
     return sanitized
