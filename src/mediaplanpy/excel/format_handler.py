@@ -8,7 +8,7 @@ deserializing media plans to/from Excel format using v2.0 schema exclusively.
 import os
 import logging
 import tempfile
-from typing import Dict, Any, BinaryIO, TextIO, Union, Optional
+from typing import Dict, Any, BinaryIO, TextIO, Union, Optional, List
 
 import openpyxl
 from openpyxl import Workbook
