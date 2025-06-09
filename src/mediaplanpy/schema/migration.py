@@ -64,16 +64,16 @@ class SchemaMigrator:
     def _register_default_migrations(self):
         """Register the default migration paths using supported 2-digit format."""
         # REMOVED: v0.0 migration paths are no longer supported in SDK v2.0
-        # OLD (removed): self.register_migration("0.0", "1.0", self._migrate_00_to_10)
-        # OLD (removed): self.register_migration("v0.0.0", "1.0", self._migrate_v000_to_10)
-        # OLD (removed): self.register_migration("v0.0.0", "v1.0.0", self._migrate_v000_to_v100)
 
-        # NEW: Add v1.0 → v2.0 migration path
+        # NEW: Add v1.0 → v2.0 migration path (all format combinations)
         self.register_migration("1.0", "2.0", self._migrate_10_to_20)
+        self.register_migration("v1.0", "2.0", self._migrate_10_to_20)
+        self.register_migration("v1.0", "v2.0", self._migrate_10_to_20)
+        self.register_migration("1.0", "v2.0", self._migrate_10_to_20)
 
         # Legacy format support for input (but output to supported format)
-        # These handle legacy format inputs but migrate to 2-digit format
         self.register_migration("v1.0.0", "2.0", self._migrate_v100_to_20)
+        self.register_migration("v1.0.0", "v2.0", self._migrate_v100_to_20)  # ADD THIS LINE
 
         logger.debug("Registered default migration paths for SDK v2.0 (v0.0 support removed)")
 

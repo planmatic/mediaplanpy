@@ -1453,6 +1453,112 @@ class WorkspaceManager:
 
         return result
 
+    def _validate_upgrade_compatibility(self, target_schema_version: str, dry_run: bool) -> Dict[str, Any]:
+        """
+        Validate workspace compatibility before upgrade and reject v0.0 files.
+
+        This method scans all media plan files to identify version compatibility issues,
+        specifically rejecting v0.0 files which are no longer supported in SDK v2.0.
+
+        Args:
+            target_schema_version: Target schema version to upgrade to
+            dry_run: If True, don't actually modify files
+
+        Returns:
+            Dictionary with validation results including v0.0 rejections
+        """
+        result = {
+            "v0_files_rejected": 0,
+            "v1_files_found": 0,
+            "v2_files_found": 0,
+            "invalid_files": 0,
+            "errors": []
+        }
+
+        try:
+            # Get storage backend
+            storage_backend = self.get_storage_backend()
+
+            # Find all JSON files in mediaplans directory
+            json_files = []
+            try:
+                json_files = storage_backend.list_files("mediaplans", "*.json")
+            except Exception:
+                # Try root directory as fallback
+                try:
+                    json_files = storage_backend.list_files("", "*.json")
+                except Exception as e:
+                    result["errors"].append(f"Could not list JSON files: {e}")
+                    return result
+
+            logger.info(f"Validating {len(json_files)} JSON files for upgrade compatibility")
+
+            for file_path in json_files:
+                try:
+                    # Read and parse file to check version
+                    content = storage_backend.read_file(file_path, binary=False)
+                    import json
+                    data = json.loads(content)
+
+                    # Extract schema version
+                    schema_version = data.get("meta", {}).get("schema_version")
+
+                    if not schema_version:
+                        result["invalid_files"] += 1
+                        result["errors"].append(f"File {file_path} has no schema version")
+                        continue
+
+                    # Normalize version for comparison
+                    try:
+                        from mediaplanpy.schema.version_utils import normalize_version, get_compatibility_type
+
+                        normalized_version = normalize_version(schema_version)
+                        compatibility = get_compatibility_type(normalized_version)
+
+                        # Check for v0.0 files - these are REJECTED
+                        if normalized_version.startswith("0."):
+                            result["v0_files_rejected"] += 1
+                            error_msg = (
+                                f"File {file_path} uses unsupported schema version {schema_version} (v0.0.x). "
+                                f"v0.0 support has been removed in SDK v2.0. Use SDK v1.x to migrate to v1.0 first."
+                            )
+                            result["errors"].append(error_msg)
+                            logger.error(error_msg)
+                            continue
+
+                        # Count version distribution
+                        major_version = int(normalized_version.split('.')[0])
+                        if major_version == 1:
+                            result["v1_files_found"] += 1
+                        elif major_version == 2:
+                            result["v2_files_found"] += 1
+
+                        # Check overall compatibility
+                        if compatibility == "unsupported":
+                            result["invalid_files"] += 1
+                            result["errors"].append(f"File {file_path} has unsupported schema version {schema_version}")
+
+                    except Exception as e:
+                        result["invalid_files"] += 1
+                        result["errors"].append(f"Could not validate version for {file_path}: {e}")
+
+                except json.JSONDecodeError as e:
+                    result["invalid_files"] += 1
+                    result["errors"].append(f"Invalid JSON in {file_path}: {e}")
+                except Exception as e:
+                    result["invalid_files"] += 1
+                    result["errors"].append(f"Error reading {file_path}: {e}")
+
+            # Log validation summary
+            logger.info(f"Version validation complete: {result['v1_files_found']} v1.0 files, "
+                        f"{result['v2_files_found']} v2.0 files, {result['v0_files_rejected']} v0.0 files rejected, "
+                        f"{result['invalid_files']} invalid files")
+
+        except Exception as e:
+            result["errors"].append(f"Validation failed: {e}")
+
+        return result
+
 
     def get_workspace_version_info(self) -> Dict[str, Any]:
         """
@@ -1598,110 +1704,3 @@ class WorkspaceManager:
                 "Run workspace.upgrade_workspace() to upgrade to current versions")
 
         return compatibility_result
-
-
-def _validate_upgrade_compatibility(self, target_schema_version: str, dry_run: bool) -> Dict[str, Any]:
-    """
-    Validate workspace compatibility before upgrade and reject v0.0 files.
-
-    This method scans all media plan files to identify version compatibility issues,
-    specifically rejecting v0.0 files which are no longer supported in SDK v2.0.
-
-    Args:
-        target_schema_version: Target schema version to upgrade to
-        dry_run: If True, don't actually modify files
-
-    Returns:
-        Dictionary with validation results including v0.0 rejections
-    """
-    result = {
-        "v0_files_rejected": 0,
-        "v1_files_found": 0,
-        "v2_files_found": 0,
-        "invalid_files": 0,
-        "errors": []
-    }
-
-    try:
-        # Get storage backend
-        storage_backend = self.get_storage_backend()
-
-        # Find all JSON files in mediaplans directory
-        json_files = []
-        try:
-            json_files = storage_backend.list_files("mediaplans", "*.json")
-        except Exception:
-            # Try root directory as fallback
-            try:
-                json_files = storage_backend.list_files("", "*.json")
-            except Exception as e:
-                result["errors"].append(f"Could not list JSON files: {e}")
-                return result
-
-        logger.info(f"Validating {len(json_files)} JSON files for upgrade compatibility")
-
-        for file_path in json_files:
-            try:
-                # Read and parse file to check version
-                content = storage_backend.read_file(file_path, binary=False)
-                import json
-                data = json.loads(content)
-
-                # Extract schema version
-                schema_version = data.get("meta", {}).get("schema_version")
-
-                if not schema_version:
-                    result["invalid_files"] += 1
-                    result["errors"].append(f"File {file_path} has no schema version")
-                    continue
-
-                # Normalize version for comparison
-                try:
-                    from mediaplanpy.schema.version_utils import normalize_version, get_compatibility_type
-
-                    normalized_version = normalize_version(schema_version)
-                    compatibility = get_compatibility_type(normalized_version)
-
-                    # Check for v0.0 files - these are REJECTED
-                    if normalized_version.startswith("0."):
-                        result["v0_files_rejected"] += 1
-                        error_msg = (
-                            f"File {file_path} uses unsupported schema version {schema_version} (v0.0.x). "
-                            f"v0.0 support has been removed in SDK v2.0. Use SDK v1.x to migrate to v1.0 first."
-                        )
-                        result["errors"].append(error_msg)
-                        logger.error(error_msg)
-                        continue
-
-                    # Count version distribution
-                    major_version = int(normalized_version.split('.')[0])
-                    if major_version == 1:
-                        result["v1_files_found"] += 1
-                    elif major_version == 2:
-                        result["v2_files_found"] += 1
-
-                    # Check overall compatibility
-                    if compatibility == "unsupported":
-                        result["invalid_files"] += 1
-                        result["errors"].append(f"File {file_path} has unsupported schema version {schema_version}")
-
-                except Exception as e:
-                    result["invalid_files"] += 1
-                    result["errors"].append(f"Could not validate version for {file_path}: {e}")
-
-            except json.JSONDecodeError as e:
-                result["invalid_files"] += 1
-                result["errors"].append(f"Invalid JSON in {file_path}: {e}")
-            except Exception as e:
-                result["invalid_files"] += 1
-                result["errors"].append(f"Error reading {file_path}: {e}")
-
-        # Log validation summary
-        logger.info(f"Version validation complete: {result['v1_files_found']} v1.0 files, "
-                    f"{result['v2_files_found']} v2.0 files, {result['v0_files_rejected']} v0.0 files rejected, "
-                    f"{result['invalid_files']} invalid files")
-
-    except Exception as e:
-        result["errors"].append(f"Validation failed: {e}")
-
-    return result
