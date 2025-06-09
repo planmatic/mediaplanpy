@@ -3,7 +3,7 @@ Media Plan model for mediaplanpy.
 
 This module provides the MediaPlan model class representing a complete
 media plan with campaigns and line items, following the Media Plan Open
-Data Standard v1.0.0.
+Data Standard v2.0.
 """
 
 import os
@@ -17,6 +17,7 @@ from pydantic import Field, field_validator, model_validator
 from mediaplanpy.models.base import BaseModel
 from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
 from mediaplanpy.models.lineitem import LineItem
+from mediaplanpy.models.dictionary import Dictionary
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
@@ -32,33 +33,81 @@ from mediaplanpy.schema.version_utils import (
 
 logger = logging.getLogger("mediaplanpy.models.mediaplan")
 
+
 class Meta(BaseModel):
     """
-    Metadata for a media plan.
+    Metadata for a media plan following v2.0 schema.
+
+    Updated from v1.0 to include new identification and status fields.
     """
     id: str = Field(..., description="Unique identifier for the media plan")
     schema_version: str = Field(..., description="Version of the schema being used")
-    created_by: str = Field(..., description="Creator of the media plan")
+
+    # UPDATED v2.0: created_by_name is now required (vs optional created_by in v1.0)
+    created_by_name: str = Field(..., description="Full name of the user who created this media plan")
     created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+
+    # Optional fields from v1.0 (maintained for backward compatibility)
     name: Optional[str] = Field(None, description="Name of the media plan")
     comments: Optional[str] = Field(None, description="Comments about the media plan")
+
+    # NEW v2.0 FIELDS - All optional for backward compatibility
+    created_by_id: Optional[str] = Field(None, description="Unique identifier of the user who created this media plan")
+    is_current: Optional[bool] = Field(None, description="Whether this is the current/active version of the media plan")
+    is_archived: Optional[bool] = Field(None, description="Whether this media plan has been archived")
+    parent_id: Optional[str] = Field(None, description="Identifier of the parent media plan if this is a revision or copy")
+
+    def validate_model(self) -> List[str]:
+        """
+        Perform additional validation beyond what Pydantic provides.
+
+        Returns:
+            A list of validation error messages, if any.
+        """
+        errors = super().validate_model()
+
+        # Validate schema version format
+        if self.schema_version:
+            try:
+                from mediaplanpy.schema.version_utils import validate_version_format
+                if not validate_version_format(self.schema_version):
+                    errors.append(f"Invalid schema_version format: {self.schema_version}")
+            except ImportError:
+                # Fallback validation
+                import re
+                if not re.match(r'^v?[0-9]+\.[0-9]+(\.[0-9]+)?$', self.schema_version):
+                    errors.append(f"Invalid schema_version format: {self.schema_version}")
+
+        # Validate status consistency
+        if self.is_current is True and self.is_archived is True:
+            errors.append("Media plan cannot be both current and archived")
+
+        # Validate parent_id format if provided
+        if self.parent_id and self.parent_id == self.id:
+            errors.append("parent_id cannot be the same as the media plan id")
+
+        return errors
 
 
 class MediaPlan(BaseModel):
     """
-    Represents a complete media plan following the Media Plan Open Data Standard v1.0.0.
+    Represents a complete media plan following the Media Plan Open Data Standard v2.0.
 
-    A media plan contains metadata, a campaign, and a list of line items.
+    A media plan contains metadata, a campaign, line items, and optionally a
+    dictionary for custom field configuration.
     """
 
-    # Meta information
+    # Meta information (updated for v2.0)
     meta: Meta = Field(..., description="Metadata for the media plan")
 
-    # The campaign
+    # The campaign (same as v1.0)
     campaign: Campaign = Field(..., description="The campaign details")
 
-    # Line items
+    # Line items (same as v1.0)
     lineitems: List[LineItem] = Field(default_factory=list, description="Line items in the media plan")
+
+    # NEW v2.0 FIELD: Dictionary for custom field configuration
+    dictionary: Optional[Dictionary] = Field(None, description="Configuration dictionary defining custom field settings and captions")
 
     @classmethod
     def check_schema_version(cls, data: Dict[str, Any]) -> None:
@@ -188,6 +237,28 @@ class MediaPlan(BaseModel):
                     f"Sum of line item costs ({total_cost}) does not match "
                     f"campaign budget_total ({self.campaign.budget_total})"
                 )
+
+        # NEW v2.0 VALIDATION: Dictionary consistency
+        if self.dictionary:
+            # Validate that enabled custom fields in dictionary have corresponding data in line items
+            enabled_fields = self.dictionary.get_enabled_fields()
+
+            if enabled_fields and self.lineitems:
+                # Check if any line items use the enabled custom fields
+                unused_fields = set(enabled_fields.keys())
+
+                for lineitem in self.lineitems:
+                    for field_name in list(unused_fields):
+                        field_value = getattr(lineitem, field_name, None)
+                        if field_value is not None and str(field_value).strip():
+                            unused_fields.discard(field_name)
+
+                # Issue warnings for enabled fields that aren't used
+                for unused_field in unused_fields:
+                    errors.append(
+                        f"Warning: Custom field '{unused_field}' is enabled in dictionary "
+                        f"but not used in any line items"
+                    )
 
         return errors
 
@@ -499,6 +570,80 @@ class MediaPlan(BaseModel):
         # Create new instance
         return MediaPlan.from_dict(migrated_data)
 
+    # NEW v2.0 METHODS: Dictionary management
+
+    def get_custom_field_config(self, field_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get configuration for a custom field.
+
+        Args:
+            field_name: Name of the custom field (e.g., 'dim_custom1')
+
+        Returns:
+            Dictionary with field configuration or None if not configured.
+        """
+        if not self.dictionary:
+            return None
+
+        if self.dictionary.is_field_enabled(field_name):
+            return {
+                "enabled": True,
+                "caption": self.dictionary.get_field_caption(field_name)
+            }
+        return None
+
+    def set_custom_field_config(self, field_name: str, enabled: bool, caption: Optional[str] = None):
+        """
+        Configure a custom field.
+
+        Args:
+            field_name: Name of the custom field (e.g., 'dim_custom1')
+            enabled: Whether the field should be enabled
+            caption: Display caption for the field (required if enabled)
+
+        Raises:
+            ValueError: If field name is invalid or caption is missing for enabled field
+        """
+        from mediaplanpy.models.dictionary import CustomFieldConfig
+
+        # Create dictionary if it doesn't exist
+        if not self.dictionary:
+            self.dictionary = Dictionary()
+
+        # Validate field name and determine category
+        if field_name in Dictionary.VALID_DIMENSION_FIELDS:
+            category = "custom_dimensions"
+        elif field_name in Dictionary.VALID_METRIC_FIELDS:
+            category = "custom_metrics"
+        elif field_name in Dictionary.VALID_COST_FIELDS:
+            category = "custom_costs"
+        else:
+            raise ValueError(f"Invalid custom field name: {field_name}")
+
+        # Create the category dict if it doesn't exist
+        category_dict = getattr(self.dictionary, category) or {}
+
+        if enabled:
+            if not caption:
+                raise ValueError("Caption is required when enabling a custom field")
+            category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
+        else:
+            category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
+
+        # Update the dictionary
+        setattr(self.dictionary, category, category_dict)
+
+    def get_enabled_custom_fields(self) -> Dict[str, str]:
+        """
+        Get all enabled custom fields and their captions.
+
+        Returns:
+            Dictionary mapping field names to captions for all enabled fields.
+        """
+        if not self.dictionary:
+            return {}
+        return self.dictionary.get_enabled_fields()
+
     # Legacy method support - keeping old methods for any internal usage
     def add_lineitem(self, line_item: Union[LineItem, Dict[str, Any]], **kwargs) -> LineItem:
         """
@@ -572,7 +717,8 @@ class MediaPlan(BaseModel):
 
         # Use current schema version if not specified
         if schema_version is None:
-            schema_version = cls.SCHEMA_VERSION
+            from mediaplanpy import __schema_version__
+            schema_version = f"v{__schema_version__}"
 
         # Generate a campaign ID if not provided
         campaign_id = kwargs.pop("campaign_id", f"campaign_{uuid.uuid4().hex[:8]}")
@@ -580,7 +726,7 @@ class MediaPlan(BaseModel):
         # Generate a media plan ID if not provided
         mediaplan_id = kwargs.pop("mediaplan_id", f"mediaplan_{uuid.uuid4().hex[:8]}")
 
-        # Handle audience-related parameters for v1.0.0
+        # Handle audience-related parameters for v1.0 compatibility
         audience_fields = {}
         target_audience = kwargs.pop("target_audience", None)
 
@@ -619,14 +765,22 @@ class MediaPlan(BaseModel):
         # Extract media plan name if provided
         media_plan_name = kwargs.pop("media_plan_name", campaign_name)
 
-        # Create meta information
+        # NEW v2.0: Handle created_by_name (required) and created_by_id (optional)
+        created_by_name = kwargs.pop("created_by_name", created_by)  # Use created_by as fallback
+        created_by_id = kwargs.pop("created_by_id", None)
+
+        # Create meta information with v2.0 fields
         meta = Meta(
             id=mediaplan_id,
             schema_version=schema_version,
-            created_by=created_by,
+            created_by_name=created_by_name,  # Required in v2.0
+            created_by_id=created_by_id,      # Optional in v2.0
             created_at=datetime.now(),
             name=media_plan_name,
-            comments=kwargs.pop("comments", None)
+            comments=kwargs.pop("comments", None),
+            is_current=kwargs.pop("is_current", None),
+            is_archived=kwargs.pop("is_archived", None),
+            parent_id=kwargs.pop("parent_id", None)
         )
 
         # Extract line items if provided
@@ -635,7 +789,7 @@ class MediaPlan(BaseModel):
         for item_data in lineitems_data:
             try:
                 if isinstance(item_data, dict):
-                    # For v1.0.0, ensure budget is renamed to cost_total
+                    # For v1.0 compatibility, ensure budget is renamed to cost_total
                     if "budget" in item_data and "cost_total" not in item_data:
                         item_data["cost_total"] = item_data.pop("budget")
 
@@ -649,11 +803,21 @@ class MediaPlan(BaseModel):
             except ValidationError as e:
                 raise ValidationError(f"Invalid line item in lineitems: {str(e)}")
 
+        # Extract dictionary configuration if provided
+        dictionary_data = kwargs.pop("dictionary", None)
+        dictionary = None
+        if dictionary_data:
+            if isinstance(dictionary_data, dict):
+                dictionary = Dictionary.from_dict(dictionary_data)
+            else:
+                dictionary = dictionary_data
+
         # Create the media plan
         media_plan = cls(
             meta=meta,
             campaign=campaign,
             lineitems=lineitems,
+            dictionary=dictionary,
             **kwargs
         )
 
@@ -665,20 +829,20 @@ class MediaPlan(BaseModel):
     @classmethod
     def from_v0_mediaplan(cls, v0_mediaplan: Dict[str, Any]) -> "MediaPlan":
         """
-        Convert a v0.0.0 media plan dictionary to a v1.0.0 MediaPlan model.
+        Convert a v0.0 media plan dictionary to a v2.0 MediaPlan model.
 
         Args:
-            v0_mediaplan: Dictionary containing v0.0.0 media plan data.
+            v0_mediaplan: Dictionary containing v0.0 media plan data.
 
         Returns:
-            A new MediaPlan instance with v1.0.0 structure.
+            A new MediaPlan instance with v2.0 structure.
         """
         # Extract metadata
         v0_meta = v0_mediaplan.get("meta", {})
         meta_data = {
             "id": v0_meta.get("id", f"mediaplan_{uuid.uuid4().hex[:8]}"),  # Generate ID if not present
-            "schema_version": "v1.0.0",  # Set to the new version
-            "created_by": v0_meta.get("created_by", ""),
+            "schema_version": "v2.0",  # Set to the new version
+            "created_by_name": v0_meta.get("created_by", "Unknown"),  # Map to required field
             "created_at": v0_meta.get("created_at", datetime.now().isoformat()),
             "comments": v0_meta.get("comments")
         }
@@ -692,37 +856,38 @@ class MediaPlan(BaseModel):
         for v0_lineitem in v0_mediaplan.get("lineitems", []):
             lineitems.append(LineItem.from_v0_lineitem(v0_lineitem))
 
-        # Create new media plan
+        # Create new media plan (no dictionary in v0.0)
         return cls(
             meta=Meta(**meta_data),
             campaign=campaign,
-            lineitems=lineitems
+            lineitems=lineitems,
+            dictionary=None  # v0.0 didn't have dictionary
         )
 
-@classmethod
-def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan":
-    """
-    Create a MediaPlan instance from a dictionary with version handling.
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan":
+        """
+        Create a MediaPlan instance from a dictionary with version handling.
 
-    Args:
-        data: Dictionary containing the media plan data.
+        Args:
+            data: Dictionary containing the media plan data.
 
-    Returns:
-        A new MediaPlan instance.
+        Returns:
+            A new MediaPlan instance.
 
-    Raises:
-        ValidationError: If the data fails validation.
-        SchemaVersionError: If the data uses an incompatible schema version.
-    """
-    try:
-        # Check and handle schema version compatibility
-        cls.check_schema_version(data)
+        Raises:
+            ValidationError: If the data fails validation.
+            SchemaVersionError: If the data uses an incompatible schema version.
+        """
+        try:
+            # Check and handle schema version compatibility
+            cls.check_schema_version(data)
 
-        # Create instance using Pydantic
-        return cls.model_validate(data)
+            # Create instance using Pydantic
+            return cls.model_validate(data)
 
-    except SchemaVersionError:
-        # Re-raise schema version errors as-is
-        raise
-    except Exception as e:
-        raise ValidationError(f"Validation failed for {cls.__name__}: {str(e)}")
+        except SchemaVersionError:
+            # Re-raise schema version errors as-is
+            raise
+        except Exception as e:
+            raise ValidationError(f"Validation failed for {cls.__name__}: {str(e)}")
