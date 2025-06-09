@@ -1,21 +1,49 @@
 {
-  "current": "1.0",
-  "supported": ["0.0", "1.0"],
-  "deprecated": [],
+  "current": "2.0",
+  "supported": ["1.0", "2.0"],
+  "deprecated": ["1.0"],
   "description": "Schema versions for Media Plan Open Data Standard",
   "format": "2-digit (Major.Minor)",
   "changelog": {
+    "2.0": {
+      "release_date": "2025-06-09",
+      "description": "Enhanced v2.0 schema with new fields and improved structure",
+      "breaking_changes": false,
+      "sdk_version": "2.0.0",
+      "new_features": [
+        "Budget currency support",
+        "Agency and advertiser identification fields",
+        "Campaign type classification",
+        "Workflow status tracking",
+        "Enhanced line item metrics (17 new standard metrics)",
+        "Dayparts and inventory targeting",
+        "Dictionary configuration for custom fields"
+      ]
+    },
     "1.0": {
       "release_date": "2025-06-04",
-      "description": "Stable v1.0 schema (migrated from v1.0.0)",
+      "description": "Stable v1.0 schema (migrated from v1.0.0) - now deprecated",
       "breaking_changes": true,
-      "sdk_version": "1.0.0"
-    },
-    "0.0": {
-      "release_date": "2025-05-01",
-      "description": "Initial schema (migrated from v0.0.0)",
-      "breaking_changes": true,
-      "sdk_version": "0.1.0"
+      "sdk_version": "1.0.0",
+      "status": "deprecated",
+      "migration_path": "Automatic migration to v2.0 available"
     }
+  },
+  "compatibility": {
+    "v2.0": {
+      "supports": ["2.0"],
+      "migrates_from": ["1.0"],
+      "notes": "Native v2.0 support with automatic v1.0 migration"
+    },
+    "v1.0": {
+      "supports": ["1.0"],
+      "migrates_from": [],
+      "notes": "Legacy support - deprecated, upgrade to v2.0 recommended"
+    }
+  },
+  "migration_notes": {
+    "v0.0_removal": "v0.0 schema support completely removed in SDK v2.0.0. Use SDK v1.x to migrate v0.0 plans to v1.0 first.",
+    "automatic_migration": "v1.0 plans are automatically migrated to v2.0 during load operations",
+    "new_fields": "All new v2.0 fields are optional to ensure smooth migration from v1.0"
   }
 }

@@ -5,18 +5,19 @@ A lightweight, open-source Python SDK for interacting with the open data
 standard for media plans.
 """
 
-# Central Version Definitions
-__version__ = '1.0.0'          # SDK version
-__schema_version__ = '1.0'     # Current schema version supported
+# Central Version Definitions - Updated for v2.0
+__version__ = '2.0.0'          # SDK version - Updated to v2.0.0
+__schema_version__ = '2.0'     # Current schema version supported - Updated to v2.0
 
 VERSION_NOTES = {
-    '1.0.0': 'Initial v1 release with new versioning strategy - Schema 1.0'
+    '1.0.0': 'v1.0 schema support with new versioning strategy - Schema 1.0',
+    '2.0.0': 'v2.0 schema support with v1.0 backwards compatibility - v0.0 support removed'
 }
 
-# Schema version compatibility constants
-CURRENT_MAJOR = 1
+# Schema version compatibility constants - Updated for v2.0
+CURRENT_MAJOR = 2
 CURRENT_MINOR = 0
-SUPPORTED_MAJOR_VERSIONS = [0, 1]  # Support current and 1 major version back
+SUPPORTED_MAJOR_VERSIONS = [1, 2]  # v0.0 no longer supported - only v1.0 and v2.0
 
 # Setup package-level logger
 import logging

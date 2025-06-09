@@ -3,6 +3,7 @@ Version utility functions for mediaplanpy schema version handling.
 
 This module provides utilities for comparing, validating, and determining
 compatibility between different schema versions using the new 2-digit format.
+Updated for SDK v2.0 with v0.0 support completely removed.
 """
 
 import re
@@ -12,14 +13,14 @@ from mediaplanpy.exceptions import SchemaVersionError
 
 logger = logging.getLogger("mediaplanpy.schema.version_utils")
 
-# Import version constants from main module
+# Import version constants from main module - Updated for v2.0
 try:
     from mediaplanpy import CURRENT_MAJOR, CURRENT_MINOR, SUPPORTED_MAJOR_VERSIONS
 except ImportError:
-    # Fallback values if importing from main module fails
+    # Fallback values if importing from main module fails - Updated for v2.0
     CURRENT_MAJOR = 2
     CURRENT_MINOR = 0
-    SUPPORTED_MAJOR_VERSIONS = [1, 2]
+    SUPPORTED_MAJOR_VERSIONS = [1, 2]  # v0.0 no longer supported
 
 
 def parse_version(version: str) -> Tuple[int, int]:
@@ -27,6 +28,7 @@ def parse_version(version: str) -> Tuple[int, int]:
     Parse a schema version string into major and minor components.
 
     Supports both old format (v1.0.0) and new format (1.0).
+    IMPORTANT: v0.0 versions are no longer supported and will raise an error.
 
     Args:
         version: Version string to parse (e.g., "2.0", "1.0", "v1.0.0")
@@ -35,7 +37,7 @@ def parse_version(version: str) -> Tuple[int, int]:
         Tuple of (major, minor) version numbers
 
     Raises:
-        SchemaVersionError: If version format is invalid
+        SchemaVersionError: If version format is invalid or v0.0 is detected
     """
     if not version:
         raise SchemaVersionError("Version string cannot be empty")
@@ -52,6 +54,14 @@ def parse_version(version: str) -> Tuple[int, int]:
     try:
         major = int(parts[0])
         minor = int(parts[1])
+
+        # CRITICAL: Reject v0.0 versions completely
+        if major == 0:
+            raise SchemaVersionError(
+                f"Schema version {version} (v0.0.x) is no longer supported in SDK v2.0. "
+                f"Please use SDK v1.x to migrate v0.0 plans to v1.0 first, then upgrade to SDK v2.0."
+            )
+
         # Ignore patch version if present (backwards compatibility)
         return (major, minor)
     except ValueError:
@@ -67,6 +77,9 @@ def get_major(version: str) -> int:
 
     Returns:
         Major version number
+
+    Raises:
+        SchemaVersionError: If version is v0.0 or invalid
     """
     major, _ = parse_version(version)
     return major
@@ -81,6 +94,9 @@ def get_minor(version: str) -> int:
 
     Returns:
         Minor version number
+
+    Raises:
+        SchemaVersionError: If version is v0.0 or invalid
     """
     _, minor = parse_version(version)
     return minor
@@ -98,6 +114,9 @@ def compare_versions(v1: str, v2: str) -> int:
         -1 if v1 < v2
          0 if v1 == v2
          1 if v1 > v2
+
+    Raises:
+        SchemaVersionError: If either version is v0.0 or invalid
     """
     major1, minor1 = parse_version(v1)
     major2, minor2 = parse_version(v2)
@@ -123,16 +142,22 @@ def is_backwards_compatible(version: str) -> bool:
     A version is backwards compatible if:
     - It's the same major version but older or equal minor version
     - It's from a supported major version (within SUPPORTED_MAJOR_VERSIONS)
+    - It's NOT v0.0 (completely unsupported)
 
     Args:
         version: Schema version to check
 
     Returns:
-        True if version is backwards compatible
+        True if version is backwards compatible, False otherwise
     """
     try:
         major, minor = parse_version(version)
     except SchemaVersionError:
+        return False
+
+    # v0.0 is never backwards compatible (handled by parse_version rejection)
+    # This check is redundant but kept for clarity
+    if major == 0:
         return False
 
     # Check if major version is supported
@@ -156,12 +181,13 @@ def is_forward_minor(version: str) -> bool:
 
     A version is forward minor compatible if:
     - It's the same major version but newer minor version
+    - It's NOT v0.0 (completely unsupported)
 
     Args:
         version: Schema version to check
 
     Returns:
-        True if version is forward minor compatible
+        True if version is forward minor compatible, False otherwise
     """
     try:
         major, minor = parse_version(version)
@@ -177,23 +203,28 @@ def is_unsupported(version: str) -> bool:
     Check if a schema version is unsupported by current SDK.
 
     A version is unsupported if:
-    - It's from a major version too old (not in SUPPORTED_MAJOR_VERSIONS)
+    - It's v0.0 (completely removed in SDK v2.0)
+    - It's from a major version not in SUPPORTED_MAJOR_VERSIONS
     - It's from a future major version
 
     Args:
         version: Schema version to check
 
     Returns:
-        True if version is unsupported
+        True if version is unsupported, False otherwise
     """
     try:
         major, minor = parse_version(version)
     except SchemaVersionError:
-        # Invalid format is considered unsupported
+        # Invalid format or v0.0 is considered unsupported
         return True
 
-    # Too old (not in supported major versions)
-    if major < min(SUPPORTED_MAJOR_VERSIONS):
+    # v0.0 is unsupported (handled by parse_version, but explicit check for clarity)
+    if major == 0:
+        return True
+
+    # Not in supported major versions
+    if major not in SUPPORTED_MAJOR_VERSIONS:
         return True
 
     # Too new (future major version)
@@ -213,22 +244,33 @@ def get_compatibility_type(version: str) -> str:
     Returns:
         One of: "native", "forward_minor", "backward_compatible", "deprecated", "unsupported"
     """
+    # First check if it's v0.0 - always unsupported
+    try:
+        major, minor = parse_version(version)
+        if major == 0:
+            return "unsupported"
+    except SchemaVersionError:
+        return "unsupported"
+
     current_version = f"{CURRENT_MAJOR}.{CURRENT_MINOR}"
 
-    if compare_versions(version, current_version) == 0:
-        return "native"
-    elif is_forward_minor(version):
-        return "forward_minor"
-    elif is_backwards_compatible(version):
-        major, minor = parse_version(version)
-        if major < CURRENT_MAJOR:
-            return "deprecated"
+    try:
+        if compare_versions(version, current_version) == 0:
+            return "native"
+        elif is_forward_minor(version):
+            return "forward_minor"
+        elif is_backwards_compatible(version):
+            major, minor = parse_version(version)
+            if major < CURRENT_MAJOR:
+                return "deprecated"
+            else:
+                return "backward_compatible"
+        elif is_unsupported(version):
+            return "unsupported"
         else:
-            return "backward_compatible"
-    elif is_unsupported(version):
+            return "unknown"
+    except SchemaVersionError:
         return "unsupported"
-    else:
-        return "unknown"
 
 
 def get_migration_recommendation(version: str) -> dict:
@@ -241,6 +283,20 @@ def get_migration_recommendation(version: str) -> dict:
     Returns:
         Dictionary with migration recommendation details
     """
+    # Special handling for v0.0 versions
+    try:
+        major, minor = parse_version(version)
+        if major == 0:
+            return {
+                "action": "reject",
+                "message": f"Schema version {version} (v0.0.x) is no longer supported in SDK v2.0. Use SDK v1.x to migrate v0.0 plans to v1.0 first.",
+                "can_import": False,
+                "should_upgrade": True,
+                "error": "v0.0 support completely removed in SDK v2.0"
+            }
+    except SchemaVersionError:
+        pass
+
     compatibility = get_compatibility_type(version)
     current_version = f"{CURRENT_MAJOR}.{CURRENT_MINOR}"
 
@@ -273,7 +329,7 @@ def get_migration_recommendation(version: str) -> dict:
         },
         "unsupported": {
             "action": "reject",
-            "message": f"Schema version {version} is not supported by SDK version {current_version}",
+            "message": f"Schema version {version} is not supported by SDK v{current_version}",
             "can_import": False,
             "should_upgrade": True,
             "error": "Import will fail. Upgrade SDK or use compatible schema version"
@@ -300,24 +356,24 @@ def normalize_version(version: str) -> str:
         Normalized version string in X.Y format
 
     Raises:
-        SchemaVersionError: If version format is invalid
+        SchemaVersionError: If version format is invalid or is v0.0
     """
-    major, minor = parse_version(version)
+    major, minor = parse_version(version)  # This will reject v0.0
     return f"{major}.{minor}"
 
 
 def validate_version_format(version: str) -> bool:
     """
-    Validate that a version string follows the expected format.
+    Validate that a version string follows the expected format and is not v0.0.
 
     Args:
         version: Version string to validate
 
     Returns:
-        True if version format is valid
+        True if version format is valid and not v0.0, False otherwise
     """
     try:
-        parse_version(version)
+        parse_version(version)  # This will reject v0.0 and invalid formats
         return True
     except SchemaVersionError:
         return False
