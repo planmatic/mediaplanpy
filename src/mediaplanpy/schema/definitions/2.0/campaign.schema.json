@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign.schema.json",
+  "title": "Campaign",
+  "type": "object",
+  "required": ["id", "name", "start_date", "end_date", "budget_total"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the campaign"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the campaign"
+    },
+    "objective": {
+      "type": "string",
+      "description": "Primary marketing objective for the campaign (e.g., awareness, conversion, engagement)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Campaign start date in YYYY-MM-DD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Campaign end date in YYYY-MM-DD format"
+    },
+    "budget_currency": {
+      "type": "string",
+      "description": "Currency in which the budget of this campaign is expressed"
+    },
+    "budget_total": {
+      "type": "number",
+      "description": "Total budget allocated for the campaign in the base currency"
+    },
+    "agency_id": {
+      "type": "string",
+      "description": "Unique identifier for the agency managing the campaign"
+    },
+    "agency_name": {
+      "type": "string",
+      "description": "Name of the agency managing the campaign"
+    },
+    "advertiser_id": {
+      "type": "string",
+      "description": "Unique identifier for the advertiser/client"
+    },
+    "advertiser_name": {
+      "type": "string",
+      "description": "Name of the advertiser/client organization"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "Unique identifier for the product being advertised"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Name of the product being advertised"
+    },
+    "product_description": {
+      "type": "string",
+      "description": "Detailed description of the product being advertised"
+    },
+    "campaign_type_id": {
+      "type": "string",
+      "description": "Unique identifier for the campaign type classification"
+    },
+    "campaign_type_name": {
+      "type": "string",
+      "description": "Name of the campaign type (e.g., Brand Awareness, Performance, Retargeting)"
+    },
+	"audience_name": {
+      "type": "string",
+      "description": "Name of the primary target audience of this campaign"
+    },
+	"audience_age_start": {
+      "type": "integer",
+      "description": "Minimum age of the target audience (inclusive)"
+    },
+	"audience_age_end": {
+      "type": "integer",
+      "description": "Maximum age of the target audience (inclusive)"
+    },
+	"audience_gender": {
+		"type": "string",
+		"enum": ["Male", "Female", "Any"],
+        "description": "Target gender for the campaign audience"
+	},
+	"audience_interests": {
+	  "type": "array",
+	  "items": { "type": "string" },
+      "description": "List of interests and behaviors that define the target audience"
+	},
+    "location_type": {
+      "type": "string",
+      "enum": ["Country", "State"],
+      "description": "Geographic scope type for campaign targeting"
+    },
+	"locations": {
+	  "type": "array",
+	  "items": { "type": "string" },
+      "description": "List of geographic locations where the campaign will run (countries or states based on location_type)"
+	},
+    "workflow_status_id": {
+      "type": "string",
+      "description": "Unique identifier for the current workflow status"
+    },
+    "workflow_status_name": {
+      "type": "string",
+      "description": "Human-readable name of the current workflow status (e.g., Draft, Approved, Live, Paused, Completed)"
+    }
+  }
+}

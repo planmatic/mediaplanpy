@@ -1,0 +1,331 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lineitem.schema.json",
+  "title": "Line Item",
+  "type": "object",
+  "required": ["id", "name", "start_date", "end_date", "cost_total"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the line item"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the line item"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Line item start date in YYYY-MM-DD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Line item end date in YYYY-MM-DD format"
+    },
+
+	"channel": {
+      "type": "string",
+      "description": "Media channel for the line item (e.g., Digital, TV, Radio, Print)"
+    },
+	"channel_custom": {
+      "type": "string",
+      "description": "Custom channel specification when standard channel options don't apply"
+    },
+	"vehicle": {
+      "type": "string",
+      "description": "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)"
+    },
+	"vehicle_custom": {
+      "type": "string",
+      "description": "Custom vehicle specification when standard vehicle options don't apply"
+    },
+	"partner": {
+      "type": "string",
+      "description": "Media partner or vendor handling the placement"
+    },
+	"partner_custom": {
+      "type": "string",
+      "description": "Custom partner specification when standard partner options don't apply"
+    },
+	"media_product": {
+      "type": "string",
+      "description": "Specific media product or ad unit being purchased"
+    },
+	"media_product_custom": {
+      "type": "string",
+      "description": "Custom media product specification when standard options don't apply"
+    },
+	"location_type": {
+      "type": "string",
+      "enum": ["Country", "State"],
+      "description": "Geographic scope type for the line item targeting"
+    },
+	"location_name": {
+      "type": "string",
+      "description": "Name of the geographic location being targeted"
+    },
+	"target_audience": {
+      "type": "string",
+      "description": "Description of the target audience for this line item"
+    },
+	"adformat": {
+      "type": "string",
+      "description": "Creative format or ad type (e.g., Banner, Video, Native)"
+    },
+	"adformat_custom": {
+      "type": "string",
+      "description": "Custom ad format specification when standard formats don't apply"
+    },
+	"kpi": {
+      "type": "string",
+      "description": "Primary key performance indicator for the line item"
+    },
+	"kpi_custom": {
+      "type": "string",
+      "description": "Custom KPI specification when standard KPIs don't apply"
+    },
+	"dayparts": {
+      "type": "string",
+      "description": "Time periods when the ad should run (e.g., Primetime, Morning, All Day)"
+    },
+	"dayparts_custom": {
+      "type": "string",
+      "description": "Custom daypart specification when standard dayparts don't apply"
+    },
+	"inventory": {
+      "type": "string",
+      "description": "Type of inventory or placement being purchased"
+    },
+	"inventory_custom": {
+      "type": "string",
+      "description": "Custom inventory specification when standard inventory types don't apply"
+    },
+
+	"dim_custom1": {
+      "type": "string",
+      "description": "Custom dimension field 1 - configuration defined in dictionary schema"
+    },
+	"dim_custom2": {
+      "type": "string",
+      "description": "Custom dimension field 2 - configuration defined in dictionary schema"
+    },
+	"dim_custom3": {
+      "type": "string",
+      "description": "Custom dimension field 3 - configuration defined in dictionary schema"
+    },
+	"dim_custom4": {
+      "type": "string",
+      "description": "Custom dimension field 4 - configuration defined in dictionary schema"
+    },
+	"dim_custom5": {
+      "type": "string",
+      "description": "Custom dimension field 5 - configuration defined in dictionary schema"
+    },
+	"dim_custom6": {
+      "type": "string",
+      "description": "Custom dimension field 6 - configuration defined in dictionary schema"
+    },
+	"dim_custom7": {
+      "type": "string",
+      "description": "Custom dimension field 7 - configuration defined in dictionary schema"
+    },
+	"dim_custom8": {
+      "type": "string",
+      "description": "Custom dimension field 8 - configuration defined in dictionary schema"
+    },
+	"dim_custom9": {
+      "type": "string",
+      "description": "Custom dimension field 9 - configuration defined in dictionary schema"
+    },
+	"dim_custom10": {
+      "type": "string",
+      "description": "Custom dimension field 10 - configuration defined in dictionary schema"
+    },
+
+	"cost_currency": {
+      "type": "string",
+      "description": "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)"
+    },
+    "cost_total": {
+      "type": "number",
+      "description": "Total cost for the line item including all cost components"
+    },
+    "cost_media": {
+      "type": "number",
+      "description": "Media cost component (working media spend)"
+    },
+    "cost_buying": {
+      "type": "number",
+      "description": "Media buying/trading cost component"
+    },
+    "cost_platform": {
+      "type": "number",
+      "description": "Platform or technology cost component"
+    },
+    "cost_data": {
+      "type": "number",
+      "description": "Data cost component (audience data, targeting data, etc.)"
+    },
+    "cost_creative": {
+      "type": "number",
+      "description": "Creative production and development cost component"
+    },
+
+    "cost_custom1": {
+      "type": "number",
+      "description": "Custom cost field 1 - configuration defined in dictionary schema"
+    },
+    "cost_custom2": {
+      "type": "number",
+      "description": "Custom cost field 2 - configuration defined in dictionary schema"
+    },
+    "cost_custom3": {
+      "type": "number",
+      "description": "Custom cost field 3 - configuration defined in dictionary schema"
+    },
+    "cost_custom4": {
+      "type": "number",
+      "description": "Custom cost field 4 - configuration defined in dictionary schema"
+    },
+    "cost_custom5": {
+      "type": "number",
+      "description": "Custom cost field 5 - configuration defined in dictionary schema"
+    },
+    "cost_custom6": {
+      "type": "number",
+      "description": "Custom cost field 6 - configuration defined in dictionary schema"
+    },
+    "cost_custom7": {
+      "type": "number",
+      "description": "Custom cost field 7 - configuration defined in dictionary schema"
+    },
+    "cost_custom8": {
+      "type": "number",
+      "description": "Custom cost field 8 - configuration defined in dictionary schema"
+    },
+    "cost_custom9": {
+      "type": "number",
+      "description": "Custom cost field 9 - configuration defined in dictionary schema"
+    },
+    "cost_custom10": {
+      "type": "number",
+      "description": "Custom cost field 10 - configuration defined in dictionary schema"
+    },
+
+    "metric_impressions": {
+      "type": "number",
+      "description": "Number of ad impressions delivered or planned"
+    },
+    "metric_clicks": {
+      "type": "number",
+      "description": "Number of clicks on the ad"
+    },
+    "metric_views": {
+      "type": "number",
+      "description": "Number of video views or content views"
+    },
+    "metric_engagements": {
+      "type": "number",
+      "description": "Number of user engagements (likes, shares, comments, etc.)"
+    },
+    "metric_followers": {
+      "type": "number",
+      "description": "Number of new followers gained"
+    },
+    "metric_visits": {
+      "type": "number",
+      "description": "Number of website visits or page visits"
+    },
+    "metric_leads": {
+      "type": "number",
+      "description": "Number of leads generated"
+    },
+    "metric_sales": {
+      "type": "number",
+      "description": "Number of sales or purchases"
+    },
+    "metric_add_to_cart": {
+      "type": "number",
+      "description": "Number of add-to-cart actions"
+    },
+    "metric_app_install": {
+      "type": "number",
+      "description": "Number of app installations"
+    },
+    "metric_application_start": {
+      "type": "number",
+      "description": "Number of application forms started"
+    },
+    "metric_application_complete": {
+      "type": "number",
+      "description": "Number of application forms completed"
+    },
+    "metric_contact_us": {
+      "type": "number",
+      "description": "Number of contact form submissions or contact actions"
+    },
+    "metric_download": {
+      "type": "number",
+      "description": "Number of downloads (files, apps, content)"
+    },
+    "metric_signup": {
+      "type": "number",
+      "description": "Number of signups or registrations"
+    },
+    "metric_max_daily_spend": {
+      "type": "number",
+      "description": "Maximum daily spend limit for the line item"
+    },
+    "metric_max_daily_impressions": {
+      "type": "number",
+      "description": "Maximum daily impressions limit for the line item"
+    },
+    "metric_audience_size": {
+      "type": "number",
+      "description": "Size of the targetable audience for this line item"
+    },
+
+    "metric_custom1": {
+      "type": "number",
+      "description": "Custom metric field 1 - configuration defined in dictionary schema"
+    },
+    "metric_custom2": {
+      "type": "number",
+      "description": "Custom metric field 2 - configuration defined in dictionary schema"
+    },
+    "metric_custom3": {
+      "type": "number",
+      "description": "Custom metric field 3 - configuration defined in dictionary schema"
+    },
+    "metric_custom4": {
+      "type": "number",
+      "description": "Custom metric field 4 - configuration defined in dictionary schema"
+    },
+    "metric_custom5": {
+      "type": "number",
+      "description": "Custom metric field 5 - configuration defined in dictionary schema"
+    },
+    "metric_custom6": {
+      "type": "number",
+      "description": "Custom metric field 6 - configuration defined in dictionary schema"
+    },
+    "metric_custom7": {
+      "type": "number",
+      "description": "Custom metric field 7 - configuration defined in dictionary schema"
+    },
+    "metric_custom8": {
+      "type": "number",
+      "description": "Custom metric field 8 - configuration defined in dictionary schema"
+    },
+    "metric_custom9": {
+      "type": "number",
+      "description": "Custom metric field 9 - configuration defined in dictionary schema"
+    },
+    "metric_custom10": {
+      "type": "number",
+      "description": "Custom metric field 10 - configuration defined in dictionary schema"
+    }
+
+  }
+}
