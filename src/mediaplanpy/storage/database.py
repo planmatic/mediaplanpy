@@ -1,8 +1,26 @@
 """
-Enhanced PostgreSQL backend for mediaplanpy with 2-digit version support.
+Enhanced PostgreSQL backend for mediaplanpy with comprehensive v2.0 schema support.
 
-This module provides PostgreSQL database integration with proper version handling,
-migration logic, and compatibility checks for the new 2-digit versioning strategy.
+This module provides PostgreSQL database integration with full v2.0 field support,
+enhanced version validation, migration logic, and v0.0 rejection for the new
+2-digit versioning strategy.
+
+Key Features:
+- Full support for all v2.0 schema fields including:
+  * New campaign fields (agency, advertiser, campaign type, workflow status)
+  * New lineitem fields (currency, dayparts, inventory, 17 new metrics)
+  * New meta fields (created_by_id/name, status flags, parent_id)
+- Enhanced version validation with 2-digit format support
+- Automatic migration from v1.0.0 format to v2.0 format
+- Complete rejection of v0.0 schema versions (no longer supported)
+- Database constraints to enforce version compatibility
+- Performance indexes for v2.0 fields
+- Comprehensive validation and statistics methods
+
+Version Compatibility:
+- Supports: v1.0, v2.0 (with automatic normalization)
+- Rejects: v0.0.x (completely unsupported in SDK v2.0)
+- Migrates: v1.0.0 -> 1.0, v2.0.0 -> 2.0 (3-digit to 2-digit format)
 """
 
 import os
@@ -14,7 +32,6 @@ import pandas as pd
 from mediaplanpy.exceptions import StorageError, DatabaseError
 
 logger = logging.getLogger("mediaplanpy.storage.database")
-
 
 class PostgreSQLBackend:
     """
@@ -151,7 +168,7 @@ class PostgreSQLBackend:
     def get_table_schema(self) -> List[Tuple[str, str]]:
         """
         Define the table schema matching Parquet export format plus workspace fields.
-        Updated to properly handle 2-digit schema versions.
+        Updated to properly handle 2-digit schema versions and new v2.0 fields.
 
         Returns:
             List of (column_name, column_type) tuples.
@@ -162,15 +179,22 @@ class PostgreSQLBackend:
             ('workspace_id', 'VARCHAR(255) NOT NULL'),
             ('workspace_name', 'VARCHAR(255) NOT NULL'),
 
-            # Meta fields - updated for 2-digit version support
+            # Meta fields - updated for v2.0 support
             ('meta_id', 'VARCHAR(255) NOT NULL'),
             ('meta_schema_version', 'VARCHAR(10)'),  # Reduced size for 2-digit versions (e.g., "1.0")
-            ('meta_created_by', 'VARCHAR(255)'),
+            ('meta_created_by', 'VARCHAR(255)'),  # Legacy field for backward compatibility
             ('meta_created_at', 'TIMESTAMP'),
             ('meta_name', 'VARCHAR(255)'),
             ('meta_comments', 'TEXT'),
 
-            # Campaign fields
+            # NEW v2.0 meta fields
+            ('meta_created_by_id', 'VARCHAR(255)'),
+            ('meta_created_by_name', 'VARCHAR(255)'),  # Required in v2.0
+            ('meta_is_current', 'BOOLEAN'),
+            ('meta_is_archived', 'BOOLEAN'),
+            ('meta_parent_id', 'VARCHAR(255)'),
+
+            # Campaign fields - existing v1.0 fields
             ('campaign_id', 'VARCHAR(255) NOT NULL'),
             ('campaign_name', 'VARCHAR(255)'),
             ('campaign_objective', 'TEXT'),
@@ -187,7 +211,19 @@ class PostgreSQLBackend:
             ('campaign_location_type', 'VARCHAR(50)'),
             ('campaign_locations', 'TEXT'),  # JSON string
 
-            # Line item fields
+            # NEW v2.0 Campaign fields
+            ('campaign_budget_currency', 'VARCHAR(10)'),
+            ('campaign_agency_id', 'VARCHAR(255)'),
+            ('campaign_agency_name', 'VARCHAR(255)'),
+            ('campaign_advertiser_id', 'VARCHAR(255)'),
+            ('campaign_advertiser_name', 'VARCHAR(255)'),
+            ('campaign_product_id', 'VARCHAR(255)'),
+            ('campaign_campaign_type_id', 'VARCHAR(255)'),
+            ('campaign_campaign_type_name', 'VARCHAR(255)'),
+            ('campaign_workflow_status_id', 'VARCHAR(255)'),
+            ('campaign_workflow_status_name', 'VARCHAR(255)'),
+
+            # Line item fields - existing v1.0 fields
             ('lineitem_id', 'VARCHAR(255) NOT NULL DEFAULT \'placeholder\''),
             ('lineitem_name', 'VARCHAR(255)'),
             ('lineitem_start_date', 'DATE'),
@@ -208,13 +244,20 @@ class PostgreSQLBackend:
             ('lineitem_adformat_custom', 'VARCHAR(255)'),
             ('lineitem_kpi', 'VARCHAR(100)'),
             ('lineitem_kpi_custom', 'VARCHAR(255)'),
+
+            # NEW v2.0 Line item fields
+            ('lineitem_cost_currency', 'VARCHAR(10)'),
+            ('lineitem_dayparts', 'VARCHAR(255)'),
+            ('lineitem_dayparts_custom', 'VARCHAR(255)'),
+            ('lineitem_inventory', 'VARCHAR(255)'),
+            ('lineitem_inventory_custom', 'VARCHAR(255)'),
         ]
 
         # Add custom dimension fields
         for i in range(1, 11):
             schema.append((f'lineitem_dim_custom{i}', 'VARCHAR(255)'))
 
-        # Add cost fields
+        # Add existing v1.0 cost fields
         cost_fields = [
             'lineitem_cost_media', 'lineitem_cost_buying', 'lineitem_cost_platform',
             'lineitem_cost_data', 'lineitem_cost_creative'
@@ -226,11 +269,22 @@ class PostgreSQLBackend:
         for i in range(1, 11):
             schema.append((f'lineitem_cost_custom{i}', 'DECIMAL(15,2)'))
 
-        # Add metric fields
-        metric_fields = [
+        # Add existing v1.0 metric fields
+        existing_metric_fields = [
             'lineitem_metric_impressions', 'lineitem_metric_clicks', 'lineitem_metric_views'
         ]
-        for field in metric_fields:
+        for field in existing_metric_fields:
+            schema.append((field, 'DECIMAL(15,2)'))
+
+        # Add NEW v2.0 standard metric fields (17 new metrics)
+        new_metric_fields = [
+            'lineitem_metric_engagements', 'lineitem_metric_followers', 'lineitem_metric_visits',
+            'lineitem_metric_leads', 'lineitem_metric_sales', 'lineitem_metric_add_to_cart',
+            'lineitem_metric_app_install', 'lineitem_metric_application_start', 'lineitem_metric_application_complete',
+            'lineitem_metric_contact_us', 'lineitem_metric_download', 'lineitem_metric_signup',
+            'lineitem_metric_max_daily_spend', 'lineitem_metric_max_daily_impressions', 'lineitem_metric_audience_size'
+        ]
+        for field in new_metric_fields:
             schema.append((field, 'DECIMAL(15,2)'))
 
         # Add custom metric fields
@@ -299,6 +353,7 @@ class PostgreSQLBackend:
         1. Finds records with old 3-digit versions (v1.0.0 -> 1.0)
         2. Updates them to 2-digit format
         3. Validates version compatibility
+        4. Rejects any v0.0 records (no longer supported)
 
         Returns:
             Dictionary with migration results
@@ -306,6 +361,7 @@ class PostgreSQLBackend:
         migration_result = {
             "records_found": 0,
             "records_migrated": 0,
+            "v0_records_rejected": 0,
             "errors": []
         }
 
@@ -324,6 +380,19 @@ class PostgreSQLBackend:
 
                     for version, count in version_counts:
                         migration_result["records_found"] += count
+
+                        # Check for v0.0 records - these need to be rejected
+                        if version and (version.startswith('0.') or version.startswith('v0.')):
+                            # Count and log v0.0 records, but don't migrate them
+                            migration_result["v0_records_rejected"] += count
+                            error_msg = (
+                                f"Found {count} records with unsupported schema version '{version}' (v0.0.x). "
+                                f"These records cannot be migrated in SDK v2.0. "
+                                f"Use SDK v1.x to migrate v0.0 plans to v1.0 first."
+                            )
+                            migration_result["errors"].append(error_msg)
+                            logger.error(error_msg)
+                            continue
 
                         # Check if this is a 3-digit version that needs migration
                         if version and (version.startswith('v') and version.count('.') >= 2):
@@ -346,7 +415,8 @@ class PostgreSQLBackend:
                                 updated_count = cursor.rowcount
                                 migration_result["records_migrated"] += updated_count
 
-                                logger.info(f"Migrated {updated_count} records from version '{version}' to '{normalized_version}'")
+                                logger.info(
+                                    f"Migrated {updated_count} records from version '{version}' to '{normalized_version}'")
 
                             except Exception as e:
                                 error_msg = f"Failed to migrate version '{version}': {str(e)}"
@@ -401,7 +471,7 @@ class PostgreSQLBackend:
     def create_table(self) -> None:
         """
         Create the media plans table if it doesn't exist.
-        Updated to include version compatibility triggers.
+        Updated to include version compatibility triggers and v2.0 field support.
 
         Raises:
             DatabaseError: If table creation fails.
@@ -428,6 +498,10 @@ class PostgreSQLBackend:
                 CONSTRAINT valid_schema_version CHECK (
                     meta_schema_version IS NULL OR 
                     meta_schema_version ~ '^[0-9]+\\.[0-9]+$'
+                ),
+                CONSTRAINT no_v0_versions CHECK (
+                    meta_schema_version IS NULL OR 
+                    NOT (meta_schema_version ~ '^v?0\\.')
                 )
             )
             """
@@ -441,6 +515,23 @@ class PostgreSQLBackend:
                         CREATE INDEX IF NOT EXISTS idx_{self.table_name}_schema_version 
                         ON {self.schema}.{self.table_name} (meta_schema_version)
                     """)
+
+                    # Create additional indexes for v2.0 fields that might be queried frequently
+                    v2_indexes = [
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_campaign_type ON {self.schema}.{self.table_name} (campaign_campaign_type_id)",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_workflow_status ON {self.schema}.{self.table_name} (campaign_workflow_status_id)",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_agency ON {self.schema}.{self.table_name} (campaign_agency_id)",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_advertiser ON {self.schema}.{self.table_name} (campaign_advertiser_id)",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_created_by_id ON {self.schema}.{self.table_name} (meta_created_by_id)",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_current_plans ON {self.schema}.{self.table_name} (meta_is_current) WHERE meta_is_current = true",
+                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_active_plans ON {self.schema}.{self.table_name} (meta_is_archived) WHERE meta_is_archived = false OR meta_is_archived IS NULL"
+                    ]
+
+                    for index_sql in v2_indexes:
+                        try:
+                            cursor.execute(index_sql)
+                        except Exception as e:
+                            logger.warning(f"Could not create index: {e}")
 
                     # Create trigger to update updated_at timestamp
                     cursor.execute(f"""
@@ -461,7 +552,7 @@ class PostgreSQLBackend:
 
                     conn.commit()
 
-            logger.info(f"Created table {self.schema}.{self.table_name} with version constraints")
+            logger.info(f"Created table {self.schema}.{self.table_name} with version constraints and v2.0 support")
 
         except Exception as e:
             raise DatabaseError(f"Failed to create table: {e}")
@@ -469,6 +560,7 @@ class PostgreSQLBackend:
     def ensure_table_exists(self) -> None:
         """
         Ensure the media plans table exists, creating it if necessary.
+        Updated to handle v2.0 schema migration.
 
         Raises:
             DatabaseError: If auto_create_table is False and table doesn't exist.
@@ -485,6 +577,9 @@ class PostgreSQLBackend:
             migration_result = self.migrate_existing_data()
             if migration_result["records_migrated"] > 0:
                 logger.info(f"Migrated {migration_result['records_migrated']} existing records to 2-digit versioning")
+            if migration_result["v0_records_rejected"] > 0:
+                logger.warning(
+                    f"Found {migration_result['v0_records_rejected']} unsupported v0.0 records that could not be migrated")
 
     def delete_media_plan(self, meta_id: str, workspace_id: str) -> int:
         """
@@ -520,7 +615,7 @@ class PostgreSQLBackend:
 
     def insert_media_plan(self, flattened_data: pd.DataFrame, workspace_id: str, workspace_name: str) -> int:
         """
-        Insert media plan data with version validation.
+        Insert media plan data with enhanced v2.0 version validation and field support.
 
         Args:
             flattened_data: DataFrame with media plan data
@@ -547,12 +642,21 @@ class PostgreSQLBackend:
             if 'meta_schema_version' in df.columns:
                 for schema_version in df['meta_schema_version'].dropna().unique():
                     try:
-                        self.validate_schema_version(str(schema_version))
+                        # Check for v0.0 versions and reject them
+                        version_str = str(schema_version)
+                        if version_str.startswith('0.') or version_str.startswith('v0.'):
+                            raise DatabaseError(
+                                f"Schema version '{version_str}' (v0.0.x) is not supported in SDK v2.0. "
+                                f"Use SDK v1.x to migrate v0.0 plans to v1.0 first."
+                            )
+
+                        # Validate the version
+                        self.validate_schema_version(version_str)
                     except DatabaseError as e:
                         logger.error(f"Schema version validation failed: {e}")
                         raise
 
-            # Get table schema to ensure column order
+            # Get table schema to ensure column order and handle new v2.0 fields
             schema_def = self.get_table_schema()
             expected_columns = [col_name for col_name, _ in schema_def]
 
@@ -564,9 +668,9 @@ class PostgreSQLBackend:
             # Reorder columns to match schema
             df = df[expected_columns]
 
-            # Convert numpy types to Python types
+            # Enhanced data type conversion for v2.0 fields
             def fix_numpy_types(values_list):
-                """Convert numpy types to Python types."""
+                """Convert numpy types to Python types with enhanced v2.0 support."""
                 import numpy as np
                 import pandas as pd
 
@@ -578,6 +682,8 @@ class PostgreSQLBackend:
                             fixed_row.append(int(val))
                         elif isinstance(val, (np.floating, np.float32, np.float64)):
                             fixed_row.append(float(val))
+                        elif isinstance(val, (np.bool_, bool)):
+                            fixed_row.append(bool(val))
                         elif pd.isna(val):
                             fixed_row.append(None)
                         else:
@@ -605,7 +711,7 @@ class PostgreSQLBackend:
                     rows_inserted = cursor.rowcount
                     conn.commit()
 
-            logger.info(f"Inserted {rows_inserted} rows for media plan")
+            logger.info(f"Inserted {rows_inserted} rows for media plan with v2.0 schema support")
             return rows_inserted
 
         except Exception as e:
@@ -613,7 +719,7 @@ class PostgreSQLBackend:
 
     def validate_schema(self) -> List[str]:
         """
-        Validate that the database table schema matches expectations.
+        Validate that the database table schema matches expectations for v2.0.
 
         Returns:
             List of validation error messages, empty if validation succeeds.
@@ -637,23 +743,54 @@ class PostgreSQLBackend:
 
                     actual_columns = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
 
-            # Get expected schema
+            # Get expected schema for v2.0
             expected_schema = self.get_table_schema()
             expected_columns = {col_name for col_name, _ in expected_schema}
 
-            # Check for missing columns
+            # Check for missing v2.0 columns
             missing_columns = expected_columns - set(actual_columns.keys())
             if missing_columns:
-                errors.append(f"Missing columns: {', '.join(missing_columns)}")
+                v2_missing = []
+                v1_missing = []
+
+                # Categorize missing columns
+                v2_new_fields = [
+                    'campaign_budget_currency', 'campaign_agency_id', 'campaign_agency_name',
+                    'campaign_advertiser_id', 'campaign_advertiser_name', 'campaign_product_id',
+                    'campaign_campaign_type_id', 'campaign_campaign_type_name',
+                    'campaign_workflow_status_id', 'campaign_workflow_status_name',
+                    'lineitem_cost_currency', 'lineitem_dayparts', 'lineitem_dayparts_custom',
+                    'lineitem_inventory', 'lineitem_inventory_custom',
+                    'meta_created_by_id', 'meta_created_by_name', 'meta_is_current',
+                    'meta_is_archived', 'meta_parent_id',
+                    'lineitem_metric_engagements', 'lineitem_metric_followers', 'lineitem_metric_visits',
+                    'lineitem_metric_leads', 'lineitem_metric_sales', 'lineitem_metric_add_to_cart',
+                    'lineitem_metric_app_install', 'lineitem_metric_application_start',
+                    'lineitem_metric_application_complete', 'lineitem_metric_contact_us',
+                    'lineitem_metric_download', 'lineitem_metric_signup', 'lineitem_metric_max_daily_spend',
+                    'lineitem_metric_max_daily_impressions', 'lineitem_metric_audience_size'
+                ]
+
+                for col in missing_columns:
+                    if col in v2_new_fields:
+                        v2_missing.append(col)
+                    else:
+                        v1_missing.append(col)
+
+                if v2_missing:
+                    errors.append(f"Missing v2.0 columns: {', '.join(v2_missing)}")
+                if v1_missing:
+                    errors.append(f"Missing v1.0 columns: {', '.join(v1_missing)}")
 
             # Check for extra columns (informational, not an error)
             extra_columns = set(actual_columns.keys()) - expected_columns
             if extra_columns:
                 logger.info(f"Extra columns in table: {', '.join(extra_columns)}")
 
-            # Check version constraint exists
+            # Check version constraints exist
             with self.connect() as conn:
                 with conn.cursor() as cursor:
+                    # Check for schema version validation constraint
                     cursor.execute("""
                         SELECT constraint_name 
                         FROM information_schema.table_constraints 
@@ -664,6 +801,18 @@ class PostgreSQLBackend:
 
                     if not cursor.fetchone():
                         errors.append("Missing schema version validation constraint")
+
+                    # Check for v0.0 rejection constraint
+                    cursor.execute("""
+                        SELECT constraint_name 
+                        FROM information_schema.table_constraints 
+                        WHERE table_schema = %s AND table_name = %s 
+                        AND constraint_type = 'CHECK'
+                        AND constraint_name = 'no_v0_versions'
+                    """, (self.schema, self.table_name))
+
+                    if not cursor.fetchone():
+                        errors.append("Missing v0.0 version rejection constraint")
 
         except Exception as e:
             errors.append(f"Schema validation failed: {e}")
@@ -684,13 +833,15 @@ class PostgreSQLBackend:
         Get statistics about schema versions in the database.
 
         Returns:
-            Dictionary with version statistics
+            Dictionary with version statistics and v2.0 compatibility info
         """
         stats = {
             "total_records": 0,
             "version_distribution": {},
             "invalid_versions": [],
-            "migration_needed": False
+            "v0_records_found": 0,
+            "migration_needed": False,
+            "v2_field_usage": {}
         }
 
         try:
@@ -717,6 +868,37 @@ class PostgreSQLBackend:
                                 stats["migration_needed"] = True
                                 if version not in stats["invalid_versions"]:
                                     stats["invalid_versions"].append(version)
+
+                            # Check for v0.0 versions (should be rejected)
+                            if version.startswith('0.') or version.startswith('v0.'):
+                                stats["v0_records_found"] += count
+
+                    # Analyze usage of new v2.0 fields
+                    v2_fields_to_check = [
+                        # New campaign fields
+                        'campaign_budget_currency', 'campaign_agency_id', 'campaign_advertiser_id',
+                        'campaign_product_id', 'campaign_campaign_type_id', 'campaign_workflow_status_id',
+                        # New lineitem fields
+                        'lineitem_cost_currency', 'lineitem_dayparts', 'lineitem_inventory',
+                        # New meta fields
+                        'meta_created_by_id', 'meta_is_current', 'meta_is_archived', 'meta_parent_id',
+                        # Sample of new metrics
+                        'lineitem_metric_engagements', 'lineitem_metric_leads', 'lineitem_metric_sales'
+                    ]
+
+                    for field in v2_fields_to_check:
+                        try:
+                            cursor.execute(f"""
+                                SELECT COUNT(*) 
+                                FROM {self.schema}.{self.table_name} 
+                                WHERE {field} IS NOT NULL AND {field} != ''
+                            """)
+                            usage_count = cursor.fetchone()[0]
+                            if usage_count > 0:
+                                stats["v2_field_usage"][field] = usage_count
+                        except Exception:
+                            # Field might not exist in older schemas
+                            pass
 
         except Exception as e:
             logger.error(f"Failed to get version statistics: {e}")
