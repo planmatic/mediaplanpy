@@ -106,14 +106,14 @@ class WorkspaceManager:
 
         workspace_settings = migrated_config['workspace_settings']
 
-        # Set default values for workspace_settings if not present
+        # Set default values for workspace_settings if not present - UPDATED FOR v2.0
         from mediaplanpy import __schema_version__
-        current_schema_version = __schema_version__
+        current_schema_version = __schema_version__  # This will be "2.0"
 
         defaults = {
-            'schema_version': current_schema_version,
+            'schema_version': current_schema_version,  # Now defaults to "2.0"
             'last_upgraded': datetime.now().strftime("%Y-%m-%d"),
-            'sdk_version_required': f"{current_schema_version.split('.')[0]}.0.x"
+            'sdk_version_required': f"{current_schema_version.split('.')[0]}.0.x"  # Now "2.0.x"
         }
 
         for key, default_value in defaults.items():
@@ -340,11 +340,12 @@ class WorkspaceManager:
 
         # Check if file exists
         if os.path.exists(settings_file_path) and not overwrite:
-            raise WorkspaceError(f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
+            raise WorkspaceError(
+                f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
 
-        # Create default configuration with new workspace_settings structure
+        # Create default configuration with new workspace_settings structure - UPDATED FOR v2.0
         from mediaplanpy import __schema_version__
-        current_schema_version = __schema_version__
+        current_schema_version = __schema_version__  # This will be "2.0"
 
         config = {
             "workspace_id": workspace_id,
@@ -359,9 +360,9 @@ class WorkspaceManager:
                 }
             },
             "workspace_settings": {
-                "schema_version": current_schema_version,
+                "schema_version": current_schema_version,  # Now defaults to "2.0"
                 "last_upgraded": datetime.now().strftime("%Y-%m-%d"),
-                "sdk_version_required": f"{current_schema_version.split('.')[0]}.0.x"
+                "sdk_version_required": f"{current_schema_version.split('.')[0]}.0.x"  # Now "2.0.x"
             },
             "database": {
                 "enabled": False
@@ -784,15 +785,19 @@ class WorkspaceManager:
         from mediaplanpy.schema.manager import SchemaManager
         return SchemaManager()
 
+    # Enhanced upgrade_workspace method in src/mediaplanpy/workspace/loader.py
+    # Replace the existing upgrade_workspace method:
+
     def upgrade_workspace(self, target_sdk_version: Optional[str] = None, dry_run: bool = False) -> Dict[str, Any]:
         """
-        Upgrade entire workspace to new SDK/Schema version.
+        Upgrade entire workspace to new SDK/Schema version with v2.0 support.
 
-        This method implements the workspace upgrade process described in the versioning strategy:
-        1. Upgrade all JSON media plans (auto-migration during load/save)
-        2. Regenerate all Parquet files with new schema
-        3. Upgrade database schema if PostgreSQL enabled
-        4. Update workspace settings with new version info
+        This method implements the workspace upgrade process for SDK v2.0:
+        1. Validate workspace compatibility and reject v0.0 plans
+        2. Upgrade all JSON media plans (v1.0 → v2.0 auto-migration)
+        3. Regenerate all Parquet files with new v2.0 schema
+        4. Upgrade database schema if PostgreSQL enabled
+        5. Update workspace settings with new version info
 
         Args:
             target_sdk_version: Target SDK version (defaults to current SDK version)
@@ -818,7 +823,7 @@ class WorkspaceManager:
         if target_sdk_version is None:
             target_sdk_version = __version__
 
-        target_schema_version = __schema_version__
+        target_schema_version = __schema_version__  # This will be "2.0"
 
         logger.info(f"Starting workspace upgrade to SDK {target_sdk_version}, Schema {target_schema_version}")
 
@@ -833,41 +838,66 @@ class WorkspaceManager:
             "database_upgraded": False,
             "workspace_updated": False,
             "parquet_files_regenerated": 0,
-            "json_files_migrated": 0
+            "json_files_migrated": 0,
+            "v0_files_rejected": 0,  # NEW: Track v0.0 rejections
+            "version_validation_errors": []  # NEW: Track version validation issues
         }
 
         try:
-            # Step 1: Upgrade all JSON media plans
+            # STEP 0: Pre-upgrade validation - reject v0.0 and validate compatibility
+            validation_result = self._validate_upgrade_compatibility(target_schema_version, dry_run)
+            result["v0_files_rejected"] = validation_result["v0_files_rejected"]
+            result["version_validation_errors"].extend(validation_result["errors"])
+            result["errors"].extend(validation_result["errors"])
+
+            # If we found v0.0 files, this is a blocking error
+            if validation_result["v0_files_rejected"] > 0:
+                error_msg = (
+                    f"Found {validation_result['v0_files_rejected']} media plan files with v0.0 schema. "
+                    f"v0.0 support has been removed in SDK v2.0. Please use SDK v1.x to migrate "
+                    f"v0.0 plans to v1.0 first, then upgrade to SDK v2.0."
+                )
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+
+                if not dry_run:
+                    raise WorkspaceError(error_msg)
+
+            # STEP 1: Upgrade all JSON media plans (v1.0 → v2.0)
             json_result = self._upgrade_json_mediaplans(target_schema_version, dry_run)
             result["json_files_migrated"] = json_result["migrated_count"]
             result["files_processed"].extend(json_result["processed_files"])
             result["files_failed"].extend(json_result["failed_files"])
             result["errors"].extend(json_result["errors"])
 
-            # Step 2: Regenerate all Parquet files
+            # STEP 2: Regenerate all Parquet files with v2.0 schema
             parquet_result = self._regenerate_parquet_files(dry_run)
             result["parquet_files_regenerated"] = parquet_result["regenerated_count"]
             result["files_processed"].extend(parquet_result["processed_files"])
             result["files_failed"].extend(parquet_result["failed_files"])
             result["errors"].extend(parquet_result["errors"])
 
-            # Step 3: Upgrade database schema if enabled
+            # STEP 3: Upgrade database schema if enabled (with v2.0 support)
             if self._should_upgrade_database():
                 db_result = self._upgrade_database_schema(dry_run)
                 result["database_upgraded"] = db_result["upgraded"]
                 result["errors"].extend(db_result["errors"])
 
-            # Step 4: Update workspace settings
+            # STEP 4: Update workspace settings for v2.0
             workspace_result = self._update_workspace_settings(target_sdk_version, target_schema_version, dry_run)
             result["workspace_updated"] = workspace_result["updated"]
             result["errors"].extend(workspace_result["errors"])
 
-            # Log summary
+            # Log comprehensive summary
             if dry_run:
                 logger.info(f"[DRY RUN] Workspace upgrade would process {len(result['files_processed'])} files")
+                if result["v0_files_rejected"] > 0:
+                    logger.warning(f"[DRY RUN] Would reject {result['v0_files_rejected']} v0.0 files")
             else:
                 logger.info(f"Workspace upgrade completed: {result['json_files_migrated']} JSON files migrated, "
                             f"{result['parquet_files_regenerated']} Parquet files regenerated")
+                if result["v0_files_rejected"] > 0:
+                    logger.warning(f"Rejected {result['v0_files_rejected']} v0.0 files (no longer supported)")
 
             return result
 
@@ -877,13 +907,17 @@ class WorkspaceManager:
             logger.error(error_msg)
             raise WorkspaceError(error_msg)
 
-
     def _upgrade_json_mediaplans(self, target_schema_version: str, dry_run: bool) -> Dict[str, Any]:
         """
-        Upgrade all JSON media plan files in the workspace.
+        Upgrade all JSON media plan files in the workspace to v2.0 schema.
+
+        Enhanced for SDK v2.0 to handle:
+        - v1.0 → v2.0 automatic migration
+        - v0.0 rejection (no longer supported)
+        - Better error handling and reporting
 
         Args:
-            target_schema_version: Target schema version to migrate to
+            target_schema_version: Target schema version to migrate to (should be "2.0")
             dry_run: If True, don't actually modify files
 
         Returns:
@@ -894,6 +928,8 @@ class WorkspaceManager:
 
         result = {
             "migrated_count": 0,
+            "already_current_count": 0,
+            "v0_rejected_count": 0,
             "processed_files": [],
             "failed_files": [],
             "errors": []
@@ -911,60 +947,125 @@ class WorkspaceManager:
                 # Try root directory as fallback
                 json_files = storage_backend.list_files("", "*.json")
 
-            logger.info(f"Found {len(json_files)} JSON files to process")
+            logger.info(f"Found {len(json_files)} JSON files to process for v2.0 upgrade")
 
             for file_path in json_files:
                 try:
                     result["processed_files"].append(file_path)
 
                     if dry_run:
-                        # For dry run, just try to load and check version
+                        # For dry run, just check what would be migrated
                         try:
                             content = storage_backend.read_file(file_path, binary=False)
                             import json
                             data = json.loads(content)
 
                             current_version = data.get("meta", {}).get("schema_version")
-                            if current_version != f"v{target_schema_version}":
+
+                            if not current_version:
+                                result["errors"].append(f"File {file_path} has no schema version")
+                                continue
+
+                            # Check for v0.0 files and reject them
+                            if current_version.startswith("v0.") or current_version.startswith("0."):
+                                result["v0_rejected_count"] += 1
+                                logger.warning(f"[DRY RUN] Would reject v0.0 file: {file_path}")
+                                continue
+
+                            # Normalize version for comparison
+                            from mediaplanpy.schema.version_utils import normalize_version
+                            normalized_version = normalize_version(current_version)
+                            target_normalized = normalize_version(f"v{target_schema_version}")
+
+                            if normalized_version != target_normalized:
                                 result["migrated_count"] += 1
                                 logger.info(
                                     f"[DRY RUN] Would migrate {file_path} from {current_version} to v{target_schema_version}")
+                            else:
+                                result["already_current_count"] += 1
+                                logger.debug(f"[DRY RUN] File {file_path} already at target version")
+
                         except Exception as e:
                             result["failed_files"].append(file_path)
                             result["errors"].append(f"Failed to check {file_path}: {str(e)}")
                     else:
                         # Actually perform migration
                         try:
-                            # Load media plan (this will trigger version handling)
-                            media_plan = MediaPlan.load(self, path=file_path)
+                            # Pre-check for v0.0 files before attempting to load
+                            content = storage_backend.read_file(file_path, binary=False)
+                            import json
+                            data = json.loads(content)
 
-                            # Check if version changed
-                            if media_plan.meta.schema_version != f"v{target_schema_version}":
-                                # Save back to update the version
-                                media_plan.save(self, path=file_path, overwrite=True)
+                            current_version = data.get("meta", {}).get("schema_version")
+
+                            # CRITICAL: Reject v0.0 files immediately
+                            if current_version and (
+                                    current_version.startswith("v0.") or current_version.startswith("0.")):
+                                result["v0_rejected_count"] += 1
+                                result["failed_files"].append(file_path)
+                                error_msg = (
+                                    f"Cannot migrate {file_path}: schema version {current_version} (v0.0.x) "
+                                    f"is no longer supported in SDK v2.0. Use SDK v1.x to migrate to v1.0 first."
+                                )
+                                result["errors"].append(error_msg)
+                                logger.error(error_msg)
+                                continue
+
+                            # Load media plan (this will trigger automatic version handling)
+                            media_plan = MediaPlan.load(self, path=file_path, validate_version=True, auto_migrate=True)
+
+                            # Check if version changed during load (automatic migration)
+                            final_version = media_plan.meta.schema_version
+                            target_version_formatted = f"v{target_schema_version}"
+
+                            if final_version != target_version_formatted:
+                                # Explicitly update to target version if not already there
+                                media_plan.meta.schema_version = target_version_formatted
+
+                                # Save back to trigger version update and v2.0 schema compliance
+                                media_plan.save(self, path=file_path, overwrite=True, validate_version=True)
                                 result["migrated_count"] += 1
-                                logger.info(f"Migrated {file_path} to schema version v{target_schema_version}")
+                                logger.info(
+                                    f"Migrated {file_path} from {current_version} to {target_version_formatted}")
+                            else:
+                                result["already_current_count"] += 1
+                                logger.debug(f"File {file_path} already at target version {target_version_formatted}")
 
-                        except (SchemaVersionError, ValidationError) as e:
+                        except SchemaVersionError as e:
                             result["failed_files"].append(file_path)
-                            result["errors"].append(f"Migration failed for {file_path}: {str(e)}")
+                            result["errors"].append(f"Schema version error for {file_path}: {str(e)}")
+                            logger.error(f"Schema version error for {file_path}: {str(e)}")
+                        except ValidationError as e:
+                            result["failed_files"].append(file_path)
+                            result["errors"].append(f"Validation failed for {file_path}: {str(e)}")
+                            logger.error(f"Validation failed for {file_path}: {str(e)}")
                         except Exception as e:
                             result["failed_files"].append(file_path)
                             result["errors"].append(f"Unexpected error with {file_path}: {str(e)}")
+                            logger.error(f"Unexpected error with {file_path}: {str(e)}")
 
                 except Exception as e:
                     result["failed_files"].append(file_path)
                     result["errors"].append(f"Error processing {file_path}: {str(e)}")
+
+            # Log summary
+            logger.info(f"JSON migration complete: {result['migrated_count']} migrated, "
+                        f"{result['already_current_count']} already current, "
+                        f"{result['v0_rejected_count']} v0.0 files rejected")
 
         except Exception as e:
             result["errors"].append(f"Error finding JSON files: {str(e)}")
 
         return result
 
-
     def _regenerate_parquet_files(self, dry_run: bool) -> Dict[str, Any]:
         """
-        Regenerate all Parquet files with current schema.
+        Regenerate all Parquet files with current v2.0 schema.
+
+        Enhanced for SDK v2.0 to:
+        - Support new v2.0 Parquet schema with additional fields
+        - Better error handling for schema compatibility
+        - Validation of source JSON files before regeneration
 
         Args:
             dry_run: If True, don't actually regenerate files
@@ -976,6 +1077,8 @@ class WorkspaceManager:
 
         result = {
             "regenerated_count": 0,
+            "skipped_count": 0,
+            "orphaned_removed_count": 0,
             "processed_files": [],
             "failed_files": [],
             "errors": []
@@ -993,7 +1096,7 @@ class WorkspaceManager:
                 # Try root directory as fallback
                 parquet_files = storage_backend.list_files("", "*.parquet")
 
-            logger.info(f"Found {len(parquet_files)} Parquet files to regenerate")
+            logger.info(f"Found {len(parquet_files)} Parquet files to regenerate with v2.0 schema")
 
             for parquet_path in parquet_files:
                 try:
@@ -1004,31 +1107,78 @@ class WorkspaceManager:
 
                     if storage_backend.exists(json_path):
                         if dry_run:
-                            logger.info(f"[DRY RUN] Would regenerate {parquet_path}")
-                            result["regenerated_count"] += 1
-                        else:
+                            # For dry run, check if JSON file is compatible with v2.0
                             try:
-                                # Load media plan from JSON
-                                media_plan = MediaPlan.load(self, path=json_path)
+                                content = storage_backend.read_file(json_path, binary=False)
+                                import json
+                                data = json.loads(content)
 
-                                # Save with Parquet regeneration
-                                media_plan.save(self, path=json_path, overwrite=True, include_parquet=True)
+                                schema_version = data.get("meta", {}).get("schema_version")
+
+                                # Check if this is a v0.0 file (would be skipped)
+                                if schema_version and (
+                                        schema_version.startswith("v0.") or schema_version.startswith("0.")):
+                                    result["skipped_count"] += 1
+                                    logger.warning(
+                                        f"[DRY RUN] Would skip Parquet regeneration for v0.0 file: {parquet_path}")
+                                    continue
 
                                 result["regenerated_count"] += 1
-                                logger.info(f"Regenerated Parquet file: {parquet_path}")
+                                logger.info(f"[DRY RUN] Would regenerate {parquet_path} with v2.0 schema")
+
+                            except Exception as e:
+                                result["failed_files"].append(parquet_path)
+                                result["errors"].append(f"Failed to check {json_path} for {parquet_path}: {str(e)}")
+                        else:
+                            try:
+                                # Load media plan from JSON (this handles version compatibility)
+                                media_plan = MediaPlan.load(self, path=json_path, validate_version=True,
+                                                            auto_migrate=True)
+
+                                # Check if the loaded plan has a compatible schema version
+                                schema_version = media_plan.meta.schema_version
+                                if schema_version and (
+                                        schema_version.startswith("v0.") or schema_version.startswith("0.")):
+                                    result["skipped_count"] += 1
+                                    logger.warning(f"Skipping Parquet regeneration for v0.0 file: {parquet_path}")
+                                    continue
+
+                                # Save with Parquet regeneration (this will use v2.0 schema)
+                                media_plan.save(
+                                    self,
+                                    path=json_path,
+                                    overwrite=True,
+                                    include_parquet=True,
+                                    validate_version=True
+                                )
+
+                                result["regenerated_count"] += 1
+                                logger.info(f"Regenerated Parquet file with v2.0 schema: {parquet_path}")
 
                             except Exception as e:
                                 result["failed_files"].append(parquet_path)
                                 result["errors"].append(f"Failed to regenerate {parquet_path}: {str(e)}")
+                                logger.error(f"Failed to regenerate {parquet_path}: {str(e)}")
                     else:
                         # Orphaned Parquet file - remove it
-                        if not dry_run:
-                            storage_backend.delete_file(parquet_path)
-                            logger.info(f"Removed orphaned Parquet file: {parquet_path}")
+                        if dry_run:
+                            result["orphaned_removed_count"] += 1
+                            logger.info(f"[DRY RUN] Would remove orphaned Parquet file: {parquet_path}")
+                        else:
+                            try:
+                                storage_backend.delete_file(parquet_path)
+                                result["orphaned_removed_count"] += 1
+                                logger.info(f"Removed orphaned Parquet file: {parquet_path}")
+                            except Exception as e:
+                                result["errors"].append(f"Failed to remove orphaned file {parquet_path}: {str(e)}")
 
                 except Exception as e:
                     result["failed_files"].append(parquet_path)
                     result["errors"].append(f"Error processing {parquet_path}: {str(e)}")
+
+            # Log summary
+            logger.info(f"Parquet regeneration complete: {result['regenerated_count']} regenerated, "
+                        f"{result['skipped_count']} skipped, {result['orphaned_removed_count']} orphaned files removed")
 
         except Exception as e:
             result["errors"].append(f"Error finding Parquet files: {str(e)}")
@@ -1046,10 +1196,15 @@ class WorkspaceManager:
         db_config = self.get_database_config()
         return db_config.get("enabled", False)
 
-
     def _upgrade_database_schema(self, dry_run: bool) -> Dict[str, Any]:
         """
-        Upgrade database schema if enabled.
+        Upgrade database schema if enabled, with v2.0 schema support.
+
+        Enhanced for SDK v2.0 to:
+        - Support new v2.0 database schema with additional fields
+        - Handle migration from v1.0 to v2.0 schema
+        - Validate existing data compatibility
+        - Reject v0.0 data during migration
 
         Args:
             dry_run: If True, don't actually modify database
@@ -1059,6 +1214,9 @@ class WorkspaceManager:
         """
         result = {
             "upgraded": False,
+            "schema_validated": False,
+            "migration_performed": False,
+            "v0_records_found": 0,
             "errors": []
         }
 
@@ -1066,44 +1224,115 @@ class WorkspaceManager:
             from mediaplanpy.models import MediaPlan
 
             if dry_run:
-                # Test connection and validate schema
-                if MediaPlan.test_database_connection(self):
-                    logger.info("[DRY RUN] Database connection successful")
-                    if MediaPlan.validate_database_schema(self):
-                        logger.info("[DRY RUN] Database schema is valid")
-                        result["upgraded"] = True
+                # Test connection and validate schema compatibility
+                try:
+                    if MediaPlan.test_database_connection(self):
+                        logger.info("[DRY RUN] Database connection successful")
+
+                        # Check current schema validation
+                        if MediaPlan.validate_database_schema(self):
+                            logger.info("[DRY RUN] Database schema is already v2.0 compatible")
+                            result["schema_validated"] = True
+                            result["upgraded"] = True
+                        else:
+                            logger.info("[DRY RUN] Database schema needs upgrade to v2.0")
+                            result["upgraded"] = True  # Would be upgraded
+
+                        # Check for v0.0 data that would be rejected
+                        try:
+                            from mediaplanpy.storage.database import PostgreSQLBackend
+                            db_backend = PostgreSQLBackend(self.get_resolved_config())
+
+                            if db_backend.table_exists():
+                                version_stats = db_backend.get_version_statistics()
+                                result["v0_records_found"] = version_stats.get("v0_records_found", 0)
+
+                                if result["v0_records_found"] > 0:
+                                    logger.warning(
+                                        f"[DRY RUN] Found {result['v0_records_found']} v0.0 records in database that cannot be migrated")
+                                    result["errors"].append(
+                                        f"Database contains {result['v0_records_found']} v0.0 records that cannot be migrated to v2.0")
+                        except Exception as e:
+                            logger.warning(f"[DRY RUN] Could not check database version statistics: {e}")
+
                     else:
-                        result["errors"].append("Database schema validation failed")
-                else:
-                    result["errors"].append("Database connection test failed")
+                        result["errors"].append("Database connection test failed")
+
+                except Exception as e:
+                    result["errors"].append(f"Database validation failed: {str(e)}")
             else:
                 # Actually upgrade database
-                if MediaPlan.test_database_connection(self):
-                    # Ensure table exists with current schema
-                    if MediaPlan.create_database_table(self):
-                        logger.info("Database schema upgraded successfully")
-                        result["upgraded"] = True
+                try:
+                    if MediaPlan.test_database_connection(self):
+                        # Check for existing v0.0 data before proceeding
+                        try:
+                            from mediaplanpy.storage.database import PostgreSQLBackend
+                            db_backend = PostgreSQLBackend(self.get_resolved_config())
+
+                            if db_backend.table_exists():
+                                # Run migration that will reject v0.0 records
+                                migration_result = db_backend.migrate_existing_data()
+                                result["v0_records_found"] = migration_result.get("v0_records_rejected", 0)
+
+                                if migration_result.get("errors"):
+                                    result["errors"].extend(migration_result["errors"])
+
+                                if result["v0_records_found"] > 0:
+                                    error_msg = (
+                                        f"Database upgrade blocked: found {result['v0_records_found']} v0.0 records "
+                                        f"that cannot be migrated. Please clean up v0.0 data before upgrading to v2.0."
+                                    )
+                                    result["errors"].append(error_msg)
+                                    logger.error(error_msg)
+                                    return result  # Early return on v0.0 data
+
+                                result["migration_performed"] = True
+                                logger.info(
+                                    f"Database migration completed: {migration_result.get('records_migrated', 0)} records migrated")
+                        except Exception as e:
+                            logger.warning(f"Could not perform database migration: {e}")
+                            result["errors"].append(f"Database migration failed: {str(e)}")
+
+                        # Ensure table exists with current v2.0 schema
+                        if MediaPlan.create_database_table(self):
+                            logger.info("Database schema upgraded to v2.0 successfully")
+                            result["upgraded"] = True
+
+                            # Validate the upgraded schema
+                            if MediaPlan.validate_database_schema(self):
+                                logger.info("Database v2.0 schema validation successful")
+                                result["schema_validated"] = True
+                            else:
+                                result["errors"].append("Database schema validation failed after upgrade")
+                        else:
+                            result["errors"].append("Failed to create/update database table to v2.0 schema")
                     else:
-                        result["errors"].append("Failed to create/update database table")
-                else:
-                    result["errors"].append("Database connection failed")
+                        result["errors"].append("Database connection failed")
+
+                except Exception as e:
+                    result["errors"].append(f"Database upgrade failed: {str(e)}")
 
         except ImportError:
             result["errors"].append("Database functionality not available - psycopg2-binary not installed")
         except Exception as e:
-            result["errors"].append(f"Database upgrade failed: {str(e)}")
+            result["errors"].append(f"Database upgrade process failed: {str(e)}")
 
         return result
-
 
     def _update_workspace_settings(self, target_sdk_version: str, target_schema_version: str, dry_run: bool) -> Dict[
         str, Any]:
         """
-        Update workspace settings with new version information.
+        Update workspace settings with new v2.0 version information.
+
+        Enhanced for SDK v2.0 to:
+        - Update workspace_settings to v2.0 format
+        - Remove deprecated schema_settings fields
+        - Validate version compatibility
+        - Handle version normalization
 
         Args:
-            target_sdk_version: Target SDK version
-            target_schema_version: Target schema version
+            target_sdk_version: Target SDK version (should be "2.0.0")
+            target_schema_version: Target schema version (should be "2.0")
             dry_run: If True, don't actually update configuration
 
         Returns:
@@ -1111,6 +1340,8 @@ class WorkspaceManager:
         """
         result = {
             "updated": False,
+            "deprecated_fields_removed": 0,
+            "workspace_settings_updated": False,
             "errors": []
         }
 
@@ -1118,45 +1349,107 @@ class WorkspaceManager:
             if dry_run:
                 logger.info(
                     f"[DRY RUN] Would update workspace settings to SDK {target_sdk_version}, Schema {target_schema_version}")
+
+                # Check what would be updated
+                workspace_settings = self.config.get("workspace_settings", {})
+                current_schema_version = workspace_settings.get("schema_version")
+                current_sdk_required = workspace_settings.get("sdk_version_required")
+
+                if current_schema_version != target_schema_version:
+                    logger.info(
+                        f"[DRY RUN] Would update schema_version from {current_schema_version} to {target_schema_version}")
+
+                if current_sdk_required != f"{target_sdk_version.rsplit('.', 1)[0]}.x":
+                    logger.info(
+                        f"[DRY RUN] Would update sdk_version_required to {target_sdk_version.rsplit('.', 1)[0]}.x")
+
+                # Check for deprecated fields that would be removed
+                schema_settings = self.config.get("schema_settings", {})
+                deprecated_fields = ["preferred_version", "auto_migrate"]
+                found_deprecated = [field for field in deprecated_fields if field in schema_settings]
+
+                if found_deprecated:
+                    logger.info(f"[DRY RUN] Would remove deprecated fields: {', '.join(found_deprecated)}")
+                    result["deprecated_fields_removed"] = len(found_deprecated)
+
                 result["updated"] = True
             else:
-                # Update workspace configuration
-                if "workspace_settings" not in self.config:
-                    self.config["workspace_settings"] = {}
+                # Actually update workspace configuration
+                try:
+                    # Ensure workspace_settings exists
+                    if "workspace_settings" not in self.config:
+                        self.config["workspace_settings"] = {}
 
-                # Update workspace settings
-                self.config["workspace_settings"]["schema_version"] = target_schema_version
-                self.config["workspace_settings"]["last_upgraded"] = datetime.now().strftime("%Y-%m-%d")
-                self.config["workspace_settings"]["sdk_version_required"] = f"{target_sdk_version.rsplit('.', 1)[0]}.x"
+                    # Update workspace settings with v2.0 information
+                    workspace_settings = self.config["workspace_settings"]
+                    old_schema_version = workspace_settings.get("schema_version")
+                    old_sdk_required = workspace_settings.get("sdk_version_required")
 
-                # Remove deprecated schema_settings fields if they exist
-                if "schema_settings" in self.config:
-                    schema_settings = self.config["schema_settings"]
-                    schema_settings.pop("preferred_version", None)
-                    schema_settings.pop("auto_migrate", None)
+                    # Update to v2.0 versions
+                    workspace_settings["schema_version"] = target_schema_version  # "2.0"
+                    workspace_settings["last_upgraded"] = datetime.now().strftime("%Y-%m-%d")
+                    workspace_settings["sdk_version_required"] = f"{target_sdk_version.rsplit('.', 1)[0]}.x"  # "2.0.x"
 
-                # Save updated configuration if we have a file path
-                if self.workspace_path:
-                    try:
-                        import json
-                        with open(self.workspace_path, 'w') as f:
-                            json.dump(self.config, f, indent=2)
+                    result["workspace_settings_updated"] = True
+                    logger.info(
+                        f"Updated workspace settings: schema_version {old_schema_version} → {target_schema_version}")
 
-                        # Reset resolved config so it gets recalculated
-                        self._resolved_config = None
+                    # Remove deprecated schema_settings fields if they exist
+                    if "schema_settings" in self.config:
+                        schema_settings = self.config["schema_settings"]
+                        deprecated_fields = ["preferred_version", "auto_migrate"]
 
-                        logger.info(f"Updated workspace configuration file: {self.workspace_path}")
+                        for field in deprecated_fields:
+                            if field in schema_settings:
+                                removed_value = schema_settings.pop(field)
+                                result["deprecated_fields_removed"] += 1
+                                logger.info(
+                                    f"Removed deprecated field 'schema_settings.{field}' (was: {removed_value})")
+
+                        # Remove schema_settings section if it's now empty
+                        if not schema_settings:
+                            self.config.pop("schema_settings", None)
+                            logger.info("Removed empty schema_settings section")
+
+                    # Save updated configuration if we have a file path
+                    if self.workspace_path:
+                        try:
+                            import json
+                            with open(self.workspace_path, 'w') as f:
+                                json.dump(self.config, f, indent=2)
+
+                            # Reset resolved config so it gets recalculated
+                            self._resolved_config = None
+
+                            logger.info(f"Saved updated workspace configuration to: {self.workspace_path}")
+                            result["updated"] = True
+
+                        except Exception as e:
+                            result["errors"].append(f"Failed to save workspace configuration: {str(e)}")
+                            logger.error(f"Failed to save workspace configuration: {str(e)}")
+                    else:
+                        # Configuration loaded from dict - just update in memory
+                        logger.info("Updated workspace configuration in memory (no file to save)")
                         result["updated"] = True
 
+                    # Validate the updated configuration
+                    try:
+                        from mediaplanpy.workspace.validator import validate_workspace
+                        validation_errors = validate_workspace(self.config, lenient_mode=True)
+                        if validation_errors:
+                            logger.warning(
+                                f"Workspace validation warnings after update: {'; '.join(validation_errors)}")
+                        else:
+                            logger.info("Workspace configuration validation successful after v2.0 update")
                     except Exception as e:
-                        result["errors"].append(f"Failed to save workspace configuration: {str(e)}")
-                else:
-                    # Configuration loaded from dict - just update in memory
-                    logger.info("Updated workspace configuration in memory")
-                    result["updated"] = True
+                        logger.warning(f"Could not validate updated workspace configuration: {e}")
+
+                except Exception as e:
+                    result["errors"].append(f"Failed to update workspace configuration: {str(e)}")
+                    logger.error(f"Failed to update workspace configuration: {str(e)}")
 
         except Exception as e:
-            result["errors"].append(f"Failed to update workspace settings: {str(e)}")
+            result["errors"].append(f"Workspace settings update process failed: {str(e)}")
 
         return result
 
@@ -1305,3 +1598,110 @@ class WorkspaceManager:
                 "Run workspace.upgrade_workspace() to upgrade to current versions")
 
         return compatibility_result
+
+
+def _validate_upgrade_compatibility(self, target_schema_version: str, dry_run: bool) -> Dict[str, Any]:
+    """
+    Validate workspace compatibility before upgrade and reject v0.0 files.
+
+    This method scans all media plan files to identify version compatibility issues,
+    specifically rejecting v0.0 files which are no longer supported in SDK v2.0.
+
+    Args:
+        target_schema_version: Target schema version to upgrade to
+        dry_run: If True, don't actually modify files
+
+    Returns:
+        Dictionary with validation results including v0.0 rejections
+    """
+    result = {
+        "v0_files_rejected": 0,
+        "v1_files_found": 0,
+        "v2_files_found": 0,
+        "invalid_files": 0,
+        "errors": []
+    }
+
+    try:
+        # Get storage backend
+        storage_backend = self.get_storage_backend()
+
+        # Find all JSON files in mediaplans directory
+        json_files = []
+        try:
+            json_files = storage_backend.list_files("mediaplans", "*.json")
+        except Exception:
+            # Try root directory as fallback
+            try:
+                json_files = storage_backend.list_files("", "*.json")
+            except Exception as e:
+                result["errors"].append(f"Could not list JSON files: {e}")
+                return result
+
+        logger.info(f"Validating {len(json_files)} JSON files for upgrade compatibility")
+
+        for file_path in json_files:
+            try:
+                # Read and parse file to check version
+                content = storage_backend.read_file(file_path, binary=False)
+                import json
+                data = json.loads(content)
+
+                # Extract schema version
+                schema_version = data.get("meta", {}).get("schema_version")
+
+                if not schema_version:
+                    result["invalid_files"] += 1
+                    result["errors"].append(f"File {file_path} has no schema version")
+                    continue
+
+                # Normalize version for comparison
+                try:
+                    from mediaplanpy.schema.version_utils import normalize_version, get_compatibility_type
+
+                    normalized_version = normalize_version(schema_version)
+                    compatibility = get_compatibility_type(normalized_version)
+
+                    # Check for v0.0 files - these are REJECTED
+                    if normalized_version.startswith("0."):
+                        result["v0_files_rejected"] += 1
+                        error_msg = (
+                            f"File {file_path} uses unsupported schema version {schema_version} (v0.0.x). "
+                            f"v0.0 support has been removed in SDK v2.0. Use SDK v1.x to migrate to v1.0 first."
+                        )
+                        result["errors"].append(error_msg)
+                        logger.error(error_msg)
+                        continue
+
+                    # Count version distribution
+                    major_version = int(normalized_version.split('.')[0])
+                    if major_version == 1:
+                        result["v1_files_found"] += 1
+                    elif major_version == 2:
+                        result["v2_files_found"] += 1
+
+                    # Check overall compatibility
+                    if compatibility == "unsupported":
+                        result["invalid_files"] += 1
+                        result["errors"].append(f"File {file_path} has unsupported schema version {schema_version}")
+
+                except Exception as e:
+                    result["invalid_files"] += 1
+                    result["errors"].append(f"Could not validate version for {file_path}: {e}")
+
+            except json.JSONDecodeError as e:
+                result["invalid_files"] += 1
+                result["errors"].append(f"Invalid JSON in {file_path}: {e}")
+            except Exception as e:
+                result["invalid_files"] += 1
+                result["errors"].append(f"Error reading {file_path}: {e}")
+
+        # Log validation summary
+        logger.info(f"Version validation complete: {result['v1_files_found']} v1.0 files, "
+                    f"{result['v2_files_found']} v2.0 files, {result['v0_files_rejected']} v0.0 files rejected, "
+                    f"{result['invalid_files']} invalid files")
+
+    except Exception as e:
+        result["errors"].append(f"Validation failed: {e}")
+
+    return result
