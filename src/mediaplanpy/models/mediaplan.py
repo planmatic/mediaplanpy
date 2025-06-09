@@ -207,6 +207,7 @@ class MediaPlan(BaseModel):
     def validate_model(self) -> List[str]:
         """
         Perform additional validation beyond what Pydantic provides.
+        Updated to work seamlessly with v2.0 schema validation.
 
         Returns:
             A list of validation error messages, if any.
@@ -518,7 +519,7 @@ class MediaPlan(BaseModel):
     def validate_against_schema(self, validator: Optional[SchemaValidator] = None,
                                 version: Optional[str] = None) -> List[str]:
         """
-        Validate the media plan against the schema.
+        Validate the media plan against the schema with enhanced v2.0 support.
 
         Args:
             validator: Schema validator to use. If None, creates a new one.
@@ -535,6 +536,27 @@ class MediaPlan(BaseModel):
             version = self.meta.schema_version
 
         return validator.validate(self.to_dict(), version)
+
+    def validate_comprehensive(self, validator: Optional[SchemaValidator] = None,
+                               version: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Perform comprehensive validation with categorized results.
+
+        Args:
+            validator: Schema validator to use. If None, creates a new one.
+            version: Schema version to validate against. If None, uses the
+                     version from the media plan.
+
+        Returns:
+            Dictionary with categorized validation results including errors, warnings, and info.
+        """
+        if validator is None:
+            validator = SchemaValidator()
+
+        if version is None:
+            version = self.meta.schema_version
+
+        return validator.validate_comprehensive(self.to_dict(), version)
 
     def migrate_to_version(self, migrator: Optional[SchemaMigrator] = None,
                            to_version: Optional[str] = None) -> "MediaPlan":

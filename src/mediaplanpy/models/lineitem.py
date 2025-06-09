@@ -227,6 +227,7 @@ class LineItem(BaseModel):
     def validate(self) -> List[str]:
         """
         Perform comprehensive validation of the line item.
+        Enhanced for v2.0 schema support.
 
         This method consolidates all validation logic including date validation,
         cost validation, metric validation, and business rule validation.
@@ -236,7 +237,7 @@ class LineItem(BaseModel):
         """
         errors = []
 
-        # Date validation (consolidated from old validate_dates method)
+        # Date validation
         if self.start_date > self.end_date:
             errors.append(f"start_date ({self.start_date}) must be before or equal to end_date ({self.end_date})")
 
@@ -325,10 +326,10 @@ class LineItem(BaseModel):
             if abs(cost_sum - self.cost_total) > Decimal('0.01'):
                 errors.append(f"Sum of cost breakdowns ({cost_sum}) does not match cost_total ({self.cost_total})")
 
-        # New v2.0 validation: Application funnel consistency
+        # NEW v2.0 validation: Application funnel consistency
         if (self.metric_application_start is not None and
-            self.metric_application_complete is not None and
-            self.metric_application_complete > self.metric_application_start):
+                self.metric_application_complete is not None and
+                self.metric_application_complete > self.metric_application_start):
             errors.append("metric_application_complete cannot be greater than metric_application_start")
 
         return errors

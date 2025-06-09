@@ -152,6 +152,7 @@ class Campaign(BaseModel):
     def validate_model(self) -> List[str]:
         """
         Perform additional validation beyond what Pydantic provides.
+        Enhanced for v2.0 schema support.
 
         Returns:
             A list of validation error messages, if any.
@@ -178,7 +179,7 @@ class Campaign(BaseModel):
         if self.location_type is not None and not self.locations:
             errors.append("locations must be provided when location_type is specified")
 
-        # New v2.0 validation: Check ID and name field consistency
+        # NEW v2.0 validation: Check ID and name field consistency
         id_name_pairs = [
             (self.agency_id, self.agency_name, "agency"),
             (self.advertiser_id, self.advertiser_name, "advertiser"),

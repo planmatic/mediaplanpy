@@ -200,7 +200,7 @@ class BaseModel(PydanticBaseModel):
 
     def validate_against_schema(self, validator: Optional[SchemaValidator] = None) -> List[str]:
         """
-        Validate the model against the JSON schema.
+        Validate the model against the JSON schema with enhanced v2.0 support.
 
         Args:
             validator: Schema validator to use. If None, creates a new one.
@@ -212,6 +212,21 @@ class BaseModel(PydanticBaseModel):
             validator = SchemaValidator()
 
         return validator.validate(self.to_dict())
+
+    def validate_comprehensive(self, validator: Optional[SchemaValidator] = None) -> Dict[str, List[str]]:
+        """
+        Perform comprehensive validation with categorized results.
+
+        Args:
+            validator: Schema validator to use. If None, creates a new one.
+
+        Returns:
+            Dictionary with categorized validation results including errors, warnings, and info.
+        """
+        if validator is None:
+            validator = SchemaValidator()
+
+        return validator.validate_comprehensive(self.to_dict())
 
     def deep_copy(self) -> "BaseModel":
         """

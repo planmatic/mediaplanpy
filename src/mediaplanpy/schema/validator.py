@@ -2,7 +2,7 @@
 Schema validation module for mediaplanpy.
 
 This module provides utilities for validating media plans
-against the appropriate schema.
+against the appropriate schema with enhanced v2.0 support.
 """
 
 import json
@@ -22,9 +22,10 @@ logger = logging.getLogger("mediaplanpy.schema.validator")
 
 class SchemaValidator:
     """
-    Validator for media plan data.
+    Validator for media plan data with enhanced v2.0 schema support.
 
-    Validates media plans against the appropriate schema version.
+    Validates media plans against the appropriate schema version and includes
+    custom business logic validation for v2.0 features like dictionary configuration.
     """
 
     def __init__(self, registry: Optional[SchemaRegistry] = None):
@@ -38,7 +39,7 @@ class SchemaValidator:
 
     def validate(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> List[str]:
         """
-        Validate a media plan against a schema with version compatibility checking.
+        Validate a media plan against a schema with enhanced v2.0 support.
 
         Args:
             media_plan: The media plan data to validate.
@@ -76,24 +77,53 @@ class SchemaValidator:
                 f"Supported versions: {', '.join(self.registry.get_supported_versions())}"
             )
 
-        # Load the main schema and all related schemas for this version
+        # Perform schema validation
+        schema_errors = self._validate_against_json_schema(media_plan, normalized_version)
+
+        # Perform custom business logic validation
+        business_logic_errors = self._validate_business_logic(media_plan, normalized_version)
+
+        # Combine all errors
+        all_errors = schema_errors + business_logic_errors
+
+        logger.debug(f"Validation completed with {len(all_errors)} errors ({len(schema_errors)} schema, {len(business_logic_errors)} business logic)")
+        return all_errors
+
+    def _validate_against_json_schema(self, media_plan: Dict[str, Any], version: str) -> List[str]:
+        """
+        Validate media plan against JSON schema for the specified version.
+
+        Args:
+            media_plan: The media plan data to validate.
+            version: The normalized schema version to validate against.
+
+        Returns:
+            List of JSON schema validation errors.
+
+        Raises:
+            SchemaRegistryError: If the schema cannot be loaded.
+        """
+        errors = []
+
         try:
-            main_schema = self.registry.load_schema(normalized_version, "mediaplan.schema.json")
-            all_schemas = self.registry.load_all_schemas(normalized_version)
+            # Load the main schema and all related schemas for this version
+            main_schema = self.registry.load_schema(version, "mediaplan.schema.json")
+            all_schemas = self.registry.load_all_schemas(version)
         except SchemaRegistryError as e:
             raise SchemaRegistryError(f"Failed to load schema for validation: {str(e)}")
 
-        # Create a resolver with bundled schemas
-        # Map schema filenames to their URI references for the resolver store
+        # Create a resolver with bundled schemas for $ref resolution
+        # FIXED: More robust schema store creation
         schema_store = {}
+
+        # Add all loaded schemas to the store using their filenames as keys
         for filename, schema_content in all_schemas.items():
-            # Create URIs that match the $ref patterns used in schemas
-            if filename == "mediaplan.schema.json":
-                schema_store[filename] = schema_content
-            elif filename == "campaign.schema.json":
-                schema_store["campaign.schema.json"] = schema_content
-            elif filename == "lineitem.schema.json":
-                schema_store["lineitem.schema.json"] = schema_content
+            schema_store[filename] = schema_content
+            logger.debug(f"Added schema to store: {filename}")
+
+        # Ensure we have the main schema in the store
+        if "mediaplan.schema.json" not in schema_store:
+            schema_store["mediaplan.schema.json"] = main_schema
 
         # Create resolver with the schema store
         resolver = RefResolver(
@@ -102,39 +132,459 @@ class SchemaValidator:
             store=schema_store
         )
 
-        # Validate
-        errors = []
+        # Log what schemas are available for debugging
+        logger.debug(f"Schema store contains: {list(schema_store.keys())}")
+
+        # Perform JSON schema validation
         try:
             jsonschema.validate(instance=media_plan, schema=main_schema, resolver=resolver)
+            logger.debug("JSON schema validation passed")
         except JsonSchemaValidationError as e:
-            # Extract useful validation errors
+            # Extract useful validation errors with enhanced v2.0 field support
             path = " -> ".join([str(p) for p in e.path]) if e.path else "root"
-            errors.append(f"Validation error at {path}: {e.message}")
 
-        # Additional custom validations can go here
-        if not errors and "lineitems" in media_plan and "campaign" in media_plan:
-            # Check that line items are within campaign dates
-            campaign = media_plan["campaign"]
-            campaign_start = campaign.get("start_date")
-            campaign_end = campaign.get("end_date")
+            # Enhance error messages for common v2.0 validation issues
+            error_message = self._enhance_validation_error_message(e, path, version)
+            errors.append(error_message)
 
-            for i, item in enumerate(media_plan["lineitems"]):
-                item_start = item.get("start_date")
-                item_end = item.get("end_date")
+            logger.debug(f"JSON schema validation failed: {error_message}")
 
-                if item_start and campaign_start and item_start < campaign_start:
-                    errors.append(
-                        f"Line item {i} ({item.get('id', 'unnamed')}) starts before campaign: "
-                        f"{item_start} < {campaign_start}"
-                    )
+        return errors
 
-                if item_end and campaign_end and item_end > campaign_end:
-                    errors.append(
-                        f"Line item {i} ({item.get('id', 'unnamed')}) ends after campaign: "
-                        f"{item_end} > {campaign_end}"
-                    )
+    def _enhance_validation_error_message(self, error: JsonSchemaValidationError, path: str, version: str) -> str:
+        """
+        Enhance validation error messages with version-specific context.
 
-        logger.debug(f"Validation completed with {len(errors)} errors")
+        Args:
+            error: The JSON schema validation error.
+            path: The path where the error occurred.
+            version: The schema version being validated against.
+
+        Returns:
+            Enhanced error message.
+        """
+        base_message = f"Validation error at {path}: {error.message}"
+
+        # Add specific guidance for common v2.0 validation issues
+        if "created_by_name" in error.message and version.startswith("2."):
+            base_message += " (Note: In schema v2.0, 'created_by_name' is required in the meta section)"
+        elif "dictionary" in path and "additionalProperties" in error.message:
+            base_message += " (Note: Dictionary configuration must follow the v2.0 schema structure)"
+        elif any(field in error.message for field in ["budget_currency", "agency_id", "workflow_status"]):
+            base_message += " (Note: This is a new optional field in schema v2.0)"
+
+        return base_message
+
+    def _validate_business_logic(self, media_plan: Dict[str, Any], version: str) -> List[str]:
+        """
+        Validate business logic rules beyond JSON schema validation.
+
+        Args:
+            media_plan: The media plan data to validate.
+            version: The normalized schema version.
+
+        Returns:
+            List of business logic validation errors.
+        """
+        errors = []
+
+        # Existing business logic validation that should work for both v1.0 and v2.0
+        errors.extend(self._validate_date_consistency(media_plan))
+
+        # v2.0-specific business logic validation
+        if version.startswith("2."):
+            errors.extend(self._validate_dictionary_configuration(media_plan))
+            errors.extend(self._validate_v2_field_consistency(media_plan))
+
+        return errors
+
+    def _validate_date_consistency(self, media_plan: Dict[str, Any]) -> List[str]:
+        """
+        Validate that line item dates are consistent with campaign dates.
+
+        Args:
+            media_plan: The media plan data to validate.
+
+        Returns:
+            List of date consistency errors.
+        """
+        errors = []
+
+        if "lineitems" not in media_plan or "campaign" not in media_plan:
+            return errors
+
+        campaign = media_plan["campaign"]
+        campaign_start = campaign.get("start_date")
+        campaign_end = campaign.get("end_date")
+
+        if not campaign_start or not campaign_end:
+            return errors
+
+        for i, item in enumerate(media_plan["lineitems"]):
+            item_start = item.get("start_date")
+            item_end = item.get("end_date")
+
+            if item_start and item_start < campaign_start:
+                errors.append(
+                    f"Line item {i} ({item.get('id', 'unnamed')}) starts before campaign: "
+                    f"{item_start} < {campaign_start}"
+                )
+
+            if item_end and campaign_end and item_end > campaign_end:
+                errors.append(
+                    f"Line item {i} ({item.get('id', 'unnamed')}) ends after campaign: "
+                    f"{item_end} > {campaign_end}"
+                )
+
+        return errors
+
+    def _validate_dictionary_configuration(self, media_plan: Dict[str, Any]) -> List[str]:
+        """
+        Validate v2.0 dictionary configuration and its consistency with line items.
+
+        Args:
+            media_plan: The media plan data to validate.
+
+        Returns:
+            List of dictionary validation errors and warnings.
+        """
+        errors = []
+
+        dictionary = media_plan.get("dictionary")
+        if not dictionary:
+            # Dictionary is optional, so no error if missing
+            return errors
+
+        logger.debug("Validating v2.0 dictionary configuration")
+
+        # Validate dictionary structure and business rules
+        errors.extend(self._validate_dictionary_structure(dictionary))
+
+        # Validate consistency between dictionary configuration and line item data
+        if "lineitems" in media_plan:
+            errors.extend(self._validate_dictionary_lineitem_consistency(dictionary, media_plan["lineitems"]))
+
+        return errors
+
+    def _validate_dictionary_structure(self, dictionary: Dict[str, Any]) -> List[str]:
+        """
+        Validate the internal structure and business rules of dictionary configuration.
+
+        Args:
+            dictionary: The dictionary configuration to validate.
+
+        Returns:
+            List of dictionary structure validation errors.
+        """
+        errors = []
+
+        # Define valid custom field patterns
+        valid_custom_dimensions = {f"dim_custom{i}" for i in range(1, 11)}
+        valid_custom_metrics = {f"metric_custom{i}" for i in range(1, 11)}
+        valid_custom_costs = {f"cost_custom{i}" for i in range(1, 11)}
+
+        # Validate custom_dimensions section
+        custom_dimensions = dictionary.get("custom_dimensions", {})
+        if custom_dimensions:
+            for field_name, config in custom_dimensions.items():
+                if field_name not in valid_custom_dimensions:
+                    errors.append(f"Invalid custom dimension field name: {field_name}")
+
+                # Validate field configuration
+                field_errors = self._validate_custom_field_config(config, field_name, "dimension")
+                errors.extend(field_errors)
+
+        # Validate custom_metrics section
+        custom_metrics = dictionary.get("custom_metrics", {})
+        if custom_metrics:
+            for field_name, config in custom_metrics.items():
+                if field_name not in valid_custom_metrics:
+                    errors.append(f"Invalid custom metric field name: {field_name}")
+
+                # Validate field configuration
+                field_errors = self._validate_custom_field_config(config, field_name, "metric")
+                errors.extend(field_errors)
+
+        # Validate custom_costs section
+        custom_costs = dictionary.get("custom_costs", {})
+        if custom_costs:
+            for field_name, config in custom_costs.items():
+                if field_name not in valid_custom_costs:
+                    errors.append(f"Invalid custom cost field name: {field_name}")
+
+                # Validate field configuration
+                field_errors = self._validate_custom_field_config(config, field_name, "cost")
+                errors.extend(field_errors)
+
+        return errors
+
+    def _validate_custom_field_config(self, config: Dict[str, Any], field_name: str, field_type: str) -> List[str]:
+        """
+        Validate a single custom field configuration.
+
+        Args:
+            config: The custom field configuration.
+            field_name: Name of the custom field.
+            field_type: Type of custom field (dimension, metric, cost).
+
+        Returns:
+            List of validation errors for this custom field.
+        """
+        errors = []
+
+        if not isinstance(config, dict):
+            errors.append(f"Custom {field_type} field '{field_name}' configuration must be an object")
+            return errors
+
+        # Validate required 'status' field
+        status = config.get("status")
+        if status is None:
+            errors.append(f"Custom {field_type} field '{field_name}' missing required 'status' field")
+        elif status not in ["enabled", "disabled"]:
+            errors.append(f"Custom {field_type} field '{field_name}' status must be 'enabled' or 'disabled', got: {status}")
+
+        # Validate 'caption' field requirements
+        caption = config.get("caption")
+        if status == "enabled":
+            if not caption:
+                errors.append(f"Custom {field_type} field '{field_name}' requires 'caption' when status is 'enabled'")
+            elif len(caption.strip()) == 0:
+                errors.append(f"Custom {field_type} field '{field_name}' caption cannot be empty when enabled")
+            elif len(caption) > 100:
+                errors.append(f"Custom {field_type} field '{field_name}' caption too long (max 100 characters)")
+
+        # Check for unexpected additional properties
+        expected_properties = {"status", "caption"}
+        unexpected_properties = set(config.keys()) - expected_properties
+        if unexpected_properties:
+            errors.append(f"Custom {field_type} field '{field_name}' has unexpected properties: {', '.join(unexpected_properties)}")
+
+        return errors
+
+    def _validate_dictionary_lineitem_consistency(self, dictionary: Dict[str, Any], lineitems: List[Dict[str, Any]]) -> List[str]:
+        """
+        Validate consistency between dictionary configuration and line item data.
+
+        This checks for issues like:
+        - Enabled custom fields that have no data in any line items (warning)
+        - Line items with data in custom fields that aren't enabled in dictionary (warning)
+
+        Args:
+            dictionary: The dictionary configuration.
+            lineitems: List of line items to check.
+
+        Returns:
+            List of consistency validation warnings.
+        """
+        warnings = []
+
+        if not lineitems:
+            # No line items to validate against
+            return warnings
+
+        # Get all enabled custom fields from dictionary
+        enabled_fields = self._get_enabled_custom_fields(dictionary)
+
+        # Get all custom fields that have data in line items
+        fields_with_data = self._get_custom_fields_with_data(lineitems)
+
+        # Check for enabled fields with no data (potential configuration issue)
+        unused_enabled_fields = enabled_fields - fields_with_data
+        for field in unused_enabled_fields:
+            warnings.append(f"Warning: Custom field '{field}' is enabled in dictionary but has no data in any line items")
+
+        # Check for fields with data that aren't enabled (potential missing configuration)
+        unenabled_fields_with_data = fields_with_data - enabled_fields
+        for field in unenabled_fields_with_data:
+            warnings.append(f"Warning: Custom field '{field}' has data in line items but is not enabled in dictionary")
+
+        return warnings
+
+    def _get_enabled_custom_fields(self, dictionary: Dict[str, Any]) -> set:
+        """
+        Get set of all enabled custom fields from dictionary configuration.
+
+        Args:
+            dictionary: The dictionary configuration.
+
+        Returns:
+            Set of enabled custom field names.
+        """
+        enabled_fields = set()
+
+        # Check custom_dimensions
+        custom_dimensions = dictionary.get("custom_dimensions", {})
+        for field_name, config in custom_dimensions.items():
+            if isinstance(config, dict) and config.get("status") == "enabled":
+                enabled_fields.add(field_name)
+
+        # Check custom_metrics
+        custom_metrics = dictionary.get("custom_metrics", {})
+        for field_name, config in custom_metrics.items():
+            if isinstance(config, dict) and config.get("status") == "enabled":
+                enabled_fields.add(field_name)
+
+        # Check custom_costs
+        custom_costs = dictionary.get("custom_costs", {})
+        for field_name, config in custom_costs.items():
+            if isinstance(config, dict) and config.get("status") == "enabled":
+                enabled_fields.add(field_name)
+
+        return enabled_fields
+
+    def _get_custom_fields_with_data(self, lineitems: List[Dict[str, Any]]) -> set:
+        """
+        Get set of all custom fields that have data in at least one line item.
+
+        Args:
+            lineitems: List of line items to check.
+
+        Returns:
+            Set of custom field names that have data.
+        """
+        fields_with_data = set()
+
+        # Define all possible custom field names
+        custom_field_patterns = (
+            [f"dim_custom{i}" for i in range(1, 11)] +
+            [f"metric_custom{i}" for i in range(1, 11)] +
+            [f"cost_custom{i}" for i in range(1, 11)]
+        )
+
+        for lineitem in lineitems:
+            for field_name in custom_field_patterns:
+                field_value = lineitem.get(field_name)
+                if field_value is not None and str(field_value).strip():
+                    fields_with_data.add(field_name)
+
+        return fields_with_data
+
+    def _validate_v2_field_consistency(self, media_plan: Dict[str, Any]) -> List[str]:
+        """
+        Validate consistency of new v2.0 fields and their relationships.
+
+        Args:
+            media_plan: The media plan data to validate.
+
+        Returns:
+            List of v2.0 field consistency validation errors.
+        """
+        errors = []
+
+        # Validate campaign field consistency
+        campaign = media_plan.get("campaign", {})
+        errors.extend(self._validate_campaign_v2_consistency(campaign))
+
+        # Validate line item field consistency
+        lineitems = media_plan.get("lineitems", [])
+        for i, lineitem in enumerate(lineitems):
+            lineitem_errors = self._validate_lineitem_v2_consistency(lineitem, i)
+            errors.extend(lineitem_errors)
+
+        # Validate meta field consistency
+        meta = media_plan.get("meta", {})
+        errors.extend(self._validate_meta_v2_consistency(meta))
+
+        return errors
+
+    def _validate_campaign_v2_consistency(self, campaign: Dict[str, Any]) -> List[str]:
+        """
+        Validate consistency of v2.0 campaign fields.
+
+        Args:
+            campaign: The campaign data to validate.
+
+        Returns:
+            List of campaign consistency validation errors.
+        """
+        errors = []
+
+        # Validate ID and name field pairs consistency
+        id_name_pairs = [
+            ("agency_id", "agency_name", "agency"),
+            ("advertiser_id", "advertiser_name", "advertiser"),
+            ("campaign_type_id", "campaign_type_name", "campaign_type"),
+            ("workflow_status_id", "workflow_status_name", "workflow_status")
+        ]
+
+        for id_field, name_field, field_type in id_name_pairs:
+            id_value = campaign.get(id_field)
+            name_value = campaign.get(name_field)
+
+            # If both are provided, that's ideal
+            if id_value and name_value:
+                continue
+            # If only one is provided, issue a warning (not an error for flexibility)
+            elif id_value and not name_value:
+                errors.append(f"Warning: {field_type}_id provided without corresponding {field_type}_name")
+            elif name_value and not id_value:
+                errors.append(f"Warning: {field_type}_name provided without corresponding {field_type}_id")
+
+        return errors
+
+    def _validate_lineitem_v2_consistency(self, lineitem: Dict[str, Any], lineitem_index: int) -> List[str]:
+        """
+        Validate consistency of v2.0 line item fields.
+
+        Args:
+            lineitem: The line item data to validate.
+            lineitem_index: Index of the line item for error reporting.
+
+        Returns:
+            List of line item consistency validation errors.
+        """
+        errors = []
+
+        # Validate application funnel consistency (new v2.0 metrics)
+        app_start = lineitem.get("metric_application_start")
+        app_complete = lineitem.get("metric_application_complete")
+
+        if (app_start is not None and app_complete is not None and
+            app_complete > app_start):
+            errors.append(
+                f"Line item {lineitem_index} ({lineitem.get('id', 'unnamed')}): "
+                f"metric_application_complete ({app_complete}) cannot be greater than "
+                f"metric_application_start ({app_start})"
+            )
+
+        # Validate currency consistency
+        budget_currency = lineitem.get("cost_currency")
+        if budget_currency:
+            # Basic currency code validation (should be 3 letters)
+            if len(budget_currency.strip()) != 3 or not budget_currency.isalpha():
+                errors.append(
+                    f"Line item {lineitem_index} ({lineitem.get('id', 'unnamed')}): "
+                    f"cost_currency should be a 3-letter currency code, got: {budget_currency}"
+                )
+
+        return errors
+
+    def _validate_meta_v2_consistency(self, meta: Dict[str, Any]) -> List[str]:
+        """
+        Validate consistency of v2.0 meta fields.
+
+        Args:
+            meta: The meta data to validate.
+
+        Returns:
+            List of meta consistency validation errors.
+        """
+        errors = []
+
+        # Validate status field consistency
+        is_current = meta.get("is_current")
+        is_archived = meta.get("is_archived")
+
+        if is_current is True and is_archived is True:
+            errors.append("Media plan cannot be both current (is_current: true) and archived (is_archived: true)")
+
+        # Validate parent_id doesn't reference itself
+        parent_id = meta.get("parent_id")
+        plan_id = meta.get("id")
+
+        if parent_id and plan_id and parent_id == plan_id:
+            errors.append("Media plan parent_id cannot reference itself")
+
         return errors
 
     def validate_file(self, file_path: str, version: Optional[str] = None) -> List[str]:
@@ -168,3 +618,56 @@ class SchemaValidator:
             raise ValidationError(f"Invalid JSON in {file_path}: {str(e)}")
         except Exception as e:
             raise ValidationError(f"Error reading file {file_path}: {str(e)}")
+
+    def validate_comprehensive(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> Dict[str, List[str]]:
+        """
+        Perform comprehensive validation with categorized results.
+
+        Args:
+            media_plan: The media plan data to validate.
+            version: The schema version to validate against.
+
+        Returns:
+            Dictionary with categorized validation results:
+            - 'errors': Critical validation errors that prevent usage
+            - 'warnings': Non-critical issues that should be addressed
+            - 'info': Informational messages about the validation
+        """
+        result = {
+            'errors': [],
+            'warnings': [],
+            'info': []
+        }
+
+        try:
+            # Determine version
+            if version is None:
+                version = media_plan.get("meta", {}).get("schema_version")
+                if version is None:
+                    version = self.registry.get_current_version()
+                    result['info'].append(f"No schema version specified, using current: {version}")
+
+            normalized_version = normalize_version(version)
+            result['info'].append(f"Validating against schema version {normalized_version}")
+
+            # Perform validation
+            all_errors = self.validate(media_plan, version)
+
+            # Categorize errors and warnings
+            for error in all_errors:
+                if error.startswith("Warning:"):
+                    result['warnings'].append(error)
+                else:
+                    result['errors'].append(error)
+
+            # Add version-specific information
+            if normalized_version.startswith("2.") and "dictionary" in media_plan:
+                result['info'].append("Found v2.0 dictionary configuration")
+
+            if normalized_version.startswith("1."):
+                result['warnings'].append("Using legacy v1.0 schema - consider upgrading to v2.0")
+
+        except Exception as e:
+            result['errors'].append(f"Validation failed: {str(e)}")
+
+        return result

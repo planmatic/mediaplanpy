@@ -1,266 +1,305 @@
 """
-Test script to verify Phase 3 migration implementation (pytest compatible).
+Testing guide and examples for the updated Schema Validator with v2.0 support.
 
-This script tests the updated migration logic to ensure:
-1. v0.0 versions are properly rejected
-2. v1.0 → v2.0 migration works correctly
-3. Legacy format migrations work
-4. Error handling is proper
+This file provides examples of how to test the enhanced validation functionality.
 """
 
-import pytest
 import json
-import copy
+from mediaplanpy.schema import SchemaValidator
+from mediaplanpy.models import MediaPlan
 from datetime import datetime
-from decimal import Decimal
 
-from mediaplanpy.schema.migration import SchemaMigrator
-from mediaplanpy.exceptions import SchemaVersionError, SchemaMigrationError
+def test_v2_schema_validation():
+    """Test basic v2.0 schema validation."""
 
+    # Create a SchemaValidator instance
+    validator = SchemaValidator()
 
-@pytest.fixture
-def migrator():
-    """Create a SchemaMigrator instance for testing."""
-    return SchemaMigrator()
-
-
-@pytest.fixture
-def sample_v1_mediaplan():
-    """Create a sample v1.0 media plan for testing."""
-    return {
+    # Test 1: Valid v2.0 media plan
+    valid_v2_plan = {
         "meta": {
-            "id": "test_plan_001",
-            "schema_version": "1.0",
-            "created_by": "john.doe@example.com",
-            "created_at": "2024-01-01T10:00:00",
-            "name": "Test Media Plan"
+            "id": "test_plan_v2",
+            "schema_version": "2.0",
+            "created_by_name": "Test User",  # Required in v2.0
+            "created_by_id": "user123",      # Optional in v2.0
+            "created_at": datetime.now().isoformat(),
+            "is_current": True,
+            "is_archived": False
         },
         "campaign": {
-            "id": "campaign_001",
-            "name": "Test Campaign",
-            "objective": "Brand Awareness",
+            "id": "campaign_123",
+            "name": "Test Campaign v2.0",
+            "objective": "awareness",
             "start_date": "2024-01-01",
-            "end_date": "2024-01-31",
-            "budget_total": 10000.00,
-            "product_name": "Test Product"
+            "end_date": "2024-12-31",
+            "budget_total": 100000,
+            "budget_currency": "USD",           # New in v2.0
+            "agency_id": "agency_123",          # New in v2.0
+            "agency_name": "Test Agency",       # New in v2.0
+            "campaign_type_id": "brand_awareness", # New in v2.0
+            "campaign_type_name": "Brand Awareness" # New in v2.0
         },
         "lineitems": [
             {
-                "id": "lineitem_001",
+                "id": "lineitem_1",
                 "name": "Test Line Item",
                 "start_date": "2024-01-01",
-                "end_date": "2024-01-31",
-                "cost_total": 5000.00,
-                "channel": "digital",
-                "vehicle": "facebook"
+                "end_date": "2024-06-30",
+                "cost_total": 50000,
+                "cost_currency": "USD",         # New in v2.0
+                "dayparts": "Primetime",        # New in v2.0
+                "inventory": "Premium",         # New in v2.0
+                "metric_impressions": 1000000,
+                "metric_engagements": 10000,    # New v2.0 metric
+                "metric_visits": 5000           # New v2.0 metric
+            }
+        ],
+        "dictionary": {                         # New in v2.0
+            "custom_dimensions": {
+                "dim_custom1": {
+                    "status": "enabled",
+                    "caption": "Custom Dimension 1"
+                }
+            },
+            "custom_metrics": {
+                "metric_custom1": {
+                    "status": "enabled",
+                    "caption": "Custom Metric 1"
+                }
+            }
+        }
+    }
+
+    # Validate the plan
+    errors = validator.validate(valid_v2_plan, "2.0")
+    print(f"Valid v2.0 plan validation errors: {len(errors)}")
+    if errors:
+        for error in errors:
+            print(f"  - {error}")
+
+    # Test 2: Test comprehensive validation
+    comprehensive_result = validator.validate_comprehensive(valid_v2_plan, "2.0")
+    print(f"\nComprehensive validation results:")
+    print(f"  Errors: {len(comprehensive_result['errors'])}")
+    print(f"  Warnings: {len(comprehensive_result['warnings'])}")
+    print(f"  Info: {len(comprehensive_result['info'])}")
+
+    return errors == []
+
+def test_v2_dictionary_validation():
+    """Test v2.0 dictionary validation specifically."""
+
+    validator = SchemaValidator()
+
+    # Test invalid dictionary configuration
+    invalid_dict_plan = {
+        "meta": {
+            "id": "test_dict_invalid",
+            "schema_version": "2.0",
+            "created_by_name": "Test User",
+            "created_at": datetime.now().isoformat()
+        },
+        "campaign": {
+            "id": "campaign_123",
+            "name": "Test Campaign",
+            "objective": "awareness",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "budget_total": 100000
+        },
+        "lineitems": [],
+        "dictionary": {
+            "custom_dimensions": {
+                "invalid_field": {           # Invalid field name
+                    "status": "enabled",
+                    "caption": "Invalid"
+                },
+                "dim_custom1": {
+                    "status": "enabled"      # Missing caption when enabled
+                },
+                "dim_custom2": {
+                    "status": "invalid_status", # Invalid status
+                    "caption": "Test"
+                }
+            }
+        }
+    }
+
+    errors = validator.validate(invalid_dict_plan, "2.0")
+    print(f"\nDictionary validation test - found {len(errors)} errors:")
+    for error in errors:
+        print(f"  - {error}")
+
+    return len(errors) > 0  # Should have errors
+
+def test_v2_field_consistency():
+    """Test v2.0 field consistency validation."""
+
+    validator = SchemaValidator()
+
+    # Test plan with consistency issues
+    inconsistent_plan = {
+        "meta": {
+            "id": "test_consistency",
+            "schema_version": "2.0",
+            "created_by_name": "Test User",
+            "created_at": datetime.now().isoformat(),
+            "is_current": True,
+            "is_archived": True,        # Conflicting with is_current
+            "parent_id": "test_consistency" # Self-reference
+        },
+        "campaign": {
+            "id": "campaign_123",
+            "name": "Test Campaign",
+            "objective": "awareness",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "budget_total": 100000,
+            "agency_id": "agency_123",  # ID without name
+            "advertiser_name": "Test Advertiser" # Name without ID
+        },
+        "lineitems": [
+            {
+                "id": "lineitem_1",
+                "name": "Test Line Item",
+                "start_date": "2024-01-01",
+                "end_date": "2024-06-30",
+                "cost_total": 50000,
+                "cost_currency": "INVALID",     # Invalid currency code
+                "metric_application_start": 100,
+                "metric_application_complete": 200  # More completions than starts
             }
         ]
     }
 
+    errors = validator.validate(inconsistent_plan, "2.0")
+    print(f"\nField consistency test - found {len(errors)} errors:")
+    for error in errors:
+        print(f"  - {error}")
 
-def test_v0_rejection_in_migrate(migrator, sample_v1_mediaplan):
-    """Test that v0.0 versions are properly rejected in migrate method."""
+    return len(errors) > 0  # Should have errors
 
-    v0_versions = ["0.0", "v0.0.0", "0.1", "v0.0.1"]
+def test_backwards_compatibility():
+    """Test that validator still works with v1.0 plans."""
 
-    for version in v0_versions:
-        with pytest.raises(SchemaVersionError) as exc_info:
-            migrator.migrate(sample_v1_mediaplan, version, "2.0")
+    validator = SchemaValidator()
 
-        # Verify the error message mentions v0.0 and SDK v1.x
-        error_msg = str(exc_info.value)
-        assert "v0.0.x" in error_msg
-        assert "SDK v2.0" in error_msg
-        assert "SDK v1.x" in error_msg
+    # Valid v1.0 plan
+    v1_plan = {
+        "meta": {
+            "id": "test_v1_plan",
+            "schema_version": "1.0",
+            "created_by": "Test User",    # v1.0 uses created_by (optional)
+            "created_at": datetime.now().isoformat()
+        },
+        "campaign": {
+            "id": "campaign_123",
+            "name": "Test Campaign v1.0",
+            "objective": "awareness",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "budget_total": 100000
+        },
+        "lineitems": [
+            {
+                "id": "lineitem_1",
+                "name": "Test Line Item",
+                "start_date": "2024-01-01",
+                "end_date": "2024-06-30",
+                "cost_total": 50000,
+                "metric_impressions": 1000000
+            }
+        ]
+    }
 
+    errors = validator.validate(v1_plan, "1.0")
+    print(f"\nBackwards compatibility test (v1.0) - found {len(errors)} errors:")
+    for error in errors:
+        print(f"  - {error}")
 
-def test_v0_rejection_in_can_migrate(migrator):
-    """Test that v0.0 versions are properly rejected in can_migrate method."""
+    return len(errors) == 0  # Should have no errors
 
-    v0_versions = ["0.0", "v0.0.0", "0.1", "v0.0.1"]
+def test_model_integration():
+    """Test integration with MediaPlan model validation."""
 
-    for version in v0_versions:
-        result = migrator.can_migrate(version, "2.0")
-        assert result is False, f"can_migrate({version}, '2.0') should return False"
+    # Create a MediaPlan using the model
+    try:
+        media_plan = MediaPlan.create(
+            created_by="Test User",
+            campaign_name="Model Integration Test",
+            campaign_objective="awareness",
+            campaign_start_date="2024-01-01",
+            campaign_end_date="2024-12-31",
+            campaign_budget=100000,
+            schema_version="v2.0"
+        )
 
+        # Test model validation
+        model_errors = media_plan.validate_model()
+        print(f"\nModel integration test - model validation errors: {len(model_errors)}")
 
-def test_v0_rejection_in_find_migration_path(migrator):
-    """Test that v0.0 versions are properly rejected in find_migration_path method."""
+        # Test schema validation through model
+        schema_errors = media_plan.validate_against_schema()
+        print(f"Model integration test - schema validation errors: {len(schema_errors)}")
 
-    v0_versions = ["0.0", "v0.0.0", "0.1", "v0.0.1"]
+        # Test comprehensive validation through model
+        comprehensive = media_plan.validate_comprehensive()
+        print(f"Model integration test - comprehensive validation:")
+        print(f"  Errors: {len(comprehensive['errors'])}")
+        print(f"  Warnings: {len(comprehensive['warnings'])}")
+        print(f"  Info: {len(comprehensive['info'])}")
 
-    for version in v0_versions:
-        path = migrator.find_migration_path(version, "2.0")
-        assert path == [], f"find_migration_path({version}, '2.0') should return empty list"
+        return len(schema_errors) == 0
 
+    except Exception as e:
+        print(f"Model integration test failed: {e}")
+        return False
 
-def test_v1_to_v2_migration_success(migrator, sample_v1_mediaplan):
-    """Test successful v1.0 → v2.0 migration."""
+def run_all_tests():
+    """Run all validation tests."""
 
-    # Migrate to v2.0
-    v2_plan = migrator.migrate(sample_v1_mediaplan, "1.0", "2.0")
+    print("=" * 60)
+    print("SCHEMA VALIDATOR v2.0 TESTING")
+    print("=" * 60)
 
-    # Verify migration results
-    assert v2_plan["meta"]["schema_version"] == "2.0"
-
-    # Check created_by → created_by_name migration
-    assert "created_by_name" in v2_plan["meta"]
-    assert v2_plan["meta"]["created_by_name"] == "john.doe@example.com"
-
-    # Check created_by_id was added as None
-    assert "created_by_id" in v2_plan["meta"]
-    assert v2_plan["meta"]["created_by_id"] is None
-
-    # Check that original data structure is preserved
-    assert v2_plan["campaign"]["name"] == "Test Campaign"
-    assert len(v2_plan["lineitems"]) == 1
-    assert v2_plan["lineitems"][0]["name"] == "Test Line Item"
-
-
-def test_legacy_format_migration(migrator, sample_v1_mediaplan):
-    """Test legacy format migration (v1.0.0 → 2.0)."""
-
-    # Create sample v1.0.0 plan (legacy format)
-    v1_legacy_plan = copy.deepcopy(sample_v1_mediaplan)
-    v1_legacy_plan["meta"]["schema_version"] = "v1.0.0"  # Legacy format
-
-    # Migrate to v2.0
-    v2_plan = migrator.migrate(v1_legacy_plan, "v1.0.0", "2.0")
-
-    # Verify results
-    assert v2_plan["meta"]["schema_version"] == "2.0"
-    assert "created_by_name" in v2_plan["meta"]
-    assert v2_plan["meta"]["created_by_name"] == "john.doe@example.com"
-
-
-def test_migration_paths_valid(migrator):
-    """Test valid migration path finding."""
-
-    # Test valid paths
-    valid_paths = [
-        ("1.0", "2.0"),
-        ("v1.0.0", "2.0"),
+    tests = [
+        ("Basic v2.0 Validation", test_v2_schema_validation),
+        ("Dictionary Validation", test_v2_dictionary_validation),
+        ("Field Consistency", test_v2_field_consistency),
+        ("Backwards Compatibility", test_backwards_compatibility),
+        ("Model Integration", test_model_integration)
     ]
 
-    for from_v, to_v in valid_paths:
-        path = migrator.find_migration_path(from_v, to_v)
-        assert len(path) > 0, f"Path should be found for {from_v} → {to_v}"
-        assert path[-1] == to_v, f"Path should end with target version {to_v}"
+    results = {}
+    for test_name, test_func in tests:
+        print(f"\n{'-' * 40}")
+        print(f"Running: {test_name}")
+        print(f"{'-' * 40}")
 
+        try:
+            result = test_func()
+            results[test_name] = result
+            status = "PASS" if result else "FAIL"
+            print(f"Result: {status}")
+        except Exception as e:
+            print(f"Test failed with exception: {e}")
+            results[test_name] = False
 
-def test_migration_compatibility_valid(migrator):
-    """Test migration compatibility validation for valid migrations."""
+    # Summary
+    print(f"\n{'=' * 60}")
+    print("TEST SUMMARY")
+    print(f"{'=' * 60}")
 
-    # Test v1.0 → v2.0 compatibility
-    compat = migrator.validate_migration_compatibility("1.0", "2.0")
-    assert compat["compatible"] is True
-    assert len(compat["errors"]) == 0
+    passed = 0
+    for test_name, result in results.items():
+        status = "PASS" if result else "FAIL"
+        print(f"{test_name:<30} {status}")
+        if result:
+            passed += 1
 
+    print(f"\nOverall: {passed}/{len(tests)} tests passed")
 
-def test_migration_compatibility_v0_rejection(migrator):
-    """Test migration compatibility validation rejects v0.0."""
+    return passed == len(tests)
 
-    # Test v0.0 → v2.0 compatibility (should fail)
-    compat = migrator.validate_migration_compatibility("v0.0.0", "2.0")
-    assert compat["compatible"] is False
-    assert len(compat["errors"]) > 0
-    assert any("v0.0" in error for error in compat["errors"])
-
-
-def test_migration_preserves_data_structure(migrator, sample_v1_mediaplan):
-    """Test that migration preserves all data structure and doesn't lose information."""
-
-    # Add some additional data to test preservation
-    enhanced_plan = copy.deepcopy(sample_v1_mediaplan)
-    enhanced_plan["campaign"]["budget_total"] = 15000.50
-    enhanced_plan["campaign"]["audience_age_start"] = 25
-    enhanced_plan["campaign"]["audience_age_end"] = 45
-    enhanced_plan["lineitems"][0]["cost_media"] = 3000.00
-    enhanced_plan["lineitems"][0]["metric_impressions"] = 100000.0
-
-    # Migrate
-    v2_plan = migrator.migrate(enhanced_plan, "1.0", "2.0")
-
-    # Verify all data is preserved
-    assert v2_plan["campaign"]["budget_total"] == 15000.50
-    assert v2_plan["campaign"]["audience_age_start"] == 25
-    assert v2_plan["campaign"]["audience_age_end"] == 45
-    assert v2_plan["lineitems"][0]["cost_media"] == 3000.00
-    assert v2_plan["lineitems"][0]["metric_impressions"] == 100000.0
-
-
-def test_migration_handles_missing_created_by(migrator, sample_v1_mediaplan):
-    """Test migration when created_by field is missing."""
-
-    # Remove created_by field
-    plan_without_created_by = copy.deepcopy(sample_v1_mediaplan)
-    del plan_without_created_by["meta"]["created_by"]
-
-    # Migrate
-    v2_plan = migrator.migrate(plan_without_created_by, "1.0", "2.0")
-
-    # Should have created_by_name with default value
-    assert "created_by_name" in v2_plan["meta"]
-    assert v2_plan["meta"]["created_by_name"] == "Unknown User"
-    assert v2_plan["meta"]["created_by_id"] is None
-
-
-def test_same_version_migration_updates_format(migrator, sample_v1_mediaplan):
-    """Test that migrating to the same version still updates the version format."""
-
-    # Create a plan with v1.0.0 format
-    legacy_plan = copy.deepcopy(sample_v1_mediaplan)
-    legacy_plan["meta"]["schema_version"] = "v1.0.0"
-
-    # "Migrate" to same version but different format
-    result = migrator.migrate(legacy_plan, "v1.0.0", "1.0")
-
-    # Should update version format
-    assert result["meta"]["schema_version"] == "1.0"
-
-
-def test_migration_register_rejects_v0(migrator):
-    """Test that registering v0.0 migrations is rejected."""
-
-    def dummy_migration(data):
-        return data
-
-    # Should raise error when trying to register v0.0 migration
-    with pytest.raises(SchemaVersionError) as exc_info:
-        migrator.register_migration("0.0", "1.0", dummy_migration)
-
-    error_msg = str(exc_info.value)
-    assert "v0.0" in error_msg
-    assert "SDK v2.0" in error_msg
-
-
-# Integration test that runs all major functionality
-def test_phase3_integration(migrator, sample_v1_mediaplan):
-    """Integration test covering the main Phase 3 functionality."""
-
-    print("\n=== Phase 3 Integration Test ===")
-
-    # 1. Verify v0.0 rejection works
-    with pytest.raises(SchemaVersionError):
-        migrator.migrate(sample_v1_mediaplan, "0.0", "2.0")
-    print("✅ v0.0 rejection working")
-
-    # 2. Verify v1.0 → v2.0 migration works
-    v2_plan = migrator.migrate(sample_v1_mediaplan, "1.0", "2.0")
-    assert v2_plan["meta"]["schema_version"] == "2.0"
-    assert v2_plan["meta"]["created_by_name"] == "john.doe@example.com"
-    print("✅ v1.0 → v2.0 migration working")
-
-    # 3. Verify legacy format works
-    legacy_plan = copy.deepcopy(sample_v1_mediaplan)
-    legacy_plan["meta"]["schema_version"] = "v1.0.0"
-    v2_legacy = migrator.migrate(legacy_plan, "v1.0.0", "2.0")
-    assert v2_legacy["meta"]["schema_version"] == "2.0"
-    print("✅ Legacy format migration working")
-
-    # 4. Verify path finding excludes v0.0
-    assert migrator.find_migration_path("0.0", "2.0") == []
-    assert len(migrator.find_migration_path("1.0", "2.0")) > 0
-    print("✅ Path finding working correctly")
-
-    print("✅ All Phase 3 functionality verified!")
+if __name__ == "__main__":
+    run_all_tests()

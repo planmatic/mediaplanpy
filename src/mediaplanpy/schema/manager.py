@@ -2,7 +2,8 @@
 Schema manager module for mediaplanpy.
 
 This module provides the SchemaManager class for accessing bundled schema definitions
-without requiring network requests or local caching. Updated to support 2-digit versioning.
+without requiring network requests or local caching. Updated to support 2-digit versioning
+and v2.0 dictionary schema.
 """
 
 import os
@@ -24,17 +25,18 @@ class SchemaManager:
     Provides basic access to mediaplanschema definitions.
 
     Accesses schema files bundled with the SDK, eliminating the need for
-    network requests or local caching. Updated for 2-digit versioning.
+    network requests or local caching. Updated for 2-digit versioning and v2.0 support.
     """
 
-    # Valid schema types
-    VALID_SCHEMA_TYPES = {"mediaplan", "campaign", "lineitem"}
+    # Valid schema types - UPDATED to include dictionary for v2.0
+    VALID_SCHEMA_TYPES = {"mediaplan", "campaign", "lineitem", "dictionary"}
 
-    # Schema file name mapping
+    # Schema file name mapping - UPDATED to include dictionary
     SCHEMA_FILES = {
         "mediaplan": "mediaplan.schema.json",
         "campaign": "campaign.schema.json",
-        "lineitem": "lineitem.schema.json"
+        "lineitem": "lineitem.schema.json",
+        "dictionary": "dictionary.schema.json"  # NEW for v2.0
     }
 
     @staticmethod
@@ -43,7 +45,7 @@ class SchemaManager:
         Get schema definition for specified type and version.
 
         Args:
-            schema_type: "mediaplan", "campaign", or "lineitem"
+            schema_type: "mediaplan", "campaign", "lineitem", or "dictionary"
             version: Schema version in 2-digit format (default: "2.0")
 
         Returns:
@@ -66,16 +68,34 @@ class SchemaManager:
 
         normalized_version = normalize_version(version)
 
+        # For dictionary schema, only available in v2.0+
+        if schema_type == "dictionary":
+            try:
+                major_version = int(normalized_version.split('.')[0])
+                if major_version < 2:
+                    raise FileNotFoundError(
+                        f"Dictionary schema is only available in v2.0+, requested version: {normalized_version}"
+                    )
+            except (ValueError, IndexError):
+                raise ValueError(f"Invalid version format for dictionary schema: {normalized_version}")
+
         # Get schema file path
         schema_file = SchemaManager.SCHEMA_FILES[schema_type]
         schema_path = SchemaManager._get_schema_path(normalized_version, schema_file)
 
         # Check if file exists
         if not schema_path.exists():
-            raise FileNotFoundError(
-                f"Schema file not found: {schema_path}. "
-                f"Version {normalized_version} may not be supported."
-            )
+            # For dictionary schema, provide more helpful error message
+            if schema_type == "dictionary":
+                raise FileNotFoundError(
+                    f"Dictionary schema file not found: {schema_path}. "
+                    f"Dictionary schema is only available in v2.0+."
+                )
+            else:
+                raise FileNotFoundError(
+                    f"Schema file not found: {schema_path}. "
+                    f"Version {normalized_version} may not be supported."
+                )
 
         # Load and return schema
         try:
@@ -106,6 +126,17 @@ class SchemaManager:
 
         for schema_type in SchemaManager.VALID_SCHEMA_TYPES:
             try:
+                # For dictionary schema, only load for v2.0+
+                if schema_type == "dictionary":
+                    try:
+                        major_version = int(normalized_version.split('.')[0])
+                        if major_version < 2:
+                            logger.debug(f"Skipping dictionary schema for version {normalized_version} (v2.0+ only)")
+                            continue
+                    except (ValueError, IndexError):
+                        logger.warning(f"Could not parse version {normalized_version} for dictionary schema check")
+                        continue
+
                 schemas[schema_type] = SchemaManager.get_schema(schema_type, normalized_version)
             except (FileNotFoundError, ValueError) as e:
                 logger.warning(f"Could not load {schema_type} schema for version {normalized_version}: {e}")
@@ -119,7 +150,7 @@ class SchemaManager:
         Get list of supported schema versions in 2-digit format.
 
         Returns:
-            List of available version strings (e.g., ["0.0", "1.0", "2.0"])
+            List of available version strings (e.g., ["1.0", "2.0"])
         """
         definitions_dir = SchemaManager._get_definitions_dir()
 
