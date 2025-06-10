@@ -27,7 +27,11 @@ class BaseModel(PydanticBaseModel):
     """
 
     # Schema version support
-    SCHEMA_VERSION: ClassVar[str] = "v1.0.0"
+    @classmethod
+    @property
+    def SCHEMA_VERSION(cls) -> str:
+        from mediaplanpy import __schema_version__
+        return f"v{__schema_version__}"
 
     # Model configuration
     model_config = ConfigDict(

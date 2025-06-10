@@ -1012,24 +1012,23 @@ class WorkspaceManager:
                                 continue
 
                             # Load media plan (this will trigger automatic version handling)
-                            media_plan = MediaPlan.load(self, path=file_path, validate_version=True, auto_migrate=True)
+                            media_plan = MediaPlan.load(self, path=file_path, validate_version=True, auto_migrate=False)
 
-                            # Check if version changed during load (automatic migration)
-                            final_version = media_plan.meta.schema_version
-                            target_version_formatted = f"v{target_schema_version}"
+                            # Always save after migration attempt to ensure changes are persisted
+                            media_plan.save(self, path=file_path, overwrite=True, validate_version=True)
 
-                            if final_version != target_version_formatted:
-                                # Explicitly update to target version if not already there
-                                media_plan.meta.schema_version = target_version_formatted
+                            # Normalize version for comparison
+                            from mediaplanpy.schema.version_utils import normalize_version
+                            normalized_version = normalize_version(current_version)
+                            target_normalized = normalize_version(f"v{target_schema_version}")
 
-                                # Save back to trigger version update and v2.0 schema compliance
-                                media_plan.save(self, path=file_path, overwrite=True, validate_version=True)
+                            # Check if migration actually occurred for logging
+                            if normalized_version != target_normalized:
                                 result["migrated_count"] += 1
-                                logger.info(
-                                    f"Migrated {file_path} from {current_version} to {target_version_formatted}")
+                                logger.info(f"Migrated {file_path} from {current_version} to v{target_schema_version}")
                             else:
                                 result["already_current_count"] += 1
-                                logger.debug(f"File {file_path} already at target version {target_version_formatted}")
+                                logger.debug(f"File {file_path} already at target version")
 
                         except SchemaVersionError as e:
                             result["failed_files"].append(file_path)

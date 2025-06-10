@@ -1043,7 +1043,9 @@ class MediaPlan(BaseModel):
             cls.check_schema_version(data)
 
             # Create instance using Pydantic
-            return cls.model_validate(data)
+            media_plan = cls.model_validate(data)
+
+            return media_plan
 
         except SchemaVersionError:
             # Re-raise schema version errors as-is
