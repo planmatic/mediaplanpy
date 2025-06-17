@@ -99,7 +99,7 @@ def _load_workspace_data(self, filters=None):
 
 def _apply_filters(self, df, filters):
     """
-    Apply filters to a DataFrame.
+    Apply filters to a DataFrame with enhanced date field support.
 
     Args:
         df: pandas DataFrame to filter
@@ -112,25 +112,98 @@ def _apply_filters(self, df, filters):
         return df
 
     filtered_df = df.copy()
+
+    # Define date field patterns for smart detection
+    date_field_patterns = [
+        'start_date', 'end_date', 'created_at', 'updated_at',
+        'last_updated', 'min_start_date', 'max_end_date'
+    ]
+
     for field, value in filters.items():
         if field not in filtered_df.columns:
             logger.warning(f"Filter field '{field}' not found in data columns")
             continue
 
+        # Detect if this is likely a date field
+        is_date_field = any(pattern in field.lower() for pattern in date_field_patterns)
+
         if isinstance(value, list):
             # List of values (IN operator)
-            filtered_df = filtered_df[filtered_df[field].isin(value)]
+            if is_date_field:
+                # Convert both sides to datetime for proper comparison
+                try:
+                    # Convert filter values to datetime
+                    date_values = [pd.to_datetime(v) for v in value]
+                    # Convert DataFrame column to datetime
+                    df_dates = pd.to_datetime(filtered_df[field], errors='coerce')
+                    filtered_df = filtered_df[df_dates.isin(date_values)]
+                except Exception as e:
+                    logger.warning(f"Failed to apply date list filter for {field}: {e}")
+                    # Fallback to string comparison
+                    filtered_df = filtered_df[filtered_df[field].isin(value)]
+            else:
+                filtered_df = filtered_df[filtered_df[field].isin(value)]
+
         elif isinstance(value, dict):
             # Range filter {'min': x, 'max': y} or regex {'regex': pattern}
-            if 'min' in value:
-                filtered_df = filtered_df[filtered_df[field] >= value['min']]
-            if 'max' in value:
-                filtered_df = filtered_df[filtered_df[field] <= value['max']]
+            if 'min' in value or 'max' in value:
+                if is_date_field:
+                    # Handle date range filtering
+                    try:
+                        # Convert DataFrame column to datetime
+                        df_dates = pd.to_datetime(filtered_df[field], errors='coerce')
+
+                        if 'min' in value:
+                            min_date = pd.to_datetime(value['min'])
+                            filtered_df = filtered_df[df_dates >= min_date]
+
+                        if 'max' in value:
+                            max_date = pd.to_datetime(value['max'])
+                            filtered_df = filtered_df[df_dates <= max_date]
+
+                    except Exception as e:
+                        logger.warning(f"Failed to apply date range filter for {field}: {e}")
+                        # Fallback to string comparison (may not work correctly for dates)
+                        try:
+                            if 'min' in value:
+                                filtered_df = filtered_df[filtered_df[field] >= value['min']]
+                            if 'max' in value:
+                                filtered_df = filtered_df[filtered_df[field] <= value['max']]
+                        except Exception as fallback_error:
+                            logger.error(f"Date filter failed completely for {field}: {fallback_error}")
+                            continue
+                else:
+                    # Numeric range filtering
+                    try:
+                        if 'min' in value:
+                            filtered_df = filtered_df[filtered_df[field] >= value['min']]
+                        if 'max' in value:
+                            filtered_df = filtered_df[filtered_df[field] <= value['max']]
+                    except Exception as e:
+                        logger.warning(f"Failed to apply numeric range filter for {field}: {e}")
+                        continue
+
             if 'regex' in value:
-                filtered_df = filtered_df[filtered_df[field].astype(str).str.match(value['regex'])]
+                try:
+                    filtered_df = filtered_df[filtered_df[field].astype(str).str.match(value['regex'])]
+                except Exception as e:
+                    logger.warning(f"Failed to apply regex filter for {field}: {e}")
+                    continue
+
         else:
             # Exact match
-            filtered_df = filtered_df[filtered_df[field] == value]
+            if is_date_field:
+                # Handle date exact matching
+                try:
+                    target_date = pd.to_datetime(value)
+                    df_dates = pd.to_datetime(filtered_df[field], errors='coerce')
+                    filtered_df = filtered_df[df_dates == target_date]
+                except Exception as e:
+                    logger.warning(f"Failed to apply date exact filter for {field}: {e}")
+                    # Fallback to string comparison
+                    filtered_df = filtered_df[filtered_df[field] == value]
+            else:
+                filtered_df = filtered_df[filtered_df[field] == value]
 
     return filtered_df
 
