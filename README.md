@@ -24,11 +24,7 @@ MediaPlanPy handles schema validation, versioning, and migration to ensure full 
 
 ## Documentation
 
-- **[GET_STARTED.md](GET_STARTED.md)** - Detailed setup and usage guide
-- **[API Reference](docs/api.md)** - Complete method documentation
-- **[Schema Guide](docs/schema.md)** - Understanding MediaPlan Schema versions
-- **[CLI Reference](docs/cli.md)** - Command-line interface documentation
-- **[Examples](examples/)** - Code examples and tutorials
+- **[GET_STARTED.md](GET_STARTED.md)** - Detailed setup and first steps guide
 
 ## Schema Compliance
 
