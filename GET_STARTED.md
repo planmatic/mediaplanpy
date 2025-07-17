@@ -220,7 +220,8 @@ imported_plan = MediaPlan.import_from_excel(
     file_name="media_plan_export.xlsx",
     workspace_manager=workspace
 )
-print(f"Imported plan: {imported_plan.meta.name}")
+saved_path = imported_plan.save(workspace)
+print(f"Imported plan: {imported_plan.meta.id}")
 ```
 
-This creates a new media plan from the Excel file placed in the `imports` subdirectory of your workspace. print(f"Imported plan: {imported\_plan.meta.name}")
+This creates a new media plan from the Excel file placed in the `imports` subdirectory of your workspace.
