@@ -18,7 +18,7 @@ from mediaplanpy.models.base import BaseModel
 from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
 from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.models.dictionary import Dictionary
-from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError
+from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError, StorageError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
 import logging
@@ -506,6 +506,91 @@ class MediaPlan(BaseModel):
                 return True
 
         return False
+
+    def archive(self, workspace_manager: 'WorkspaceManager') -> None:
+        """
+        Archive this media plan by setting is_archived=True and saving to storage.
+
+        Archived media plans are kept in storage but marked as inactive. They can
+        still be loaded, exported, and restored later. Archived media plans are
+        included in list operations by default.
+
+        Args:
+            workspace_manager: The WorkspaceManager instance for saving.
+
+        Raises:
+            ValidationError: If the media plan is currently marked as current (is_current=True).
+            StorageError: If saving fails.
+            WorkspaceInactiveError: If the workspace is inactive.
+
+        Example:
+            >>> media_plan.archive(workspace_manager)
+            >>> print(media_plan.meta.is_archived)  # True
+        """
+        # Validation: Cannot archive a current media plan
+        if self.meta.is_current is True:
+            raise ValidationError(
+                f"Cannot archive media plan '{self.meta.id}': it is marked as current (is_current=True). "
+                f"Please set is_current=False before archiving."
+            )
+
+        # Set archived status
+        old_status = self.meta.is_archived
+        self.meta.is_archived = True
+
+        try:
+            # Save with overwrite=True to preserve ID and sync to database
+            saved_path = self.save(
+                workspace_manager=workspace_manager,
+                overwrite=True,
+                include_parquet=True,
+                include_database=True
+            )
+
+            logger.info(f"Media plan '{self.meta.id}' archived successfully (saved to {saved_path})")
+
+        except Exception as e:
+            # Rollback the status change if save failed
+            self.meta.is_archived = old_status
+            raise StorageError(f"Failed to archive media plan '{self.meta.id}': {str(e)}")
+
+    def restore(self, workspace_manager: 'WorkspaceManager') -> None:
+        """
+        Restore this media plan by setting is_archived=False and saving to storage.
+
+        This makes the media plan active again after being archived. The media plan
+        will be updated in storage and synchronized to the database if enabled.
+
+        Args:
+            workspace_manager: The WorkspaceManager instance for saving.
+
+        Raises:
+            StorageError: If saving fails.
+            WorkspaceInactiveError: If the workspace is inactive.
+
+        Example:
+            >>> media_plan.restore(workspace_manager)
+            >>> print(media_plan.meta.is_archived)  # False or None
+        """
+        # Set archived status to False
+        old_status = self.meta.is_archived
+        self.meta.is_archived = False
+
+        try:
+            # Save with overwrite=True to preserve ID and sync to database
+            saved_path = self.save(
+                workspace_manager=workspace_manager,
+                overwrite=True,
+                include_parquet=True,
+                include_database=True
+            )
+
+            logger.info(f"Media plan '{self.meta.id}' restored successfully (saved to {saved_path})")
+
+        except Exception as e:
+            # Rollback the status change if save failed
+            self.meta.is_archived = old_status
+            raise StorageError(f"Failed to restore media plan '{self.meta.id}': {str(e)}")
 
     def calculate_total_cost(self) -> Decimal:
         """
