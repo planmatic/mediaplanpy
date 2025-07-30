@@ -45,8 +45,9 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
               a default path is generated based on the media plan ID.
         format_name: Optional format name to use. If not specified, inferred from path
                     or defaults to "json".
-        overwrite: If False (default), saves with a new media plan ID. If True,
-                  preserves the existing media plan ID.
+        overwrite: If False (default), saves with a new media plan ID if the current
+                  plan already exists as a saved file. If True, preserves the existing
+                  media plan ID.
         include_parquet: If True (default), also saves a Parquet file for v1.0+ schemas.
         include_database: If True (default), also saves to database if configured.
         validate_version: If True (default), validate schema version compatibility.
@@ -111,25 +112,30 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             self.meta.schema_version = f"v{__schema_version__}"
             logger.info(f"Set missing schema version to current: v{__schema_version__}")
 
-    # Handle media plan ID and parent_id based on overwrite parameter
+    # Determine if this is a first save or subsequent save
+    current_id = self.meta.id
+    is_first_save = not self._media_plan_file_exists(workspace_config, current_id)
+
+    # Handle media plan ID and parent_id based on overwrite parameter and existence
     if not overwrite:
-        # Capture current ID before generating new one (for parent_id lineage)
-        current_id = self.meta.id
-
-        # Generate a new media plan ID
-        new_id = f"mediaplan_{uuid.uuid4().hex[:8]}"
-        self.meta.id = new_id
-
-        # Set parent_id to maintain lineage (only if current_id is valid)
-        if current_id and current_id.strip():
-            self.meta.parent_id = current_id
-            logger.info(f"Generated new media plan ID: {new_id}, parent_id: {current_id}")
+        if is_first_save:
+            # First save - keep existing ID, no parent_id (nothing to link to)
+            logger.info(f"First save of media plan with ID: {current_id}")
+            # Keep existing self.meta.id and don't set parent_id
         else:
-            # Edge case: current ID is None/empty, so this is effectively a new plan
-            self.meta.parent_id = None
-            logger.info(f"Generated new media plan ID: {new_id} (no parent_id - original ID was empty)")
+            # Subsequent save - create new version with lineage
+            # Capture current ID before generating new one (for parent_id lineage)
+            parent_id = current_id
+
+            # Generate a new media plan ID
+            new_id = f"mediaplan_{uuid.uuid4().hex[:8]}"
+            self.meta.id = new_id
+
+            # Set parent_id to maintain lineage
+            self.meta.parent_id = parent_id
+            logger.info(f"Created new version - ID: {new_id}, parent_id: {parent_id}")
     else:
-        # When overwrite=True, preserve existing ID and parent_id
+        # When overwrite=True, preserve existing ID and parent_id regardless of first save
         logger.debug(f"Updating existing media plan ID: {self.meta.id}, parent_id: {self.meta.parent_id}")
 
     # Update created_at timestamp regardless of overwrite value
@@ -237,6 +243,45 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     # Return the path where the media plan was saved
     return path
+
+
+def _media_plan_file_exists(self, workspace_config: Dict[str, Any], media_plan_id: str) -> bool:
+    """
+    Check if a media plan file with the given ID already exists in storage.
+
+    This method checks for JSON files in the standard mediaplans directory structure.
+
+    Args:
+        workspace_config: The resolved workspace configuration
+        media_plan_id: The media plan ID to check for
+
+    Returns:
+        True if a file exists for this media plan ID, False otherwise
+    """
+    try:
+        from mediaplanpy.storage import get_storage_backend
+        storage_backend = get_storage_backend(workspace_config)
+
+        # Sanitize media plan ID for use as filename
+        safe_id = media_plan_id.replace('/', '_').replace('\\', '_')
+
+        # Check for JSON file in mediaplans directory
+        json_path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_id}.json")
+
+        if storage_backend.exists(json_path):
+            return True
+
+        # Also check root directory as fallback (for backward compatibility)
+        root_json_path = f"{safe_id}.json"
+        if storage_backend.exists(root_json_path):
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"Could not check if media plan file exists for ID {media_plan_id}: {e}")
+        # If we can't determine, assume it doesn't exist (safer for first save)
+        return False
 
 
 def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
