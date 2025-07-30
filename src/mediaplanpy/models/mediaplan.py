@@ -655,7 +655,7 @@ class MediaPlan(BaseModel):
             logger.error(f"Failed to find campaign current plans: {e}")
             return []
 
-    def set_as_current(self, workspace_manager: 'WorkspaceManager') -> Dict[str, Any]:
+    def set_as_current(self, workspace_manager: 'WorkspaceManager', update_self: bool = True) -> Dict[str, Any]:
         """
         Set this media plan as the current plan for its campaign.
 
@@ -664,6 +664,8 @@ class MediaPlan(BaseModel):
 
         Args:
             workspace_manager: The WorkspaceManager instance for saving
+            update_self: If True (default), saves this plan with is_current=True.
+                        If False, only updates other plans (assumes this plan is already saved).
 
         Returns:
             Dictionary with operation results:
@@ -678,9 +680,11 @@ class MediaPlan(BaseModel):
             WorkspaceInactiveError: If the workspace is inactive
 
         Example:
+            >>> # Standard usage - updates this plan and others
             >>> result = media_plan.set_as_current(workspace_manager)
-            >>> print(f"Set {result['plan_set_as_current']} as current")
-            >>> print(f"Unset {len(result['plans_unset_as_current'])} other plans")
+
+            >>> # Coordination only - this plan already saved elsewhere
+            >>> result = media_plan.set_as_current(workspace_manager, update_self=False)
         """
         # Check if workspace is active
         workspace_manager.check_workspace_active("set media plan as current")
@@ -709,47 +713,52 @@ class MediaPlan(BaseModel):
         # Backup original states for rollback
         backup_states = []
 
-        # Backup this plan's state
-        original_is_current = self.meta.is_current
-        backup_states.append((self, original_is_current))
+        # Backup this plan's state (if we're updating it)
+        if update_self:
+            original_is_current = self.meta.is_current
+            backup_states.append((self, original_is_current))
 
         # Backup other plans' states
         for plan in other_current_plans:
             backup_states.append((plan, plan.meta.is_current))
 
         try:
-            # Step 1: Set this plan as current
-            self.meta.is_current = True
+            # Step 1: Set this plan as current (if requested)
+            if update_self:
+                self.meta.is_current = True
 
             # Step 2: Set other current plans as non-current
             for plan in other_current_plans:
                 plan.meta.is_current = False
                 result["plans_unset_as_current"].append(plan.meta.id)
 
-            # Step 3: Save all affected plans (atomic-like operation)
-            # Save this plan first
-            self.save(
-                workspace_manager=workspace_manager,
-                overwrite=True,
-                include_parquet=True,
-                include_database=True
-            )
+            # Step 3: Save affected plans
+            plans_to_save = []
+            if update_self:
+                plans_to_save.append(self)
+            plans_to_save.extend(other_current_plans)
 
-            # Save other affected plans
-            for plan in other_current_plans:
+            # Save all affected plans
+            for plan in plans_to_save:
+                # Prevent recursion by ensuring set_as_current=False in recursive save calls
                 plan.save(
                     workspace_manager=workspace_manager,
                     overwrite=True,
                     include_parquet=True,
-                    include_database=True
+                    include_database=True,
+                    set_as_current=False  # Prevent recursion
                 )
 
             # Success!
             result["success"] = True
-            result["total_affected"] = 1 + len(other_current_plans)
+            result["total_affected"] = len(plans_to_save)
 
-            logger.info(f"Set media plan '{self.meta.id}' as current for campaign '{self.campaign.id}'. "
-                        f"Unset {len(other_current_plans)} other plans as current.")
+            if update_self:
+                logger.info(f"Set media plan '{self.meta.id}' as current for campaign '{self.campaign.id}'. "
+                            f"Unset {len(other_current_plans)} other plans as current.")
+            else:
+                logger.info(f"Coordinated current status for campaign '{self.campaign.id}': "
+                            f"Plan '{self.meta.id}' is current, unset {len(other_current_plans)} other plans.")
 
             return result
 

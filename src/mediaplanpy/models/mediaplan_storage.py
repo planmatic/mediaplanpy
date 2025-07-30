@@ -73,7 +73,8 @@ def _media_plan_file_exists(workspace_config: Dict[str, Any], media_plan_id: str
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
          include_parquet: bool = True, include_database: bool = True,
-         validate_version: bool = True, **format_options) -> str:
+         validate_version: bool = True, set_as_current: bool = False,
+         **format_options) -> str:
     """
     Save the media plan to a storage location with comprehensive version validation.
 
@@ -105,6 +106,12 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     # Check if workspace is loaded
     if not workspace_manager.is_loaded:
         workspace_manager.load()
+
+    # Set is_current to true of set_as_current is true
+    if set_as_current:
+        # Set this plan as current - the normal save logic will handle this
+        self.meta.is_current = True
+        logger.debug(f"set_as_current=True: Will set media plan '{self.meta.id}' as current after save")
 
     # Get resolved workspace config
     workspace_config = workspace_manager.get_resolved_config()
@@ -175,6 +182,40 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     else:
         # When overwrite=True, preserve existing ID and parent_id regardless of first save
         logger.debug(f"Updating existing media plan ID: {self.meta.id}, parent_id: {self.meta.parent_id}")
+
+    # Check if we're unsetting a current plan (only warn when overwrite=True)
+    if (overwrite and
+            hasattr(self, 'meta') and
+            hasattr(self.meta, 'is_current')):
+
+        # We need to check the original state from storage to compare
+        try:
+            if self.meta.id:  # Only check if we have an ID
+                # Try to load the current version from storage to compare
+                from mediaplanpy.storage import get_storage_backend
+                storage_backend = get_storage_backend(workspace_manager.get_resolved_config())
+
+                # Generate the expected path for this media plan
+                safe_id = self.meta.id.replace('/', '_').replace('\\', '_')
+                expected_path = os.path.join("mediaplans", f"{safe_id}.json")
+
+                if storage_backend.exists(expected_path):
+                    # Load the current version to check its is_current status
+                    current_content = storage_backend.read_file(expected_path, binary=False)
+                    import json
+                    current_data = json.loads(current_content)
+                    current_is_current = current_data.get("meta", {}).get("is_current")
+
+                    # Warn if we're unsetting a current plan
+                    if (current_is_current is True and
+                            self.meta.is_current is False):
+                        logger.warning(
+                            f"⚠️ Unsetting current status for media plan '{self.meta.id}'. "
+                            f"Campaign '{self.campaign.id}' will have no current plan."
+                        )
+        except Exception as e:
+            # Don't fail the save operation due to this check
+            logger.debug(f"Could not check original current status: {e}")
 
     # Update created_at timestamp regardless of overwrite value
     self.meta.created_at = datetime.now()
@@ -278,6 +319,19 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         except Exception as e:
             # Database errors should not prevent file save
             logger.warning(f"Database sync failed for media plan {self.meta.id}: {e}")
+
+    # Set other media plans in campaign as non-current if set_as_current is true
+    if set_as_current:
+        try:
+            # Delegate to set_as_current method with update_self=False
+            # (this plan is already saved, just coordinate with others)
+            result = self.set_as_current(workspace_manager, update_self=False)
+
+            logger.info(f"Coordinated current status after save: {result['total_affected']} plans affected")
+
+        except Exception as e:
+            # Don't fail the main save operation, but log the issue
+            logger.warning(f"Media plan saved successfully, but could not coordinate current status: {e}")
 
     # Return the path where the media plan was saved
     return path
