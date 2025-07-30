@@ -32,6 +32,44 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_storage")
 MEDIAPLANS_SUBDIR = "mediaplans"
 
 
+def _media_plan_file_exists(workspace_config: Dict[str, Any], media_plan_id: str) -> bool:
+    """
+    Check if a media plan file with the given ID already exists in storage.
+
+    This function checks for JSON files in the standard mediaplans directory structure.
+
+    Args:
+        workspace_config: The resolved workspace configuration
+        media_plan_id: The media plan ID to check for
+
+    Returns:
+        True if a file exists for this media plan ID, False otherwise
+    """
+    try:
+        from mediaplanpy.storage import get_storage_backend
+        storage_backend = get_storage_backend(workspace_config)
+
+        # Sanitize media plan ID for use as filename
+        safe_id = media_plan_id.replace('/', '_').replace('\\', '_')
+
+        # Check for JSON file in mediaplans directory
+        json_path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_id}.json")
+
+        if storage_backend.exists(json_path):
+            return True
+
+        # Also check root directory as fallback (for backward compatibility)
+        root_json_path = f"{safe_id}.json"
+        if storage_backend.exists(root_json_path):
+            return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"Could not check if media plan file exists for ID {media_plan_id}: {e}")
+        # If we can't determine, assume it doesn't exist (safer for first save)
+        return False
+
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
          include_parquet: bool = True, include_database: bool = True,
@@ -243,45 +281,6 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     # Return the path where the media plan was saved
     return path
-
-
-def _media_plan_file_exists(self, workspace_config: Dict[str, Any], media_plan_id: str) -> bool:
-    """
-    Check if a media plan file with the given ID already exists in storage.
-
-    This method checks for JSON files in the standard mediaplans directory structure.
-
-    Args:
-        workspace_config: The resolved workspace configuration
-        media_plan_id: The media plan ID to check for
-
-    Returns:
-        True if a file exists for this media plan ID, False otherwise
-    """
-    try:
-        from mediaplanpy.storage import get_storage_backend
-        storage_backend = get_storage_backend(workspace_config)
-
-        # Sanitize media plan ID for use as filename
-        safe_id = media_plan_id.replace('/', '_').replace('\\', '_')
-
-        # Check for JSON file in mediaplans directory
-        json_path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_id}.json")
-
-        if storage_backend.exists(json_path):
-            return True
-
-        # Also check root directory as fallback (for backward compatibility)
-        root_json_path = f"{safe_id}.json"
-        if storage_backend.exists(root_json_path):
-            return True
-
-        return False
-
-    except Exception as e:
-        logger.warning(f"Could not check if media plan file exists for ID {media_plan_id}: {e}")
-        # If we can't determine, assume it doesn't exist (safer for first save)
-        return False
 
 
 def load(cls, workspace_manager: WorkspaceManager, path: Optional[str] = None,
