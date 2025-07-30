@@ -592,6 +592,176 @@ class MediaPlan(BaseModel):
             self.meta.is_archived = old_status
             raise StorageError(f"Failed to restore media plan '{self.meta.id}': {str(e)}")
 
+    def _find_campaign_current_plans(self, workspace_manager: 'WorkspaceManager') -> List['MediaPlan']:
+        """
+        Find all media plans in the same campaign that are currently set as current.
+
+        Args:
+            workspace_manager: The WorkspaceManager instance
+
+        Returns:
+            List of MediaPlan instances that are current for the same campaign
+            (should normally be 0 or 1 plans due to business constraint)
+        """
+        try:
+            # Get storage backend
+            storage_backend = workspace_manager.get_storage_backend()
+
+            # Find all JSON files in mediaplans directory
+            json_files = []
+            try:
+                json_files = storage_backend.list_files("mediaplans", "*.json")
+            except Exception:
+                # Try root directory as fallback
+                json_files = storage_backend.list_files("", "*.json")
+
+            current_plans = []
+
+            for file_path in json_files:
+                try:
+                    # Read the file to check campaign and current status
+                    content = storage_backend.read_file(file_path, binary=False)
+                    import json
+                    data = json.loads(content)
+
+                    # Check if this plan belongs to the same campaign and is current
+                    file_campaign_id = data.get("campaign", {}).get("id")
+                    file_is_current = data.get("meta", {}).get("is_current")
+
+                    if (file_campaign_id == self.campaign.id and
+                            file_is_current is True):
+
+                        # Load the full MediaPlan object
+                        try:
+                            plan = MediaPlan.load(
+                                workspace_manager,
+                                path=file_path,
+                                validate_version=True,
+                                auto_migrate=True
+                            )
+                            current_plans.append(plan)
+                            logger.debug(f"Found current plan for campaign {self.campaign.id}: {plan.meta.id}")
+                        except Exception as e:
+                            logger.warning(f"Could not load media plan from {file_path}: {e}")
+
+                except Exception as e:
+                    logger.warning(f"Could not process file {file_path}: {e}")
+                    continue
+
+            logger.info(f"Found {len(current_plans)} current media plans for campaign {self.campaign.id}")
+            return current_plans
+
+        except Exception as e:
+            logger.error(f"Failed to find campaign current plans: {e}")
+            return []
+
+    def set_as_current(self, workspace_manager: 'WorkspaceManager') -> Dict[str, Any]:
+        """
+        Set this media plan as the current plan for its campaign.
+
+        Automatically sets all other current media plans in the same campaign as non-current.
+        This ensures the business rule that only one media plan per campaign can be current.
+
+        Args:
+            workspace_manager: The WorkspaceManager instance for saving
+
+        Returns:
+            Dictionary with operation results:
+            - success: bool
+            - plan_set_as_current: str (this plan's ID)
+            - plans_unset_as_current: List[str] (IDs of plans that were unset)
+            - total_affected: int
+
+        Raises:
+            ValidationError: If the media plan is archived
+            StorageError: If saving fails
+            WorkspaceInactiveError: If the workspace is inactive
+
+        Example:
+            >>> result = media_plan.set_as_current(workspace_manager)
+            >>> print(f"Set {result['plan_set_as_current']} as current")
+            >>> print(f"Unset {len(result['plans_unset_as_current'])} other plans")
+        """
+        # Check if workspace is active
+        workspace_manager.check_workspace_active("set media plan as current")
+
+        # Validation: Cannot set archived plan as current
+        if self.meta.is_archived is True:
+            raise ValidationError(
+                f"Cannot set archived media plan '{self.meta.id}' as current. "
+                f"Please restore the media plan first using restore() method."
+            )
+
+        # Find all current plans for the same campaign
+        current_plans = self._find_campaign_current_plans(workspace_manager)
+
+        # Filter out this plan if it's already in the list (avoid duplicate processing)
+        other_current_plans = [plan for plan in current_plans if plan.meta.id != self.meta.id]
+
+        # Prepare result tracking
+        result = {
+            "success": False,
+            "plan_set_as_current": self.meta.id,
+            "plans_unset_as_current": [],
+            "total_affected": 0
+        }
+
+        # Backup original states for rollback
+        backup_states = []
+
+        # Backup this plan's state
+        original_is_current = self.meta.is_current
+        backup_states.append((self, original_is_current))
+
+        # Backup other plans' states
+        for plan in other_current_plans:
+            backup_states.append((plan, plan.meta.is_current))
+
+        try:
+            # Step 1: Set this plan as current
+            self.meta.is_current = True
+
+            # Step 2: Set other current plans as non-current
+            for plan in other_current_plans:
+                plan.meta.is_current = False
+                result["plans_unset_as_current"].append(plan.meta.id)
+
+            # Step 3: Save all affected plans (atomic-like operation)
+            # Save this plan first
+            self.save(
+                workspace_manager=workspace_manager,
+                overwrite=True,
+                include_parquet=True,
+                include_database=True
+            )
+
+            # Save other affected plans
+            for plan in other_current_plans:
+                plan.save(
+                    workspace_manager=workspace_manager,
+                    overwrite=True,
+                    include_parquet=True,
+                    include_database=True
+                )
+
+            # Success!
+            result["success"] = True
+            result["total_affected"] = 1 + len(other_current_plans)
+
+            logger.info(f"Set media plan '{self.meta.id}' as current for campaign '{self.campaign.id}'. "
+                        f"Unset {len(other_current_plans)} other plans as current.")
+
+            return result
+
+        except Exception as e:
+            # Rollback: restore original states
+            logger.error(f"Failed to set media plan as current, rolling back: {e}")
+
+            for plan, original_state in backup_states:
+                plan.meta.is_current = original_state
+
+            raise StorageError(f"Failed to set media plan '{self.meta.id}' as current: {str(e)}")
+
     def calculate_total_cost(self) -> Decimal:
         """
         Calculate the total cost from all line items.
