@@ -183,40 +183,6 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         # When overwrite=True, preserve existing ID and parent_id regardless of first save
         logger.debug(f"Updating existing media plan ID: {self.meta.id}, parent_id: {self.meta.parent_id}")
 
-    # Check if we're unsetting a current plan (only warn when overwrite=True)
-    if (overwrite and
-            hasattr(self, 'meta') and
-            hasattr(self.meta, 'is_current')):
-
-        # We need to check the original state from storage to compare
-        try:
-            if self.meta.id:  # Only check if we have an ID
-                # Try to load the current version from storage to compare
-                from mediaplanpy.storage import get_storage_backend
-                storage_backend = get_storage_backend(workspace_manager.get_resolved_config())
-
-                # Generate the expected path for this media plan
-                safe_id = self.meta.id.replace('/', '_').replace('\\', '_')
-                expected_path = os.path.join("mediaplans", f"{safe_id}.json")
-
-                if storage_backend.exists(expected_path):
-                    # Load the current version to check its is_current status
-                    current_content = storage_backend.read_file(expected_path, binary=False)
-                    import json
-                    current_data = json.loads(current_content)
-                    current_is_current = current_data.get("meta", {}).get("is_current")
-
-                    # Warn if we're unsetting a current plan
-                    if (current_is_current is True and
-                            self.meta.is_current is False):
-                        logger.warning(
-                            f"⚠️ Unsetting current status for media plan '{self.meta.id}'. "
-                            f"Campaign '{self.campaign.id}' will have no current plan."
-                        )
-        except Exception as e:
-            # Don't fail the save operation due to this check
-            logger.debug(f"Could not check original current status: {e}")
-
     # Update created_at timestamp regardless of overwrite value
     self.meta.created_at = datetime.now()
 
