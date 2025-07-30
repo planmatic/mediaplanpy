@@ -111,15 +111,34 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             self.meta.schema_version = f"v{__schema_version__}"
             logger.info(f"Set missing schema version to current: v{__schema_version__}")
 
-    # Handle media plan ID based on overwrite parameter
+    # Handle media plan ID and parent_id based on overwrite parameter
     if not overwrite:
+        # Capture current ID before generating new one (for parent_id lineage)
+        current_id = self.meta.id
+
         # Generate a new media plan ID
         new_id = f"mediaplan_{uuid.uuid4().hex[:8]}"
         self.meta.id = new_id
-        logger.info(f"Generated new media plan ID: {new_id}")
+
+        # Set parent_id to maintain lineage (only if current_id is valid)
+        if current_id and current_id.strip():
+            self.meta.parent_id = current_id
+            logger.info(f"Generated new media plan ID: {new_id}, parent_id: {current_id}")
+        else:
+            # Edge case: current ID is None/empty, so this is effectively a new plan
+            self.meta.parent_id = None
+            logger.info(f"Generated new media plan ID: {new_id} (no parent_id - original ID was empty)")
+    else:
+        # When overwrite=True, preserve existing ID and parent_id
+        logger.debug(f"Updating existing media plan ID: {self.meta.id}, parent_id: {self.meta.parent_id}")
 
     # Update created_at timestamp regardless of overwrite value
     self.meta.created_at = datetime.now()
+
+    # Validation: ensure parent_id doesn't equal current ID (defensive programming)
+    if self.meta.parent_id == self.meta.id:
+        logger.warning(f"parent_id equals current ID ({self.meta.id}), setting parent_id to None")
+        self.meta.parent_id = None
 
     # Generate default path if not provided
     if not path:
