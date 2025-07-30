@@ -152,7 +152,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
 
     # Determine if this is a first save or subsequent save
     current_id = self.meta.id
-    is_first_save = not self._media_plan_file_exists(workspace_config, current_id)
+    is_first_save = not _media_plan_file_exists(workspace_config, current_id)
 
     # Handle media plan ID and parent_id based on overwrite parameter and existence
     if not overwrite:
