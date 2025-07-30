@@ -259,10 +259,10 @@ def _import_v2_metadata(metadata_sheet) -> Dict[str, Any]:
         elif key_cell == "Created At:":
             meta["created_at"] = value_cell or datetime.now().isoformat()
         elif key_cell == "Is Current:":  # v2.0 field
-            if value_cell:
+            if value_cell is not None:
                 meta["is_current"] = str(value_cell).lower() in ['true', 'yes', '1']
         elif key_cell == "Is Archived:":  # v2.0 field
-            if value_cell:
+            if value_cell is not None:
                 meta["is_archived"] = str(value_cell).lower() in ['true', 'yes', '1']
         elif key_cell == "Parent ID:":  # v2.0 field
             meta["parent_id"] = value_cell or None
