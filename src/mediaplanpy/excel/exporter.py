@@ -568,31 +568,33 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
 
 def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     """
-    Populate the dictionary configuration sheet (NEW for v2.0).
+    Populate the dictionary configuration sheet (NEW for v2.0) with enhanced column information.
 
     Args:
         sheet: The worksheet to populate
         dictionary: The dictionary configuration data
     """
     # Set column widths
-    sheet.column_dimensions["A"].width = 20
-    sheet.column_dimensions["B"].width = 15
-    sheet.column_dimensions["C"].width = 40
-    sheet.column_dimensions["D"].width = 15
+    sheet.column_dimensions["A"].width = 20  # Field Name
+    sheet.column_dimensions["B"].width = 15  # Field Type
+    sheet.column_dimensions["C"].width = 20  # Column Name (NEW)
+    sheet.column_dimensions["D"].width = 40  # Caption
+    sheet.column_dimensions["E"].width = 15  # Status
 
     # Add title
     sheet['A1'] = "Custom Fields Configuration (v2.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:D1')
+    sheet.merge_cells('A1:E1')
 
     # Add headers
     row = 2
     sheet[f'A{row}'] = "Field Name"
     sheet[f'B{row}'] = "Field Type"
-    sheet[f'C{row}'] = "Caption"
-    sheet[f'D{row}'] = "Status"
+    sheet[f'C{row}'] = "Column Name"  # NEW COLUMN
+    sheet[f'D{row}'] = "Caption"
+    sheet[f'E{row}'] = "Status"
 
-    for col in ['A', 'B', 'C', 'D']:
+    for col in ['A', 'B', 'C', 'D', 'E']:
         sheet[f'{col}{row}'].style = "dict_header_style"
 
     # Add all possible custom fields with their current configuration
@@ -603,11 +605,13 @@ def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     for i in range(1, 11):
         field_name = f"dim_custom{i}"
         config = custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"Dim Custom {i}"  # This is what should appear in Line Items sheet
 
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Dimension"
-        sheet[f'C{row}'] = config.get("caption", "")
-        sheet[f'D{row}'] = config.get("status", "disabled")
+        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
+        sheet[f'D{row}'] = config.get("caption", "")
+        sheet[f'E{row}'] = config.get("status", "disabled")
         row += 1
 
     # Custom metrics
@@ -615,11 +619,13 @@ def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     for i in range(1, 11):
         field_name = f"metric_custom{i}"
         config = custom_metrics.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"Metric Custom {i}"  # This is what should appear in Line Items sheet
 
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Metric"
-        sheet[f'C{row}'] = config.get("caption", "")
-        sheet[f'D{row}'] = config.get("status", "disabled")
+        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
+        sheet[f'D{row}'] = config.get("caption", "")
+        sheet[f'E{row}'] = config.get("status", "disabled")
         row += 1
 
     # Custom costs
@@ -627,44 +633,50 @@ def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     for i in range(1, 11):
         field_name = f"cost_custom{i}"
         config = custom_costs.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"Cost Custom {i}"  # This is what should appear in Line Items sheet
 
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Cost"
-        sheet[f'C{row}'] = config.get("caption", "")
-        sheet[f'D{row}'] = config.get("status", "disabled")
+        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
+        sheet[f'D{row}'] = config.get("caption", "")
+        sheet[f'E{row}'] = config.get("status", "disabled")
         row += 1
 
     # Add instructions
     row += 2
     sheet[f'A{row}'] = "Instructions:"
     sheet[f'A{row}'].font = Font(bold=True)
-    sheet.merge_cells(f'A{row}:D{row}')
+    sheet.merge_cells(f'A{row}:E{row}')
 
     row += 1
     sheet[f'A{row}'] = "- Set Status to 'enabled' or 'disabled'"
-    sheet.merge_cells(f'A{row}:D{row}')
+    sheet.merge_cells(f'A{row}:E{row}')
 
     row += 1
     sheet[f'A{row}'] = "- Caption is required when Status is 'enabled'"
-    sheet.merge_cells(f'A{row}:D{row}')
+    sheet.merge_cells(f'A{row}:E{row}')
 
     row += 1
     sheet[f'A{row}'] = "- Caption should describe what the custom field represents"
-    sheet.merge_cells(f'A{row}:D{row}')
+    sheet.merge_cells(f'A{row}:E{row}')
+
+    row += 1
+    sheet[f'A{row}'] = "- Use the 'Column Name' exactly as shown when importing from Excel"
+    sheet.merge_cells(f'A{row}:E{row}')
 
 
 def _populate_v2_documentation_sheet(sheet) -> None:
     """
-    Populate the documentation sheet with v2.0 schema information.
+    Populate the documentation sheet with comprehensive v2.0 schema information.
 
     Args:
         sheet: The worksheet to populate
     """
     # Set column widths
-    sheet.column_dimensions["A"].width = 25
-    sheet.column_dimensions["B"].width = 15
-    sheet.column_dimensions["C"].width = 50
-    sheet.column_dimensions["D"].width = 15
+    sheet.column_dimensions["A"].width = 25  # Column Name
+    sheet.column_dimensions["B"].width = 15  # Data Type
+    sheet.column_dimensions["C"].width = 50  # Description
+    sheet.column_dimensions["D"].width = 15  # Required
 
     # Add title
     sheet['A1'] = "Media Plan Excel Documentation (v2.0)"
@@ -706,9 +718,9 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     sheet[f'B{row}'] = "Dictionary: Configuration for custom fields (NEW in v2.0)."
     sheet.merge_cells(f'B{row}:D{row}')
 
-    # v2.0 field documentation
+    # Comprehensive field documentation header
     row += 2
-    sheet[f'A{row}'] = "v2.0 New Features"
+    sheet[f'A{row}'] = "Supported Line Item Columns"
     sheet[f'A{row}'].font = Font(bold=True, size=12)
     sheet.merge_cells(f'A{row}:D{row}')
 
@@ -720,47 +732,109 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     for col in ['A', 'B', 'C', 'D']:
         sheet[f'{col}{row}'].style = "header_style"
 
-    # Define v2.0 new fields documentation
-    v2_fields_documentation = [
-        # Campaign new fields
-        ("Budget Currency", "Text", "Currency code for campaign budget (e.g., USD, EUR)", "No"),
-        ("Agency ID", "Text", "Unique identifier for the agency", "No"),
-        ("Agency Name", "Text", "Name of the agency managing the campaign", "No"),
-        ("Advertiser ID", "Text", "Unique identifier for the advertiser/client", "No"),
-        ("Advertiser Name", "Text", "Name of the advertiser/client organization", "No"),
-        ("Product ID", "Text", "Unique identifier for the product being advertised", "No"),
-        ("Campaign Type ID", "Text", "Unique identifier for campaign type classification", "No"),
-        ("Campaign Type Name", "Text", "Campaign type (e.g., Brand Awareness, Performance)", "No"),
-        ("Workflow Status ID", "Text", "Unique identifier for workflow status", "No"),
-        ("Workflow Status Name", "Text", "Workflow status (e.g., Draft, Approved, Live)", "No"),
+    # Comprehensive field documentation in schema order
+    all_fields_documentation = [
+        # Required fields (in schema order)
+        ("ID", "Text", "Unique identifier for the line item", "Yes"),
+        ("Name", "Text", "Human-readable name for the line item", "Yes"),
+        ("Start Date", "Date", "Line item start date in YYYY-MM-DD format", "Yes"),
+        ("End Date", "Date", "Line item end date in YYYY-MM-DD format", "Yes"),
+        ("Cost Total", "Number", "Total cost for the line item including all cost components", "Yes"),
 
-        # Line item new fields
-        ("Cost Currency", "Text", "Currency code for line item costs", "No"),
-        ("Dayparts", "Text", "Time periods for ad delivery (e.g., Primetime, Morning)", "No"),
-        ("Dayparts Custom", "Text", "Custom daypart specification", "No"),
-        ("Inventory", "Text", "Type of inventory (e.g., Premium, Remnant)", "No"),
-        ("Inventory Custom", "Text", "Custom inventory specification", "No"),
+        # Channel-related fields (in schema order)
+        ("Channel", "Text", "Media channel for the line item (e.g., Digital, TV, Radio, Print)", "No"),
+        ("Channel Custom", "Text", "Custom channel specification when standard channel options don't apply", "No"),
+        ("Vehicle", "Text", "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)", "No"),
+        ("Vehicle Custom", "Text", "Custom vehicle specification when standard vehicle options don't apply", "No"),
+        ("Partner", "Text", "Media partner or vendor handling the placement", "No"),
+        ("Partner Custom", "Text", "Custom partner specification when standard partner options don't apply", "No"),
+        ("Media Product", "Text", "Specific media product or ad unit being purchased", "No"),
+        ("Media Product Custom", "Text", "Custom media product specification when standard options don't apply", "No"),
 
-        # New standard metrics (17 new ones)
-        ("Engagements", "Number", "User engagements (likes, shares, comments)", "No"),
-        ("Followers", "Number", "New followers gained", "No"),
-        ("Visits", "Number", "Website visits or page visits", "No"),
-        ("Leads", "Number", "Leads generated", "No"),
-        ("Sales", "Number", "Sales or purchases", "No"),
-        ("Add to Cart", "Number", "Add-to-cart actions", "No"),
-        ("App Install", "Number", "App installations", "No"),
-        ("Application Start", "Number", "Application forms started", "No"),
-        ("Application Complete", "Number", "Application forms completed", "No"),
-        ("Contact Us", "Number", "Contact form submissions", "No"),
-        ("Download", "Number", "Downloads (files, apps, content)", "No"),
-        ("Signup", "Number", "Signups or registrations", "No"),
-        ("Max Daily Spend", "Number", "Maximum daily spend limit", "No"),
-        ("Max Daily Impressions", "Number", "Maximum daily impressions limit", "No"),
-        ("Audience Size", "Number", "Size of targetable audience", "No"),
+        # Location fields (in schema order)
+        ("Location Type", "Text", "Geographic scope type for the line item targeting (Country or State)", "No"),
+        ("Location Name", "Text", "Name of the geographic location being targeted", "No"),
+
+        # Target/format fields (in schema order)
+        ("Target Audience", "Text", "Description of the target audience for this line item", "No"),
+        ("Ad Format", "Text", "Creative format or ad type (e.g., Banner, Video, Native)", "No"),
+        ("Ad Format Custom", "Text", "Custom ad format specification when standard formats don't apply", "No"),
+        ("KPI", "Text", "Primary key performance indicator for the line item", "No"),
+        ("KPI Custom", "Text", "Custom KPI specification when standard KPIs don't apply", "No"),
+
+        # Dayparts and inventory fields (NEW in v2.0, in schema order)
+        ("Dayparts", "Text", "Time periods when the ad should run (e.g., Primetime, Morning, All Day)", "No"),
+        ("Dayparts Custom", "Text", "Custom daypart specification when standard dayparts don't apply", "No"),
+        ("Inventory", "Text", "Type of inventory or placement being purchased", "No"),
+        ("Inventory Custom", "Text", "Custom inventory specification when standard inventory types don't apply", "No"),
+
+        # Custom dimension fields (dim_custom1-10, in schema order)
+        ("Dim Custom 1", "Text", "Custom dimension field 1 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 2", "Text", "Custom dimension field 2 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 3", "Text", "Custom dimension field 3 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 4", "Text", "Custom dimension field 4 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 5", "Text", "Custom dimension field 5 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 6", "Text", "Custom dimension field 6 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 7", "Text", "Custom dimension field 7 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 8", "Text", "Custom dimension field 8 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 9", "Text", "Custom dimension field 9 - configuration defined in dictionary schema", "No"),
+        ("Dim Custom 10", "Text", "Custom dimension field 10 - configuration defined in dictionary schema", "No"),
+
+        # Cost fields (in schema order, cost_currency is NEW in v2.0)
+        ("Cost Currency", "Text", "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)", "No"),
+        ("Cost Media", "Number", "Media cost component (working media spend)", "No"),
+        ("Cost Buying", "Number", "Media buying/trading cost component", "No"),
+        ("Cost Platform", "Number", "Platform or technology cost component", "No"),
+        ("Cost Data", "Number", "Data cost component (audience data, targeting data, etc.)", "No"),
+        ("Cost Creative", "Number", "Creative production and development cost component", "No"),
+
+        # Custom cost fields (cost_custom1-10, in schema order)
+        ("Cost Custom 1", "Number", "Custom cost field 1 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 2", "Number", "Custom cost field 2 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 3", "Number", "Custom cost field 3 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 4", "Number", "Custom cost field 4 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 5", "Number", "Custom cost field 5 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 6", "Number", "Custom cost field 6 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 7", "Number", "Custom cost field 7 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 8", "Number", "Custom cost field 8 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 9", "Number", "Custom cost field 9 - configuration defined in dictionary schema", "No"),
+        ("Cost Custom 10", "Number", "Custom cost field 10 - configuration defined in dictionary schema", "No"),
+
+        # Standard metric fields (in schema order)
+        ("Impressions", "Number", "Number of ad impressions delivered or planned", "No"),
+        ("Clicks", "Number", "Number of clicks on the ad", "No"),
+        ("Views", "Number", "Number of video views or content views", "No"),
+        ("Engagements", "Number", "Number of user engagements (likes, shares, comments, etc.)", "No"),
+        ("Followers", "Number", "Number of new followers gained", "No"),
+        ("Visits", "Number", "Number of website visits or page visits", "No"),
+        ("Leads", "Number", "Number of leads generated", "No"),
+        ("Sales", "Number", "Number of sales or purchases", "No"),
+        ("Add to Cart", "Number", "Number of add-to-cart actions", "No"),
+        ("App Install", "Number", "Number of app installations", "No"),
+        ("Application Start", "Number", "Number of application forms started", "No"),
+        ("Application Complete", "Number", "Number of application forms completed", "No"),
+        ("Contact Us", "Number", "Number of contact form submissions or contact actions", "No"),
+        ("Download", "Number", "Number of downloads (files, apps, content)", "No"),
+        ("Signup", "Number", "Number of signups or registrations", "No"),
+        ("Max Daily Spend", "Number", "Maximum daily spend limit for the line item", "No"),
+        ("Max Daily Impressions", "Number", "Maximum daily impressions limit for the line item", "No"),
+        ("Audience Size", "Number", "Size of the targetable audience for this line item", "No"),
+
+        # Custom metric fields (metric_custom1-10, in schema order)
+        ("Metric Custom 1", "Number", "Custom metric field 1 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 2", "Number", "Custom metric field 2 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 3", "Number", "Custom metric field 3 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 4", "Number", "Custom metric field 4 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 5", "Number", "Custom metric field 5 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 6", "Number", "Custom metric field 6 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 7", "Number", "Custom metric field 7 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 8", "Number", "Custom metric field 8 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 9", "Number", "Custom metric field 9 - configuration defined in dictionary schema", "No"),
+        ("Metric Custom 10", "Number", "Custom metric field 10 - configuration defined in dictionary schema", "No"),
     ]
 
-    # Populate the field documentation
-    for field_name, data_type, description, required in v2_fields_documentation:
+    # Populate the comprehensive field documentation
+    for field_name, data_type, description, required in all_fields_documentation:
         row += 1
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = data_type
@@ -774,21 +848,47 @@ def _populate_v2_documentation_sheet(sheet) -> None:
 
     # Add additional v2.0 information
     row += 2
-    sheet[f'A{row}'] = "Dictionary Configuration:"
-    sheet[f'B{row}'] = "v2.0 introduces custom field configuration via the Dictionary sheet."
+    sheet[f'A{row}'] = "Custom Fields:"
+    sheet[
+        f'B{row}'] = "v2.0 introduces 30 custom fields (10 dimensions, 10 metrics, 10 costs) that can be configured via the Dictionary sheet."
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
-    sheet[f'B{row}'] = "- Configure which custom fields are enabled/disabled"
+    sheet[f'B{row}'] = "- Use the Dictionary sheet to enable/disable custom fields and set their captions"
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 1
-    sheet[f'B{row}'] = "- Add captions to describe what each custom field represents"
+    sheet[f'B{row}'] = "- When enabled, custom fields appear as additional columns in the Line Items sheet"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Use the exact 'Column Name' from the Dictionary sheet when importing data"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 2
+    sheet[f'A{row}'] = "Data Validation:"
+    sheet[f'B{row}'] = "Some columns have predefined valid values:"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Channel: social, search, display, video, audio, tv, ooh, print, other"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- KPI: CPM, CPC, CPA, CTR, CPV, CPI, ROAS, other"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "- Location Type: Country, State"
     sheet.merge_cells(f'B{row}:D{row}')
 
     row += 2
     sheet[f'A{row}'] = "Support:"
     sheet[f'B{row}'] = "For more information, see: https://github.com/laurent-colard-l5i/mediaplanschema"
+    sheet.merge_cells(f'B{row}:D{row}')
+
+    row += 1
+    sheet[f'B{row}'] = "Total supported columns: 78 (5 required + 73 optional)"
     sheet.merge_cells(f'B{row}:D{row}')
 
 
