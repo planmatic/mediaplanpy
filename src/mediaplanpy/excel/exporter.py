@@ -924,11 +924,7 @@ def _populate_v2_documentation_sheet(sheet) -> None:
 
     row += 2
     sheet[f'A{row}'] = "Support:"
-    sheet[f'B{row}'] = "For more information, see: https://github.com/laurent-colard-l5i/mediaplanschema"
-    sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
-
-    row += 1
-    sheet[f'B{row}'] = "Total supported columns: 78 (5 required + 73 optional)"
+    sheet[f'B{row}'] = "For more information, see: https://github.com/planmatic/mediaplanschema"
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
 
@@ -943,30 +939,30 @@ def _add_v2_validation_and_formatting(workbook: Workbook) -> None:
     dictionary_sheet = workbook["Dictionary"]
 
     # Channel validation (existing)
-    channel_validation = DataValidation(
-        type="list",
-        formula1='"social,search,display,video,audio,tv,ooh,print,other"',
-        allow_blank=True
-    )
-    line_items_sheet.add_data_validation(channel_validation)
+    # channel_validation = DataValidation(
+    #     type="list",
+    #     formula1='"social,search,display,video,audio,tv,ooh,print,other"',
+    #     allow_blank=True
+    # )
+    # line_items_sheet.add_data_validation(channel_validation)
     # Find channel column dynamically
-    for col in range(1, line_items_sheet.max_column + 1):
-        if line_items_sheet.cell(1, col).value == "Channel":
-            channel_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
-            break
+    # for col in range(1, line_items_sheet.max_column + 1):
+    #     if line_items_sheet.cell(1, col).value == "Channel":
+    #         channel_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+    #         break
 
     # KPI validation (existing)
-    kpi_validation = DataValidation(
-        type="list",
-        formula1='"CPM,CPC,CPA,CTR,CPV,CPI,ROAS,other"',
-        allow_blank=True
-    )
-    line_items_sheet.add_data_validation(kpi_validation)
+    # kpi_validation = DataValidation(
+    #     type="list",
+    #     formula1='"CPM,CPC,CPA,CTR,CPV,CPI,ROAS,other"',
+    #     allow_blank=True
+    # )
+    # line_items_sheet.add_data_validation(kpi_validation)
     # Find KPI column dynamically
-    for col in range(1, line_items_sheet.max_column + 1):
-        if line_items_sheet.cell(1, col).value == "KPI":
-            kpi_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
-            break
+    # for col in range(1, line_items_sheet.max_column + 1):
+    #     if line_items_sheet.cell(1, col).value == "KPI":
+    #         kpi_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+    #         break
 
     # Location type validation (existing)
     location_validation = DataValidation(
