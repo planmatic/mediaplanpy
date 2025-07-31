@@ -10,7 +10,7 @@ import logging
 import tempfile
 from typing import Dict, Any, Optional, Union, List
 
-from mediaplanpy.exceptions import StorageError, ValidationError
+from mediaplanpy.exceptions import StorageError, ValidationError, SchemaVersionError
 from mediaplanpy.models.mediaplan import MediaPlan
 from mediaplanpy.excel import exporter, importer
 from mediaplanpy.excel.validator import validate_excel
