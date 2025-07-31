@@ -24,7 +24,7 @@ logger = logging.getLogger("mediaplanpy.excel.importer")
 
 def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
     """
-    Import a media plan from an Excel file using v2.0 schema.
+    Import a media plan from an Excel file using v2.0 schema with enhanced data validation.
 
     Args:
         file_path: Path to the Excel file
@@ -52,19 +52,189 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
         # Import v2.0 media plan
         media_plan = _import_v2_media_plan(workbook)
 
+        # NEW: Perform data integrity validations
+        _validate_import_data_integrity(media_plan)
+
         # Sanitize the data to avoid validation issues
         sanitized_media_plan = _sanitize_v2_media_plan_data(media_plan)
 
         logger.info(f"Media plan imported from Excel (v2.0): {file_path}")
         return sanitized_media_plan
 
+    except ValidationError:
+        # Re-raise validation errors as-is to preserve detailed messages
+        raise
     except Exception as e:
         raise StorageError(f"Failed to import media plan from Excel: {e}")
 
 
+def _validate_import_data_integrity(media_plan: Dict[str, Any]) -> None:
+    """
+    Validate data integrity of imported media plan data.
+
+    Args:
+        media_plan: The imported media plan data to validate
+
+    Raises:
+        ValidationError: If validation fails with detailed error messages
+    """
+    validation_errors = []
+
+    # Validate Line Item ID uniqueness
+    lineitem_errors = _validate_lineitem_id_uniqueness(media_plan.get("lineitems", []))
+    validation_errors.extend(lineitem_errors)
+
+    # Validate Dictionary caption uniqueness
+    dictionary_errors = _validate_dictionary_caption_uniqueness(media_plan.get("dictionary", {}))
+    validation_errors.extend(dictionary_errors)
+
+    # If any validation errors found, raise ValidationError
+    if validation_errors:
+        error_message = "Data integrity validation failed:\n\n" + "\n".join(validation_errors)
+        raise ValidationError(error_message)
+
+
+def _validate_lineitem_id_uniqueness(lineitems: List[Dict[str, Any]]) -> List[str]:
+    """
+    Validate that all non-empty Line Item IDs are unique.
+
+    Args:
+        lineitems: List of line item dictionaries
+
+    Returns:
+        List of validation error messages (empty if no errors)
+    """
+    errors = []
+
+    if not lineitems:
+        return errors
+
+    # Collect non-empty IDs with their row numbers (Excel row = list index + 2 for header)
+    id_to_rows = {}
+
+    for idx, lineitem in enumerate(lineitems):
+        line_id = lineitem.get("id")
+        excel_row = idx + 2  # +2 because Excel has header row and is 1-indexed
+
+        # Only check non-empty IDs (empty/None IDs will get auto-generated)
+        if line_id and str(line_id).strip():
+            clean_id = str(line_id).strip()
+
+            if clean_id not in id_to_rows:
+                id_to_rows[clean_id] = []
+            id_to_rows[clean_id].append(excel_row)
+
+    # Find duplicates
+    duplicates = {id_val: rows for id_val, rows in id_to_rows.items() if len(rows) > 1}
+
+    if duplicates:
+        errors.append("❌ Line Item ID Uniqueness Validation Failed:")
+        errors.append("   The following Line Item IDs appear multiple times:")
+
+        for duplicate_id, rows in duplicates.items():
+            row_list = ", ".join(f"row {row}" for row in sorted(rows))
+            errors.append(f"   • ID '{duplicate_id}' found in: {row_list}")
+
+        errors.append("")
+        errors.append("   💡 Solution: Ensure each Line Item has a unique ID, or leave ID blank for auto-generation.")
+
+    return errors
+
+
+def _validate_dictionary_caption_uniqueness(dictionary: Dict[str, Any]) -> List[str]:
+    """
+    Validate that custom field captions are unique across ALL custom field types.
+
+    Args:
+        dictionary: Dictionary configuration data
+
+    Returns:
+        List of validation error messages (empty if no errors)
+    """
+    errors = []
+
+    if not dictionary:
+        return errors
+
+    # Define section information for clear error messages
+    sections = {
+        "custom_dimensions": {
+            "name": "Custom Dimensions",
+            "field_prefix": "dim_custom"
+        },
+        "custom_metrics": {
+            "name": "Custom Metrics",
+            "field_prefix": "metric_custom"
+        },
+        "custom_costs": {
+            "name": "Custom Costs",
+            "field_prefix": "cost_custom"
+        }
+    }
+
+    # Collect ALL captions from ALL sections (global uniqueness check)
+    caption_to_fields = {}
+
+    for section_key, section_info in sections.items():
+        section_data = dictionary.get(section_key, {})
+
+        if not section_data:
+            continue
+
+        for field_name, config in section_data.items():
+            if not isinstance(config, dict):
+                continue
+
+            status = config.get("status", "").lower()
+            caption = config.get("caption", "").strip()
+
+            # Only check enabled fields with non-empty captions
+            if status == "enabled" and caption:
+                if caption not in caption_to_fields:
+                    caption_to_fields[caption] = []
+
+                # Store field name with section information for better error reporting
+                field_info = {
+                    "field_name": field_name,
+                    "section": section_info["name"]
+                }
+                caption_to_fields[caption].append(field_info)
+
+    # Find captions used by multiple fields (across ALL sections)
+    duplicates = {caption: fields for caption, fields in caption_to_fields.items() if len(fields) > 1}
+
+    if duplicates:
+        errors.append("❌ Dictionary Caption Uniqueness Validation Failed:")
+        errors.append("   The following captions are used by multiple custom fields:")
+        errors.append("")
+
+        for duplicate_caption, field_infos in duplicates.items():
+            errors.append(f"   Caption '{duplicate_caption}' is used by:")
+
+            # Group by section for cleaner display
+            by_section = {}
+            for field_info in field_infos:
+                section = field_info["section"]
+                if section not in by_section:
+                    by_section[section] = []
+                by_section[section].append(field_info["field_name"])
+
+            # Display grouped by section
+            for section, field_names in by_section.items():
+                field_list = ", ".join(sorted(field_names))
+                errors.append(f"      • {section}: {field_list}")
+
+            errors.append("")  # Add blank line between different caption conflicts
+
+        errors.append("   💡 Solution: Each custom field must have a unique caption across ALL custom field types.")
+        errors.append("      Captions must be unique globally - not just within dimensions, metrics, or costs.")
+
+    return errors
+
+
 def update_from_excel(media_plan: Dict[str, Any], file_path: str, **kwargs) -> Dict[str, Any]:
     """
-    Update a media plan from an Excel file using v2.0 schema.
+    Update a media plan from an Excel file using v2.0 schema with enhanced data validation.
 
     Args:
         media_plan: The existing media plan data to update
@@ -79,7 +249,7 @@ def update_from_excel(media_plan: Dict[str, Any], file_path: str, **kwargs) -> D
         ValidationError: If the Excel file contains invalid data
     """
     try:
-        # Import the Excel file
+        # Import the Excel file (this will include our new validations)
         updated_plan = import_from_excel(file_path, **kwargs)
 
         # Keep original meta data, but update relevant fields
@@ -107,6 +277,9 @@ def update_from_excel(media_plan: Dict[str, Any], file_path: str, **kwargs) -> D
         logger.info(f"Media plan updated from Excel (v2.0): {file_path}")
         return result
 
+    except ValidationError:
+        # Re-raise validation errors as-is to preserve detailed messages
+        raise
     except Exception as e:
         raise StorageError(f"Failed to update media plan from Excel: {e}")
 
