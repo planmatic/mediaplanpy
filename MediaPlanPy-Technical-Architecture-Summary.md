@@ -1,979 +1,1198 @@
 # MediaPlanPy - Technical Architecture & Implementation Summary
 
 ## Table of Contents
-
 1. [Project Overview](#project-overview)
 2. [Package & Module Architecture](#package--module-architecture)
 3. [Core Data Models & Classes](#core-data-models--classes)
-4. [Design Patterns & Architectural Patterns](#design-patterns--architectural-patterns)
-5. [Data Flow & Integration Points](#data-flow--integration-points)
+4. [Method Signatures Reference](#method-signatures-reference)
+5. [Design Patterns & Architectural Patterns](#design-patterns--architectural-patterns)
 6. [Configuration & Workspace System](#configuration--workspace-system)
-7. [CLI Interface & Commands](#cli-interface--commands)
-8. [Database & Persistence](#database--persistence)
-9. [Validation & Schema System](#validation--schema-system)
-10. [File Processing & Format Handlers](#file-processing--format-handlers)
-11. [Method Signatures Reference](#method-signatures-reference)
-12. [Constants & Configuration Values](#constants--configuration-values)
-13. [Error Handling & Exception Hierarchy](#error-handling--exception-hierarchy)
-14. [Extension & Customization Points](#extension--customization-points)
-15. [Dependencies & External Integrations](#dependencies--external-integrations)
-16. [Logging & Debugging](#logging--debugging)
+7. [Database & Persistence](#database--persistence)
+8. [Constants & Configuration Values](#constants--configuration-values)
 
 ---
 
 ## Project Overview
 
 ### Purpose & Scope
-MediaPlanPy is the official Python SDK for the MediaPlan Schema standard, providing comprehensive tools for building, managing, and analyzing media plans. It implements the open data standard for media planning with full schema validation, versioning, and migration capabilities.
+MediaPlanPy is an open source Python SDK that provides foundational tools for building, managing, and analyzing media plans based on the open data standard (mediaplanschema). It serves as the official Python implementation of the MediaPlan Schema standard.
 
 ### Target Users
-- **Media Planners**: Create, manage, and analyze media plans
-- **Developers**: Build applications that handle media plan data
-- **Data Analysts**: Query and analyze media plan metrics
-- **System Integrators**: Connect media planning systems
+- Media planners and advertising professionals
+- Developers building media planning applications
+- Data analysts working with media plan data
+- Teams needing programmatic access to media plan operations
 
 ### Key Features
-- **Multi-Format Support**: JSON, Excel, Parquet file handling
-- **Schema Versioning**: v1.0 and v2.0 support with automatic migration
-- **Flexible Storage**: Local filesystem, S3, Google Drive, PostgreSQL backends
-- **Workspace Management**: Multi-environment configuration system
-- **CLI Interface**: Complete command-line toolset
+- **Multi-Format Support**: JSON, Excel, and Parquet files
+- **Schema Versioning**: Automatic version detection and migration (v1.0 ↔ v2.0)
+- **Flexible Storage**: Local filesystem, S3, Google Drive, and PostgreSQL backends
+- **Workspace Management**: Multi-environment support with isolated configurations
+- **CLI Interface**: Comprehensive command-line tools
 - **Validation Framework**: Schema-based validation with detailed error reporting
-- **Database Integration**: PostgreSQL synchronization for analytics
+- **Analytics Ready**: Built-in Parquet generation and SQL query capabilities
+- **Database Integration**: Automatic PostgreSQL synchronization
 
 ### Technology Stack
-- **Primary Language**: Python 3.8+
-- **Core Framework**: Pydantic v2 for data validation
-- **Data Processing**: Pandas for data manipulation
-- **File Formats**: openpyxl (Excel), pyarrow (Parquet), jsonschema
-- **Storage**: boto3 (S3), google-api-python-client (Google Drive)
-- **Database**: psycopg2-binary (PostgreSQL), duckdb (Analytics)
-- **CLI**: argparse with hierarchical command structure
+- **Core Language**: Python 3.8+
+- **Data Models**: Pydantic 2.0+ for validation and serialization
+- **Data Processing**: Pandas 1.3+ for data manipulation
+- **File Formats**: OpenPyXL (Excel), PyArrow (Parquet), JSON (built-in)
+- **Database**: PostgreSQL via psycopg2-binary
+- **Cloud Storage**: Boto3 (S3), Google API Client (Drive)
+- **Analytics**: DuckDB for advanced querying
+- **Schema**: JSON Schema with custom validation logic
 
 ---
 
 ## Package & Module Architecture
 
 ### Directory Structure
+
 ```
 src/mediaplanpy/
-├── __init__.py                 # Main package entry point
+├── __init__.py                 # Package initialization, version management
 ├── cli.py                      # Command-line interface
 ├── exceptions.py               # Custom exception hierarchy
 ├── models/                     # Core data models
 │   ├── __init__.py
 │   ├── base.py                 # BaseModel with common functionality
-│   ├── campaign.py             # Campaign model
-│   ├── dictionary.py           # Custom field configuration
-│   ├── lineitem.py             # LineItem model
-│   ├── mediaplan.py            # MediaPlan model (main entity)
+│   ├── campaign.py             # Campaign model with v2.0 fields
+│   ├── dictionary.py           # CustomFieldConfig and Dictionary models
+│   ├── lineitem.py             # LineItem model with 60+ fields
+│   ├── mediaplan.py            # MediaPlan orchestration model
 │   ├── mediaplan_database.py   # Database integration patches
 │   ├── mediaplan_excel.py      # Excel integration patches
 │   ├── mediaplan_json.py       # JSON integration patches
 │   └── mediaplan_storage.py    # Storage integration patches
-├── schema/                     # Schema validation and migration
+├── schema/                     # Schema management and validation
 │   ├── __init__.py
-│   ├── definitions/            # JSON schema definitions
-│   │   ├── 1.0/               # v1.0 schemas
-│   │   └── 2.0/               # v2.0 schemas
-│   ├── manager.py              # Schema management
+│   ├── definitions/            # JSON schema files
+│   │   ├── 1.0/               # v1.0 schema definitions
+│   │   └── 2.0/               # v2.0 schema definitions
+│   ├── manager.py              # High-level schema operations
 │   ├── migration.py            # Schema migration logic
-│   ├── registry.py             # Schema registry
-│   ├── schema_versions.json    # Version metadata
-│   ├── validator.py            # Schema validation
-│   └── version_utils.py        # Version compatibility utilities
+│   ├── registry.py             # Schema registry and loading
+│   ├── validator.py            # Schema validation engine
+│   ├── version_utils.py        # Version comparison utilities
+│   └── schema_versions.json    # Version metadata
 ├── storage/                    # Storage backends and formats
 │   ├── __init__.py
-│   ├── base.py                 # Abstract storage backend
-│   ├── database.py             # Database storage
-│   ├── formats/                # Format handlers
-│   │   ├── __init__.py
-│   │   ├── base.py             # Abstract format handler
-│   │   ├── json_format.py      # JSON format handler
-│   │   └── parquet.py          # Parquet format handler
-│   ├── gdrive.py               # Google Drive backend
+│   ├── base.py                 # Abstract storage interface
+│   ├── database.py             # PostgreSQL backend
 │   ├── local.py                # Local filesystem backend
-│   └── s3.py                   # S3 storage backend
-├── workspace/                  # Workspace management
+│   ├── s3.py                   # AWS S3 backend
+│   ├── gdrive.py               # Google Drive backend
+│   └── formats/                # File format handlers
+│       ├── __init__.py
+│       ├── base.py             # Abstract format interface
+│       ├── json_format.py      # JSON serialization
+│       └── parquet.py          # Parquet serialization
+├── excel/                      # Excel integration
 │   ├── __init__.py
-│   ├── loader.py               # WorkspaceManager
-│   ├── query.py                # Query functionality
-│   ├── schemas/                # Workspace schemas
-│   │   └── workspace.schema.json
-│   └── validator.py            # Workspace validation
-└── excel/                      # Excel processing
+│   ├── exporter.py             # Excel export functionality
+│   ├── importer.py             # Excel import functionality
+│   ├── format_handler.py       # Excel format processing
+│   ├── validator.py            # Excel validation
+│   └── templates/              # Excel templates
+│       └── default_template.xlsx
+└── workspace/                  # Workspace management
     ├── __init__.py
-    ├── exporter.py             # Excel export functionality
-    ├── format_handler.py       # Excel format handler
-    ├── importer.py             # Excel import functionality
-    ├── templates/              # Excel templates
-    │   └── default_template.xlsx
-    └── validator.py            # Excel validation
+    ├── loader.py               # WorkspaceManager class
+    ├── query.py                # Cross-workspace querying
+    ├── validator.py            # Workspace validation
+    └── schemas/                # Workspace schema definitions
+        └── workspace.schema.json
 ```
 
 ### Module Dependencies
-- **models** → schema, exceptions
-- **storage** → exceptions, models
-- **workspace** → storage, schema, exceptions
-- **excel** → models, storage, workspace
-- **cli** → workspace, schema, models, excel
-- **schema** → exceptions
+
+**Core Dependency Flow:**
+```
+mediaplanpy.__init__ 
+├── models/* (core data structures)
+│   └── base.py (shared functionality)
+├── schema/* (validation & migration)
+├── storage/* (persistence backends)
+├── excel/* (Excel integration)
+└── workspace/* (configuration management)
+```
+
+**Key Integration Points:**
+- `models.mediaplan` imports and orchestrates all other models
+- `workspace.loader` provides configuration to all other modules
+- `schema.validator` is used by all models for validation
+- `storage.base` defines interfaces implemented by all backends
 
 ### Package Organization
-- **Core Models**: Pydantic-based data models with validation
-- **Storage Layer**: Pluggable storage backends with format handlers
-- **Schema System**: JSON schema validation and migration
-- **Workspace Management**: Configuration and environment handling
-- **Excel Integration**: Import/export with template support
-- **CLI Interface**: Complete command-line functionality
+
+**Models Package** (`mediaplanpy.models`):
+- Core business objects representing media plan entities
+- Pydantic-based with automatic validation and serialization
+- Integration modules patch additional methods onto core models
+
+**Schema Package** (`mediaplanpy.schema`):
+- JSON schema management and validation
+- Version migration and compatibility checking
+- Centralized schema registry with bundled definitions
+
+**Storage Package** (`mediaplanpy.storage`):
+- Abstract storage interface with multiple backends
+- Format handlers for different file types
+- Database integration for analytics and synchronization
+
+**Excel Package** (`mediaplanpy.excel`):
+- Specialized Excel import/export functionality
+- Template-based formatting with custom validation
+- Integration with the core model system
+
+**Workspace Package** (`mediaplanpy.workspace`):
+- Configuration management and environment isolation
+- Cross-workspace querying and data discovery
+- Automatic migration of deprecated configuration fields
 
 ### Entry Points
-- **CLI**: `mediaplanpy` command (entry point in pyproject.toml)
-- **Python API**: Import from `mediaplanpy` package
-- **Direct Module Access**: Individual component imports
+
+**Primary APIs:**
+```python
+# Package-level imports
+from mediaplanpy import MediaPlan, WorkspaceManager, validate, migrate
+
+# CLI interface
+mediaplanpy --help
+mediaplanpy workspace init
+mediaplanpy schema validate
+```
+
+**Usage Patterns:**
+```python
+# High-level API
+workspace = WorkspaceManager()
+workspace.load()
+media_plan = MediaPlan.create(...)
+media_plan.save(workspace)
+
+# Direct model usage
+media_plan = MediaPlan.load(workspace, path="plan.json")
+errors = media_plan.validate_comprehensive()
+```
 
 ---
 
 ## Core Data Models & Classes
 
-### BaseModel (`src/mediaplanpy/models/base.py`)
-**Purpose**: Foundation class for all MediaPlan models, extends Pydantic BaseModel
+### Class Hierarchy
 
-**Key Attributes**:
-- `SCHEMA_VERSION`: Current schema version property
-- `model_config`: Pydantic configuration (extra='allow', validate_assignment=True)
+```
+BaseModel (mediaplanpy.models.base)
+├── Meta (mediaplanpy.models.mediaplan)
+├── Campaign (mediaplanpy.models.campaign)
+├── LineItem (mediaplanpy.models.lineitem)
+├── Dictionary (mediaplanpy.models.dictionary)
+├── CustomFieldConfig (mediaplanpy.models.dictionary)
+├── MediaPlan (mediaplanpy.models.mediaplan)
+├── Budget (mediaplanpy.models.campaign) [Legacy]
+└── TargetAudience (mediaplanpy.models.campaign) [Legacy]
+```
 
-**Constructor**: Standard Pydantic initialization
+### BaseModel (mediaplanpy.models.base.BaseModel)
 
-**Critical Methods**:
+**Purpose**: Foundation class providing common functionality for all media plan models.
+
+**Key Attributes:**
+- `model_config`: Pydantic configuration for validation behavior
+- `SCHEMA_VERSION`: Class property returning current schema version
+
+**Constructor Signature:**
+```python
+def __init__(self, **data)
+```
+
+**Key Methods:**
 ```python
 def to_dict(self, exclude_none: bool = True) -> Dict[str, Any]
 def to_json(self, exclude_none: bool = True, indent: int = 2) -> str
-def validate_model(self) -> List[str]  # Override in subclasses
+def validate_model(self) -> List[str]
 def assert_valid(self) -> None
 @classmethod
 def from_dict(cls, data: Dict[str, Any]) -> "BaseModel"
 @classmethod
 def from_json(cls, json_str: str) -> "BaseModel"
-def export_to_json(self, file_path: str, indent: int = 2) -> None
 def validate_against_schema(self, validator: Optional[SchemaValidator] = None) -> List[str]
 def deep_copy(self) -> "BaseModel"
 ```
 
-### MediaPlan (`src/mediaplanpy/models/mediaplan.py`)
-**Purpose**: Main entity representing a complete media plan
+### MediaPlan (mediaplanpy.models.mediaplan.MediaPlan)
 
-**Key Attributes**:
-- `meta: Meta` - Metadata including ID, schema version, creation info
-- `campaign: Campaign` - Campaign details and configuration
-- `lineitems: List[LineItem]` - List of line items
-- `dictionary: Optional[Dictionary]` - Custom field configuration (v2.0)
+**Purpose**: Top-level orchestration model representing a complete media plan with metadata, campaign, line items, and configuration dictionary.
 
-**Constructor**: 
+**Key Attributes:**
 ```python
-MediaPlan(meta: Meta, campaign: Campaign, lineitems: List[LineItem], dictionary: Optional[Dictionary] = None)
+meta: Meta                              # Metadata and identification
+campaign: Campaign                      # Campaign details and budget
+lineitems: List[LineItem] = []         # List of line items
+dictionary: Optional[Dictionary] = None # v2.0: Custom field configuration
 ```
 
-**Critical Methods**:
+**Constructor Signature:**
 ```python
-@classmethod
-def check_schema_version(cls, data: Dict[str, Any]) -> None
-def validate_model(self) -> List[str]
+def __init__(self, 
+             meta: Meta, 
+             campaign: Campaign, 
+             lineitems: List[LineItem] = None,
+             dictionary: Optional[Dictionary] = None)
+```
+
+**Relationships:**
+- **Composition**: Contains Meta, Campaign, LineItem objects
+- **Aggregation**: Optional Dictionary for custom field configuration
+- **Associations**: Links to WorkspaceManager for persistence operations
+
+**Key Methods:**
+```python
+# Line Item Management
 def create_lineitem(self, line_items: Union[LineItem, Dict, List], validate: bool = True, **kwargs) -> Union[LineItem, List[LineItem]]
 def load_lineitem(self, line_item_id: str) -> Optional[LineItem]
 def update_lineitem(self, line_item: LineItem, validate: bool = True) -> LineItem
 def delete_lineitem(self, line_item_id: str, validate: bool = False) -> bool
-def calculate_total_cost(self) -> Decimal
+
+# Media Plan Lifecycle
+def archive(self, workspace_manager: 'WorkspaceManager') -> None
+def restore(self, workspace_manager: 'WorkspaceManager') -> None
+def set_as_current(self, workspace_manager: 'WorkspaceManager', update_self: bool = True) -> Dict[str, Any]
+
+# Validation and Migration
+def validate_comprehensive(self, validator: Optional[SchemaValidator] = None, version: Optional[str] = None) -> Dict[str, List[str]]
+def migrate_to_version(self, migrator: Optional[SchemaMigrator] = None, to_version: Optional[str] = None) -> "MediaPlan"
+
+# v2.0 Dictionary Management
+def get_custom_field_config(self, field_name: str) -> Optional[Dict[str, Any]]
+def set_custom_field_config(self, field_name: str, enabled: bool, caption: Optional[str] = None)
+def get_enabled_custom_fields(self) -> Dict[str, str]
+
+# Factory Methods
 @classmethod
 def create(cls, created_by: str, campaign_name: str, campaign_objective: str, 
-           campaign_start_date: Union[str, date], campaign_end_date: Union[str, date], 
+           campaign_start_date: Union[str, date], campaign_end_date: Union[str, date],
            campaign_budget: Union[str, int, float, Decimal], **kwargs) -> "MediaPlan"
-def migrate_to_version(self, migrator: Optional[SchemaMigrator] = None, to_version: Optional[str] = None) -> "MediaPlan"
-```
 
-### Campaign (`src/mediaplanpy/models/campaign.py`)
-**Purpose**: Represents campaign details within a media plan
-
-**Key Attributes**:
-- `id: str` - Unique identifier
-- `name: str` - Campaign name
-- `objective: str` - Campaign objective
-- `start_date: date` - Campaign start date
-- `end_date: date` - Campaign end date
-- `budget_total: Decimal` - Total budget amount
-- **v2.0 Fields**: `budget_currency`, `agency_id/name`, `advertiser_id/name`, `campaign_type_id/name`, `workflow_status_id/name`
-
-**Constructor**: All required fields plus optional v2.0 fields
-
-**Critical Methods**:
-```python
-def validate_model(self) -> List[str]
+# Version Compatibility
 @classmethod
-def from_v0_campaign(cls, v0_campaign: Dict[str, Any]) -> "Campaign"
-```
-
-### LineItem (`src/mediaplanpy/models/lineitem.py`)
-**Purpose**: Represents individual line items within a media plan
-
-**Key Attributes**:
-- `id: str` - Unique identifier
-- `name: str` - Line item name
-- `start_date: date` - Start date
-- `end_date: date` - End date
-- `cost_total: Decimal` - Total cost
-- **Channel Fields**: `channel`, `vehicle`, `partner`, `media_product`
-- **Custom Fields**: `dim_custom1-10`, `cost_custom1-10`, `metric_custom1-10`
-- **v2.0 Fields**: 17 new standard metrics, `cost_currency`, `dayparts`, `inventory`
-
-**Constructor**: Required fields plus extensive optional field set
-
-**Critical Methods**:
-```python
-def validate(self) -> List[str]  # Consolidated validation
-def validate_model(self) -> List[str]  # Legacy method
+def check_schema_version(cls, data: Dict[str, Any]) -> None
 @classmethod
-def from_v0_lineitem(cls, v0_lineitem: Dict[str, Any]) -> "LineItem"
+def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan"
 ```
 
-### Dictionary (`src/mediaplanpy/models/dictionary.py`)
-**Purpose**: Configuration for custom fields (v2.0 feature)
+### Campaign (mediaplanpy.models.campaign.Campaign)
 
-**Key Attributes**:
-- `custom_dimensions: Optional[Dict[str, CustomFieldConfig]]`
-- `custom_metrics: Optional[Dict[str, CustomFieldConfig]]`
-- `custom_costs: Optional[Dict[str, CustomFieldConfig]]`
+**Purpose**: Represents campaign-level information including budget, targeting, and v2.0 organizational fields.
 
-**Critical Methods**:
+**Key Attributes:**
+```python
+# Required fields
+id: str
+name: str
+objective: str
+start_date: date
+end_date: date
+budget_total: Decimal
+
+# v2.0 New Fields
+budget_currency: Optional[str] = None        # Currency code (USD, EUR, GBP)
+agency_id: Optional[str] = None              # Agency identification
+agency_name: Optional[str] = None
+advertiser_id: Optional[str] = None          # Client/advertiser identification
+advertiser_name: Optional[str] = None
+product_id: Optional[str] = None             # Product identification
+campaign_type_id: Optional[str] = None       # Campaign type classification
+campaign_type_name: Optional[str] = None
+workflow_status_id: Optional[str] = None     # Workflow tracking
+workflow_status_name: Optional[str] = None
+
+# Audience and Targeting (v1.0 compatible)
+audience_name: Optional[str] = None
+audience_age_start: Optional[int] = None
+audience_age_end: Optional[int] = None
+audience_gender: Optional[str] = None        # ["Male", "Female", "Any"]
+audience_interests: Optional[List[str]] = None
+location_type: Optional[str] = None          # ["Country", "State"]
+locations: Optional[List[str]] = None
+```
+
+**Constructor Signature:**
+```python
+def __init__(self, id: str, name: str, objective: str, start_date: date, 
+             end_date: date, budget_total: Decimal, **kwargs)
+```
+
+### LineItem (mediaplanpy.models.lineitem.LineItem)
+
+**Purpose**: Represents the most granular executable unit of a media plan with comprehensive field support.
+
+**Key Attributes:**
+```python
+# Required fields
+id: str
+name: str
+start_date: date
+end_date: date
+cost_total: Decimal
+
+# v2.0 New Fields
+cost_currency: Optional[str] = None          # Currency for all cost fields
+dayparts: Optional[str] = None               # Time period targeting
+dayparts_custom: Optional[str] = None
+inventory: Optional[str] = None              # Inventory type specification
+inventory_custom: Optional[str] = None
+
+# Channel and Vehicle (v1.0 compatible)
+channel: Optional[str] = None                # Primary channel category
+vehicle: Optional[str] = None                # Platform/vehicle
+partner: Optional[str] = None                # Publisher/partner
+media_product: Optional[str] = None          # Media product offering
+
+# Cost Breakdown (6 fields)
+cost_media: Optional[Decimal] = None
+cost_buying: Optional[Decimal] = None
+cost_platform: Optional[Decimal] = None
+cost_data: Optional[Decimal] = None
+cost_creative: Optional[Decimal] = None
+cost_custom1-10: Optional[Decimal] = None    # 10 custom cost fields
+
+# Metrics - Standard (v1.0: 3 fields, v2.0: +17 new fields)
+metric_impressions: Optional[Decimal] = None
+metric_clicks: Optional[Decimal] = None
+metric_views: Optional[Decimal] = None
+# v2.0 New Standard Metrics
+metric_engagements: Optional[Decimal] = None
+metric_followers: Optional[Decimal] = None
+metric_visits: Optional[Decimal] = None
+metric_leads: Optional[Decimal] = None
+metric_sales: Optional[Decimal] = None
+metric_add_to_cart: Optional[Decimal] = None
+metric_app_install: Optional[Decimal] = None
+metric_application_start: Optional[Decimal] = None
+metric_application_complete: Optional[Decimal] = None
+metric_contact_us: Optional[Decimal] = None
+metric_download: Optional[Decimal] = None
+metric_signup: Optional[Decimal] = None
+metric_max_daily_spend: Optional[Decimal] = None
+metric_max_daily_impressions: Optional[Decimal] = None
+metric_audience_size: Optional[Decimal] = None
+metric_custom1-10: Optional[Decimal] = None  # 10 custom metric fields
+
+# Custom Dimensions (10 fields)
+dim_custom1-10: Optional[str] = None         # Flexible custom categorization
+```
+
+**Constructor Signature:**
+```python
+def __init__(self, id: str, name: str, start_date: date, end_date: date, 
+             cost_total: Decimal, **kwargs)
+```
+
+**Key Methods:**
+```python
+def validate(self) -> List[str]              # Comprehensive validation
+```
+
+### Meta (mediaplanpy.models.mediaplan.Meta)
+
+**Purpose**: Metadata container for media plan identification and status tracking.
+
+**Key Attributes:**
+```python
+# Required fields
+id: str                                      # Unique media plan identifier
+schema_version: str                          # Schema version ("v1.0", "v2.0")
+created_by_name: str                         # v2.0: Required creator name
+
+# Optional fields
+created_at: datetime = datetime.now()
+name: Optional[str] = None                   # Media plan display name
+comments: Optional[str] = None
+
+# v2.0 New Status Fields
+created_by_id: Optional[str] = None          # Creator user ID
+is_current: Optional[bool] = None            # Current version flag
+is_archived: Optional[bool] = None           # Archive status
+parent_id: Optional[str] = None              # Parent plan reference
+```
+
+### Dictionary (mediaplanpy.models.dictionary.Dictionary)
+
+**Purpose**: v2.0 configuration system for enabling and labeling custom fields.
+
+**Key Attributes:**
+```python
+custom_dimensions: Optional[Dict[str, CustomFieldConfig]] = None    # dim_custom1-10 config
+custom_metrics: Optional[Dict[str, CustomFieldConfig]] = None       # metric_custom1-10 config
+custom_costs: Optional[Dict[str, CustomFieldConfig]] = None         # cost_custom1-10 config
+```
+
+**Key Methods:**
 ```python
 def is_field_enabled(self, field_name: str) -> bool
 def get_field_caption(self, field_name: str) -> Optional[str]
 def get_enabled_fields(self) -> Dict[str, str]
 ```
 
-### Meta (`src/mediaplanpy/models/mediaplan.py`)
-**Purpose**: Metadata for media plans
+### CustomFieldConfig (mediaplanpy.models.dictionary.CustomFieldConfig)
 
-**Key Attributes**:
-- `id: str` - Unique identifier
-- `schema_version: str` - Schema version
-- `created_by_name: str` - Creator name (required in v2.0)
-- `created_at: datetime` - Creation timestamp
-- **v2.0 Fields**: `created_by_id`, `is_current`, `is_archived`, `parent_id`
+**Purpose**: Configuration object for individual custom fields.
 
-### Inheritance Hierarchy
+**Key Attributes:**
+```python
+status: str                                  # "enabled" or "disabled"
+caption: Optional[str] = None                # Display label for the field
 ```
-BaseModel (Pydantic BaseModel)
-├── MediaPlan
-├── Campaign
-├── LineItem
-├── Dictionary
-├── CustomFieldConfig
-├── Meta
-├── Budget (legacy)
-└── TargetAudience (legacy)
+
+---
+
+## Method Signatures Reference
+
+### MediaPlan Core Operations
+
+```python
+# Creation and Loading
+@classmethod
+def create(cls, created_by: str, campaign_name: str, campaign_objective: str,
+          campaign_start_date: Union[str, date], campaign_end_date: Union[str, date],
+          campaign_budget: Union[str, int, float, Decimal], schema_version: Optional[str] = None,
+          workspace_manager: Optional['WorkspaceManager'] = None, **kwargs) -> "MediaPlan"
+
+@classmethod  
+def load(cls, workspace_manager: 'WorkspaceManager', path: Optional[str] = None,
+        media_plan_id: Optional[str] = None, validate_version: bool = True,
+        auto_migrate: bool = True) -> "MediaPlan"
+
+# Persistence Operations  
+def save(self, workspace_manager: 'WorkspaceManager', path: Optional[str] = None,
+        overwrite: bool = False, include_parquet: bool = False,
+        include_database: bool = False, set_as_current: bool = False,
+        validate_version: bool = True) -> str
+
+def delete(self, workspace_manager: 'WorkspaceManager', include_parquet: bool = True,
+          include_database: bool = True) -> Dict[str, bool]
+
+# Line Item Management
+def create_lineitem(self, line_items: Union[LineItem, Dict[str, Any], List[Union[LineItem, Dict[str, Any]]]],
+                   validate: bool = True, **kwargs) -> Union[LineItem, List[LineItem]]
+
+def load_lineitem(self, line_item_id: str) -> Optional[LineItem]
+
+def update_lineitem(self, line_item: LineItem, validate: bool = True) -> LineItem
+
+def delete_lineitem(self, line_item_id: str, validate: bool = False) -> bool
+
+# Status Management
+def archive(self, workspace_manager: 'WorkspaceManager') -> None
+
+def restore(self, workspace_manager: 'WorkspaceManager') -> None
+
+def set_as_current(self, workspace_manager: 'WorkspaceManager', 
+                  update_self: bool = True) -> Dict[str, Any]
+
+# Validation and Migration
+def validate_model(self) -> List[str]
+
+def validate_against_schema(self, validator: Optional[SchemaValidator] = None,
+                           version: Optional[str] = None) -> List[str]
+
+def validate_comprehensive(self, validator: Optional[SchemaValidator] = None,
+                          version: Optional[str] = None) -> Dict[str, List[str]]
+
+def migrate_to_version(self, migrator: Optional[SchemaMigrator] = None,
+                      to_version: Optional[str] = None) -> "MediaPlan"
+
+# Excel Integration
+def export_to_excel(self, workspace_manager: 'WorkspaceManager', file_path: str,
+                   template_path: Optional[str] = None, include_documentation: bool = True,
+                   include_dictionary: bool = True) -> str
+
+def import_from_excel(self, workspace_manager: 'WorkspaceManager', file_path: str,
+                     validate_schema: bool = True, auto_migrate: bool = True) -> Dict[str, Any]
+
+def update_from_excel(self, workspace_manager: 'WorkspaceManager', file_path: str,
+                     validate_schema: bool = True) -> Dict[str, Any]
+
+# v2.0 Dictionary Management
+def get_custom_field_config(self, field_name: str) -> Optional[Dict[str, Any]]
+
+def set_custom_field_config(self, field_name: str, enabled: bool, 
+                           caption: Optional[str] = None)
+
+def get_enabled_custom_fields(self) -> Dict[str, str]
+```
+
+### WorkspaceManager Operations
+
+```python
+# Workspace Lifecycle
+def __init__(self, workspace_path: Optional[str] = None)
+
+def create(self, settings_path_name: Optional[str] = None,
+          settings_file_name: Optional[str] = None,
+          storage_path_name: Optional[str] = None,
+          workspace_name: str = "Default", overwrite: bool = False,
+          **kwargs) -> Tuple[str, str]
+
+def load(self, workspace_path: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+        config_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]
+
+def validate(self) -> bool
+
+# Configuration Access
+def get_resolved_config(self) -> Dict[str, Any]
+def get_storage_config(self) -> Dict[str, Any]
+def get_database_config(self) -> Dict[str, Any]
+def get_excel_config(self) -> Dict[str, Any]
+
+# Backend Access
+def get_storage_backend(self) -> 'StorageBackend'
+def get_schema_manager(self) -> 'SchemaManager'
+
+# Status Checking
+def check_workspace_active(self, operation: str, allow_warnings: bool = False) -> None
+def check_excel_enabled(self, operation: str) -> None
+
+# Version Management
+def upgrade_workspace(self, target_sdk_version: Optional[str] = None,
+                     dry_run: bool = False) -> Dict[str, Any]
+
+def get_workspace_version_info(self) -> Dict[str, Any]
+def check_workspace_compatibility(self) -> Dict[str, Any]
+
+# Media Plan Operations
+def validate_media_plan(self, media_plan: Dict[str, Any],
+                       version: Optional[str] = None) -> List[str]
+
+def migrate_media_plan(self, media_plan: Dict[str, Any],
+                      to_version: Optional[str] = None) -> Dict[str, Any]
+
+# Querying (from workspace.query patch)
+def list_media_plans(self, include_archived: bool = True,
+                    campaign_id: Optional[str] = None) -> List[Dict[str, Any]]
+
+def search_media_plans(self, query: str, fields: Optional[List[str]] = None,
+                      include_archived: bool = True) -> List[Dict[str, Any]]
+
+def get_media_plan_summary(self, media_plan_id: str) -> Optional[Dict[str, Any]]
+```
+
+### Schema Management Operations
+
+```python
+# SchemaValidator
+def validate(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> List[str]
+def validate_comprehensive(self, media_plan: Dict[str, Any], 
+                          version: Optional[str] = None) -> Dict[str, List[str]]
+def validate_file(self, file_path: str, version: Optional[str] = None) -> List[str]
+
+# SchemaMigrator  
+def migrate(self, media_plan: Dict[str, Any], from_version: str, 
+           to_version: str) -> Dict[str, Any]
+def can_migrate(self, from_version: str, to_version: str) -> bool
+def get_migration_path(self, from_version: str, to_version: str) -> List[str]
+
+# SchemaRegistry
+def get_schema(self, version: str) -> Dict[str, Any]
+def get_current_version(self) -> str
+def get_supported_versions(self) -> List[str]
+def is_version_supported(self, version: str) -> bool
 ```
 
 ---
 
 ## Design Patterns & Architectural Patterns
 
-### Patterns Used
+### Core Design Patterns
 
-**1. Strategy Pattern**
-- **Storage Backends**: `StorageBackend` abstract class with concrete implementations (`LocalStorageBackend`, `S3StorageBackend`, `GDriveStorageBackend`)
-- **Format Handlers**: `FormatHandler` abstract class with concrete implementations (`JsonFormatHandler`, `ParquetFormatHandler`)
+**1. Repository Pattern**
+- **Implementation**: `WorkspaceManager` and storage backends
+- **Purpose**: Abstracts data persistence from business logic
+- **Location**: `mediaplanpy.workspace.loader`, `mediaplanpy.storage.*`
 
-**2. Registry Pattern**
-- **Storage Backend Registry**: `_storage_backends` dictionary in `storage/__init__.py`
-- **Schema Registry**: `SchemaRegistry` class manages schema versions and definitions
+**2. Strategy Pattern**
+- **Implementation**: Storage backends and format handlers
+- **Purpose**: Pluggable algorithms for different storage types and file formats
+- **Location**: `mediaplanpy.storage.base.StorageBackend`, `mediaplanpy.storage.formats.base.FormatHandler`
 
 **3. Factory Pattern**
-- **Storage Backend Factory**: `get_storage_backend(workspace_config)` function
-- **Format Handler Factory**: `get_format_handler_instance(format_name)` function
+- **Implementation**: `get_storage_backend()`, `get_format_handler_instance()`
+- **Purpose**: Creates appropriate backend/handler instances based on configuration
+- **Location**: `mediaplanpy.storage.__init__`
 
-**4. Decorator/Mixin Pattern**
-- **Model Extensions**: Database, Excel, JSON, and Storage functionality added via imports in `models/__init__.py`
-- **Workspace Extensions**: Query functionality patched into `WorkspaceManager`
+**4. Command Pattern**
+- **Implementation**: CLI command structure
+- **Purpose**: Encapsulates operations as objects for command-line interface
+- **Location**: `mediaplanpy.cli`
 
-**5. Command Pattern**
-- **CLI Interface**: Hierarchical command structure with handler functions
-- **Migration Commands**: Schema migration operations encapsulated as commands
+**5. Template Method Pattern**
+- **Implementation**: `BaseModel` validation methods
+- **Purpose**: Defines validation algorithm structure with customizable steps
+- **Location**: `mediaplanpy.models.base.BaseModel`
 
-### Plugin/Extension System
-- **Storage Backends**: Add new backends by implementing `StorageBackend` and registering in `_storage_backends`
-- **Format Handlers**: Add new formats by implementing `FormatHandler` and registering
-- **Model Extensions**: Patch additional methods into core models via module imports
+**6. Observer Pattern (Implicit)**
+- **Implementation**: Validation and migration hooks
+- **Purpose**: Automatic validation triggers on model changes
+- **Location**: Pydantic model validators
 
-### Configuration Management
-- **Workspace Configuration**: JSON-based configuration with schema validation
-- **Environment Variables**: Database passwords and external service credentials
-- **Template System**: Excel templates for export formatting
+**7. Decorator Pattern**
+- **Implementation**: Model integration patches
+- **Purpose**: Extends MediaPlan with additional functionality without inheritance
+- **Location**: `mediaplanpy.models.mediaplan_*.py` modules
+
+### Architectural Patterns
+
+**1. Layered Architecture**
+```
+Presentation Layer    → CLI, API endpoints
+Business Logic Layer → Models, validation, migration
+Data Access Layer    → Storage backends, database integration
+Infrastructure Layer → Schema registry, workspace management
+```
+
+**2. Plugin Architecture**
+- **Extension Points**: Storage backends, format handlers, validation rules
+- **Registration**: Dictionary-based registries for backend discovery
+- **Interface**: Abstract base classes define contracts
+
+**3. Configuration-Driven Architecture**
+- **Workspace System**: Central configuration management
+- **Environment Isolation**: Multiple workspace support
+- **Feature Toggles**: Enable/disable functionality via configuration
+
+**4. Schema-Driven Development**
+- **JSON Schema**: Defines data structure and validation rules
+- **Version Management**: Automated migration between schema versions
+- **Validation Framework**: Centralized validation using schema definitions
 
 ### Error Handling Strategy
-- **Exception Hierarchy**: Custom exceptions extending from `MediaPlanError`
-- **Validation Errors**: Detailed error messages with field-level validation
-- **Graceful Degradation**: Optional features fail gracefully when dependencies unavailable
 
----
-
-## Data Flow & Integration Points
-
-### Data Processing Pipeline
-1. **Input**: JSON, Excel, or direct Python objects
-2. **Validation**: Schema validation and business rule checking
-3. **Migration**: Automatic version migration if needed
-4. **Processing**: Model instantiation and manipulation
-5. **Storage**: Persistence to configured storage backend
-6. **Output**: JSON, Excel, Parquet, or database synchronization
-
-### File Format Handling
-**JSON Format**:
-- **Input**: `MediaPlan.from_dict()`, `MediaPlan.import_from_json()`
-- **Output**: `MediaPlan.to_dict()`, `MediaPlan.export_to_json()`
-- **Validation**: Schema validation against JSON Schema definitions
-
-**Excel Format**:
-- **Input**: `MediaPlan.import_from_excel()` via `ExcelImporter`
-- **Output**: `MediaPlan.export_to_excel()` via `ExcelExporter`
-- **Templates**: Customizable Excel templates for formatting
-
-**Parquet Format**:
-- **Output**: Via `ParquetFormatHandler` for analytics
-- **Structure**: Flattened structure optimized for analytics queries
-
-### Storage Backends
-**Local Storage**:
-- **Implementation**: `LocalStorageBackend`
-- **Configuration**: `base_path`, `create_if_missing`
-- **Features**: Directory creation, file operations
-
-**S3 Storage**:
-- **Implementation**: `S3StorageBackend`
-- **Configuration**: `bucket`, `prefix`, `profile`, `region`
-- **Features**: AWS credential handling, object operations
-
-**Google Drive Storage**:
-- **Implementation**: `GDriveStorageBackend`
-- **Configuration**: `folder_id`, `credentials_path`, `token_path`
-- **Features**: OAuth authentication, folder operations
-
-### Import/Export Workflows
-**JSON Import**:
-1. Load JSON file
-2. Parse and validate structure
-3. Check schema version compatibility
-4. Migrate if needed
-5. Create MediaPlan instance
-6. Validate business rules
-
-**Excel Import**:
-1. Load Excel file using openpyxl
-2. Extract data from worksheets
-3. Map columns to model fields
-4. Validate data types and constraints
-5. Create MediaPlan instance
-6. Apply custom field mappings
-
-**Export Process**:
-1. Serialize MediaPlan to dictionary
-2. Apply format-specific transformations
-3. Write to storage backend
-4. Generate additional formats (Parquet) if configured
-5. Sync to database if enabled
-
-### Validation Pipeline
-1. **Field Validation**: Pydantic field validators
-2. **Model Validation**: Custom `validate_model()` methods
-3. **Schema Validation**: JSON Schema validation
-4. **Business Rules**: Cross-field and cross-model validation
-5. **Comprehensive Validation**: Combined validation with categorized results
-
----
-
-## Configuration & Workspace System
-
-### Workspace Concept
-A workspace defines the environment and configuration for media plan operations:
-- **Storage Configuration**: Where media plans are stored
-- **Schema Settings**: Version compatibility and migration preferences
-- **Database Integration**: Optional PostgreSQL synchronization
-- **Feature Toggles**: Enable/disable functionality per environment
-
-### Configuration Schema
-**Core Structure** (`workspace.schema.json`):
-```json
-{
-  "workspace_id": "string (required)",
-  "workspace_name": "string (required)", 
-  "workspace_status": "active|inactive",
-  "environment": "development|testing|production",
-  "storage": { "mode": "local|s3|gdrive", ... },
-  "workspace_settings": {
-    "schema_version": "2.0",
-    "last_upgraded": "2025-01-30",
-    "sdk_version_required": "2.0.x"
-  },
-  "database": { "enabled": true, ... },
-  "excel": { "enabled": true, ... },
-  "logging": { "level": "INFO", ... }
-}
-```
-
-### Settings Management
-**WorkspaceManager** (`src/mediaplanpy/workspace/loader.py`):
+**Exception Hierarchy:**
 ```python
-class WorkspaceManager:
-    def __init__(self, workspace_path: Optional[str] = None)
-    def load(self) -> Dict[str, Any]
-    def validate(self) -> bool
-    def get_resolved_config(self) -> Dict[str, Any]
-    def create(self, **kwargs) -> Tuple[str, str]
-    def upgrade_workspace(self, target_sdk_version: Optional[str] = None, dry_run: bool = False) -> Dict[str, Any]
-    def check_workspace_compatibility(self) -> Dict[str, Any]
-```
-
-### Environment Handling
-- **Development**: Relaxed validation, local storage default
-- **Testing**: Stricter validation, isolated storage
-- **Production**: Full validation, enterprise storage backends
-
-### Configuration Resolution
-1. Load workspace.json
-2. Resolve environment variables
-3. Apply environment-specific overrides
-4. Validate final configuration
-5. Create resolved configuration object
-
----
-
-## CLI Interface & Commands
-
-### Command Structure
-**Hierarchical Organization**:
-```
-mediaplanpy
-├── workspace
-│   ├── init          # Create workspace
-│   ├── validate      # Validate workspace
-│   ├── info          # Show workspace info
-│   ├── upgrade       # Upgrade workspace
-│   ├── version       # Version information
-│   └── check         # Compatibility check
-├── schema
-│   ├── info          # Schema information
-│   ├── versions      # List versions
-│   ├── validate      # Validate media plan
-│   └── migrate       # Migrate schema version
-├── excel
-│   ├── export        # Export to Excel
-│   ├── import        # Import from Excel
-│   ├── update        # Update from Excel
-│   └── validate      # Validate Excel file
-└── mediaplan
-    ├── create        # Create new media plan
-    └── delete        # Delete media plan
-```
-
-### Command Handlers
-**Handler Pattern**: Each command group has dedicated handler functions
-- `handle_workspace_*()` functions for workspace operations
-- `handle_schema_*()` functions for schema operations
-- `handle_excel_*()` functions for Excel operations
-- `handle_mediaplan_*()` functions for media plan operations
-
-### Argument Patterns
-**Common Arguments**:
-- `--workspace`: Path to workspace.json
-- `--version`: Schema version specification
-- `--output`: Output file path
-- `--dry-run`: Preview mode without changes
-
-### Help System
-- **Contextual Help**: Command-specific help messages
-- **Version Information**: SDK and schema version display
-- **Feature Discovery**: Show v2.0 features and capabilities
-
----
-
-## Database & Persistence
-
-### Database Integration
-**PostgreSQL Backend**:
-- **Purpose**: Analytics and reporting on media plan data
-- **Implementation**: `mediaplan_database.py` patches methods into `MediaPlan`
-- **Table Structure**: Flattened structure optimized for queries
-- **Synchronization**: Automatic sync on save operations
-
-### Schema Management
-**Database Schema**:
-- **Table**: Configurable table name (default: `media_plans`)
-- **Columns**: All media plan fields flattened
-- **Indexes**: Optimized for common query patterns
-- **Constraints**: Foreign keys and validation constraints
-
-### Query System
-**Query Interface**:
-```python
-# Patched into WorkspaceManager via workspace/query.py
-def query_mediaplans(self, **filters) -> List[Dict[str, Any]]
-def get_mediaplan_summary(self, **filters) -> Dict[str, Any]
-def aggregate_costs(self, group_by: List[str], **filters) -> Dict[str, Any]
-```
-
-**DuckDB Integration**:
-- **Purpose**: Local analytics without PostgreSQL setup
-- **Features**: SQL queries on media plan data
-- **Performance**: Optimized for analytical workloads
-
-### Data Synchronization
-**Sync Process**:
-1. MediaPlan saved to storage
-2. Extract data for database
-3. Transform to flat structure
-4. Insert/update database record
-5. Handle conflicts and errors
-
----
-
-## Validation & Schema System
-
-### Schema Versions
-**Version Management**:
-- **Current**: v2.0 (major version with new features)
-- **Supported**: v1.0 (deprecated but supported with migration)
-- **Removed**: v0.0 (no longer supported)
-
-**Version Compatibility**:
-```python
-# From schema_versions.json
-{
-  "current": "2.0",
-  "supported": ["1.0", "2.0"],
-  "deprecated": ["1.0"],
-  "compatibility": {
-    "v2.0": {"supports": ["2.0"], "migrates_from": ["1.0"]},
-    "v1.0": {"supports": ["1.0"], "migrates_from": []}
-  }
-}
-```
-
-### Validation Framework
-**Multi-Level Validation**:
-1. **Field Level**: Pydantic field validators
-2. **Model Level**: Custom validation methods
-3. **Schema Level**: JSON Schema validation
-4. **Business Rules**: Cross-model validation
-
-**SchemaValidator** (`src/mediaplanpy/schema/validator.py`):
-```python
-class SchemaValidator:
-    def validate(self, data: Dict[str, Any], version: Optional[str] = None) -> List[str]
-    def validate_file(self, file_path: str, version: Optional[str] = None) -> List[str]
-    def validate_comprehensive(self, data: Dict[str, Any], version: Optional[str] = None) -> Dict[str, List[str]]
-```
-
-### Migration System
-**SchemaMigrator** (`src/mediaplanpy/schema/migration.py`):
-```python
-class SchemaMigrator:
-    def migrate(self, data: Dict[str, Any], from_version: str, to_version: str) -> Dict[str, Any]
-    def can_migrate(self, from_version: str, to_version: str) -> bool
-    def get_migration_path(self, from_version: str, to_version: str) -> List[str]
-```
-
-**Migration Rules**:
-- **v1.0 → v2.0**: Automatic migration, all new fields optional
-- **v0.0 → v2.0**: Blocked, must use SDK v1.x first
-- **Forward Compatibility**: v2.1 files downgraded to v2.0 with warnings
-
-### Error Reporting
-**Validation Results**:
-```python
-{
-  "errors": ["Critical validation failures"],
-  "warnings": ["Non-critical issues"], 
-  "info": ["Informational messages"]
-}
-```
-
----
-
-## File Processing & Format Handlers
-
-### Format Handler Pattern
-**Abstract Base Class** (`src/mediaplanpy/storage/formats/base.py`):
-```python
-class FormatHandler(abc.ABC):
-    @abc.abstractmethod
-    def serialize_to_file(self, data: Dict[str, Any], file_obj: Union[TextIO, BinaryIO]) -> None
-    @abc.abstractmethod  
-    def deserialize_from_file(self, file_obj: Union[TextIO, BinaryIO]) -> Dict[str, Any]
-    @abc.abstractmethod
-    def get_file_extension(self) -> str
-```
-
-### JSON Processing
-**JsonFormatHandler**:
-- **Serialization**: Standard JSON with proper date/decimal handling
-- **Deserialization**: JSON parsing with validation
-- **Features**: Pretty printing, custom encoders
-
-### Excel Processing
-**ExcelFormatHandler**:
-- **Import Process**: Read worksheets, map columns, validate data
-- **Export Process**: Apply templates, format cells, add documentation
-- **Template System**: Customizable Excel templates
-- **Validation**: Pre-import validation of Excel structure
-
-**Excel Integration Methods** (patched into MediaPlan):
-```python
-def export_to_excel(self, file_path: str, template_path: Optional[str] = None, **options) -> str
-@classmethod
-def import_from_excel(cls, file_path: str) -> "MediaPlan"
-def update_from_excel_path(self, file_path: str) -> None
-@classmethod
-def validate_excel(cls, file_path: str, schema_version: Optional[str] = None) -> List[str]
-```
-
-### Parquet Handling
-**ParquetFormatHandler**:
-- **Purpose**: Analytics-optimized format
-- **Structure**: Flattened schema for efficient queries
-- **Features**: Compression, columnar storage
-- **Integration**: Generated alongside JSON storage
-
----
-
-## Constants & Configuration Values
-
-### Schema Constants
-```python
-# From __init__.py
-__version__ = '2.0.0'
-__schema_version__ = '2.0'
-CURRENT_MAJOR = 2
-CURRENT_MINOR = 0
-SUPPORTED_MAJOR_VERSIONS = [1, 2]
-```
-
-### Field Validation Constants
-**Campaign** (`src/mediaplanpy/models/campaign.py`):
-```python
-VALID_OBJECTIVES = {"awareness", "consideration", "conversion", "retention", "loyalty", "other"}
-VALID_GENDERS = {"Male", "Female", "Any"}
-VALID_LOCATION_TYPES = {"Country", "State"}
-COMMON_CAMPAIGN_TYPES = {"Brand Awareness", "Performance", "Retargeting", "Launch", "Seasonal", "Always On", "Tactical"}
-COMMON_WORKFLOW_STATUSES = {"Draft", "In Review", "Approved", "Live", "Paused", "Completed", "Cancelled"}
-```
-
-**LineItem** (`src/mediaplanpy/models/lineitem.py`):
-```python
-VALID_CHANNELS = {"social", "search", "display", "video", "audio", "tv", "ooh", "print", "other"}
-VALID_KPIS = {"cpm", "cpc", "cpa", "ctr", "cpv", "cpl", "roas", "other"}
-COMMON_DAYPARTS = {"All Day", "Morning", "Afternoon", "Evening", "Primetime", "Late Night", "Weekdays", "Weekends"}
-COMMON_INVENTORY_TYPES = {"Premium", "Remnant", "Private Marketplace", "Open Exchange", "Direct", "Programmatic", "Reserved", "Unreserved"}
-```
-
-### Dictionary Constants
-**Custom Field Definitions** (`src/mediaplanpy/models/dictionary.py`):
-```python
-VALID_DIMENSION_FIELDS = {f"dim_custom{i}" for i in range(1, 11)}
-VALID_METRIC_FIELDS = {f"metric_custom{i}" for i in range(1, 11)}
-VALID_COST_FIELDS = {f"cost_custom{i}" for i in range(1, 11)}
-```
-
-### Default Configuration Values
-**Workspace Defaults**:
-```python
-{
-  "environment": "development",
-  "workspace_status": "active", 
-  "storage": {"mode": "local", "local": {"create_if_missing": true}},
-  "database": {"enabled": false, "port": 5432, "schema": "public"},
-  "logging": {"level": "INFO"}
-}
-```
-
----
-
-## Error Handling & Exception Hierarchy
-
-### Custom Exception Classes
-**Base Exception** (`src/mediaplanpy/exceptions.py`):
-```python
-MediaPlanError(Exception)  # Base for all package errors
-├── WorkspaceError
+MediaPlanError                    # Base exception
+├── WorkspaceError               # Workspace-related errors
 │   ├── WorkspaceNotFoundError
 │   ├── WorkspaceValidationError
 │   ├── WorkspaceInactiveError
 │   └── FeatureDisabledError
-├── SchemaError
+├── SchemaError                  # Schema-related errors
 │   ├── SchemaVersionError
 │   ├── SchemaRegistryError
 │   ├── SchemaMigrationError
 │   ├── ValidationError
 │   ├── UnsupportedVersionError
 │   └── VersionCompatibilityError
-└── StorageError
+└── StorageError                 # Storage-related errors
     ├── FileReadError
     ├── FileWriteError
     ├── S3Error
-    ├── DatabaseError
-    └── SQLQueryError
+    └── DatabaseError
 ```
 
-### Error Handling Patterns
-**Validation Errors**:
-- **Field Level**: Pydantic ValidationError with field context
-- **Model Level**: Custom validation with detailed messages
-- **Schema Level**: JSON Schema validation errors
+**Error Handling Principles:**
+- **Fail Fast**: Validate inputs early and raise specific exceptions
+- **Error Context**: Include detailed context in error messages
+- **Recovery Options**: Provide suggestions for resolving errors
+- **Logging**: Comprehensive logging at appropriate levels
 
-**Storage Errors**:
-- **File Operations**: Wrapped with context information
-- **Network Operations**: Retry logic and timeout handling
-- **Authentication**: Clear credential error messages
-
-**Migration Errors**:
-- **Version Incompatibility**: Clear migration path guidance  
-- **Data Transformation**: Preserve original data on failure
-- **Schema Changes**: Detailed change documentation
-
-### User-Facing Error Messages
-**Error Message Patterns**:
-- **❌**: Critical errors that prevent operation
-- **⚠️**: Warnings that don't prevent operation
-- **💡**: Recommendations and guidance
-- **✨**: New features and capabilities
+**Validation Strategy:**
+- **Multi-Level Validation**: Pydantic field validators + model validators + schema validation
+- **Comprehensive Reporting**: Categorized errors (errors, warnings, info)
+- **Business Rules**: Custom validation methods for domain-specific rules
 
 ---
 
-## Extension & Customization Points
+## Configuration & Workspace System
 
-### Plugin System
-**Storage Backend Extension**:
-1. Implement `StorageBackend` abstract class
-2. Register in `_storage_backends` dictionary
-3. Add configuration schema to workspace schema
-4. Handle authentication and connection management
+### Workspace Concept
 
-**Format Handler Extension**:
-1. Implement `FormatHandler` abstract class
-2. Register format mapping by file extension
-3. Handle serialization/deserialization
-4. Support both text and binary modes
+A **workspace** in MediaPlanPy represents an isolated environment containing:
+- **Storage Configuration**: Where media plans are stored (local, S3, database)
+- **Schema Settings**: Version preferences and migration settings
+- **Feature Toggles**: Enable/disable Excel, database, etc.
+- **Environment Settings**: Development, staging, production configurations
 
-### Custom Field System
-**Dictionary-Based Configuration**:
-- **Field Types**: Dimensions, metrics, costs (10 each)
-- **Status**: Enabled/disabled per field
-- **Captions**: Custom display names
-- **Validation**: Type-specific validation rules
+### Workspace Settings Structure
 
-**Adding Custom Fields**:
-1. Configure in Dictionary model
-2. Use in LineItem instances
-3. Validate through schema system
-4. Export to Excel with custom headers
+**v2.0 Configuration Format:**
+```json
+{
+  "workspace_id": "workspace_12345678",
+  "workspace_name": "Production Environment",
+  "workspace_status": "active",
+  "environment": "production",
+  
+  "workspace_settings": {
+    "schema_version": "2.0",
+    "last_upgraded": "2024-01-15",
+    "sdk_version_required": "2.0.x"
+  },
+  
+  "storage": {
+    "mode": "local",
+    "local": {
+      "base_path": "/data/mediaplans",
+      "create_if_missing": true
+    }
+  },
+  
+  "database": {
+    "enabled": true,
+    "host": "localhost",
+    "port": 5432,
+    "database": "mediaplans",
+    "schema": "public",
+    "table_name": "media_plans"
+  },
+  
+  "excel": {
+    "enabled": true,
+    "default_template": "templates/default_template.xlsx"
+  }
+}
+```
 
-### Model Extensions
-**Patching Pattern**:
-- Database methods: `import mediaplanpy.models.mediaplan_database`
-- Excel methods: `import mediaplanpy.models.mediaplan_excel`
-- JSON methods: `import mediaplanpy.models.mediaplan_json`
-- Storage methods: `import mediaplanpy.models.mediaplan_storage`
+### Settings Management
 
-**Custom Validation**:
-- Override `validate_model()` in subclasses
-- Add business rule validation
-- Integrate with schema validation system
+**Configuration Loading Priority:**
+1. Explicit path parameter
+2. Environment variable `MEDIAPLANPY_WORKSPACE_PATH`
+3. Current working directory `./workspace.json`
+4. User config directories (`~/.config/mediaplanpy/workspace.json`)
 
-### CLI Extensions
-**Command Addition**:
-1. Add command parser in `setup_argparse()`
-2. Create handler function
-3. Add to main command dispatcher
-4. Include help text and argument validation
+**Automatic Migration:**
+- Deprecated `schema_settings` fields automatically migrated to `workspace_settings`
+- v2.0 defaults applied for missing configuration values
+- Configuration files updated in-place when migration occurs
+
+**Variable Resolution:**
+```json
+{
+  "storage": {
+    "local": {
+      "base_path": "${user_documents}/MediaPlans"
+    }
+  }
+}
+```
+
+**Supported Variables:**
+- `${user_documents}`: User's Documents directory
+- `${user_home}`: User's home directory
+
+### Environment Handling
+
+**Environment Types:**
+- **development**: Relaxed validation, detailed logging
+- **staging**: Production-like with additional debugging
+- **production**: Strict validation, optimized performance
+
+**Environment-Specific Behavior:**
+```python
+# Development
+workspace.config['environment'] = 'development'
+# Enables: verbose logging, schema warnings, experimental features
+
+# Production  
+workspace.config['environment'] = 'production'
+# Enables: strict validation, performance optimization, minimal logging
+```
+
+### Workspace Status Management
+
+**Status Values:**
+- **active**: Full functionality enabled
+- **inactive**: Read-only mode, prevents modifications
+- **maintenance**: Limited operations during upgrades
+
+**Status Checking:**
+```python
+# Automatic status validation
+workspace.check_workspace_active("media plan creation")
+# Raises WorkspaceInactiveError if inactive
+
+# Feature-specific checks
+workspace.check_excel_enabled("Excel export")
+# Raises FeatureDisabledError if Excel disabled
+```
 
 ---
 
-## Dependencies & External Integrations
+## Database & Persistence
 
-### Required Dependencies
-**Core Dependencies**:
-```python
-jsonschema>=4.0.0       # JSON schema validation
-pydantic>=2.0.0         # Data validation and serialization
-pandas>=1.3.0           # Data manipulation and analysis
-openpyxl>=3.0.0         # Excel file processing
-pyarrow>=7.0.0          # Parquet format support
-duckdb>=0.9.2           # Local analytics database
+### Database Integration Overview
+
+MediaPlanPy provides optional PostgreSQL integration for:
+- **Analytics and Reporting**: Flattened data optimized for SQL queries
+- **Cross-Plan Analysis**: Query multiple media plans simultaneously  
+- **Data Synchronization**: Automatic sync with file-based storage
+- **Performance**: Indexed queries for large datasets
+
+### Database Schema Structure
+
+**Main Table: `media_plans`**
+```sql
+CREATE TABLE media_plans (
+    -- Primary identification
+    media_plan_id VARCHAR(255) PRIMARY KEY,
+    media_plan_name VARCHAR(500),
+    schema_version VARCHAR(20) NOT NULL,
+    
+    -- v2.0 Meta fields
+    created_by_name VARCHAR(255) NOT NULL,
+    created_by_id VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE,
+    is_current BOOLEAN,
+    is_archived BOOLEAN,
+    parent_id VARCHAR(255),
+    
+    -- Campaign information
+    campaign_id VARCHAR(255) NOT NULL,
+    campaign_name VARCHAR(500) NOT NULL,
+    campaign_objective VARCHAR(500),
+    campaign_start_date DATE NOT NULL,
+    campaign_end_date DATE NOT NULL,
+    campaign_budget_total DECIMAL(15,2) NOT NULL,
+    
+    -- v2.0 Campaign fields
+    campaign_budget_currency VARCHAR(3),
+    agency_id VARCHAR(255),
+    agency_name VARCHAR(500),
+    advertiser_id VARCHAR(255),
+    advertiser_name VARCHAR(500),
+    campaign_type_id VARCHAR(255),
+    campaign_type_name VARCHAR(255),
+    workflow_status_id VARCHAR(255),
+    workflow_status_name VARCHAR(255),
+    
+    -- Line item information
+    lineitem_id VARCHAR(255) NOT NULL,
+    lineitem_name VARCHAR(500) NOT NULL,
+    lineitem_start_date DATE NOT NULL,
+    lineitem_end_date DATE NOT NULL,
+    lineitem_cost_total DECIMAL(15,2) NOT NULL,
+    
+    -- v2.0 LineItem fields
+    lineitem_cost_currency VARCHAR(3),
+    lineitem_dayparts VARCHAR(255),
+    lineitem_inventory VARCHAR(255),
+    
+    -- Channel and targeting
+    lineitem_channel VARCHAR(255),
+    lineitem_vehicle VARCHAR(255),
+    lineitem_partner VARCHAR(255),
+    
+    -- Cost breakdown (6 standard + 10 custom)
+    lineitem_cost_media DECIMAL(15,2),
+    lineitem_cost_buying DECIMAL(15,2),
+    lineitem_cost_platform DECIMAL(15,2),
+    lineitem_cost_data DECIMAL(15,2),
+    lineitem_cost_creative DECIMAL(15,2),
+    lineitem_cost_custom1 DECIMAL(15,2),
+    -- ... lineitem_cost_custom2-10
+    
+    -- Standard metrics (3 legacy + 17 v2.0)
+    lineitem_metric_impressions DECIMAL(15,2),
+    lineitem_metric_clicks DECIMAL(15,2),
+    lineitem_metric_views DECIMAL(15,2),
+    lineitem_metric_engagements DECIMAL(15,2),
+    lineitem_metric_leads DECIMAL(15,2),
+    lineitem_metric_sales DECIMAL(15,2),
+    -- ... additional v2.0 metrics
+    
+    -- Custom metrics (10 fields)
+    lineitem_metric_custom1 DECIMAL(15,2),
+    -- ... lineitem_metric_custom2-10
+    
+    -- Custom dimensions (10 fields)
+    lineitem_dim_custom1 VARCHAR(500),
+    -- ... lineitem_dim_custom2-10
+    
+    -- Timestamps
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    file_path VARCHAR(1000),
+    
+    -- Indexes for performance
+    INDEX idx_campaign_id (campaign_id),
+    INDEX idx_schema_version (schema_version),
+    INDEX idx_created_at (created_at),
+    INDEX idx_is_current (is_current),
+    INDEX idx_workflow_status (workflow_status_name),
+    INDEX idx_campaign_dates (campaign_start_date, campaign_end_date)
+);
 ```
 
-**Cloud Storage**:
+### Database Operations
+
+**Connection Management:**
 ```python
-boto3>=1.24.0                    # AWS S3 integration
-google-api-python-client>=2.0.0  # Google Drive integration
-google-auth-httplib2>=0.1.0      # Google authentication
-google-auth-oauthlib>=0.5.0      # Google OAuth flow
+class PostgreSQLBackend:
+    def get_connection(self) -> psycopg2.extensions.connection
+    def test_connection(self) -> bool
+    def close_connection(self) -> None
 ```
 
-**Database**:
+**Schema Management:**
 ```python
-psycopg2-binary>=2.9.0  # PostgreSQL connectivity
+def create_table(self) -> bool                    # Create table with v2.0 schema
+def validate_schema(self) -> bool                 # Validate existing schema compatibility
+def migrate_schema(self) -> Dict[str, Any]        # Upgrade schema to v2.0
+def table_exists(self) -> bool                    # Check table existence
 ```
 
-### Optional Dependencies
-**Development Tools**:
+**Data Operations:**
 ```python
-pytest>=7.0.0          # Testing framework
-pytest-cov>=4.0.0      # Coverage reporting
-black>=22.0.0          # Code formatting
-isort>=5.0.0           # Import sorting
-mypy>=1.0.0            # Type checking
-pre-commit>=2.0.0      # Git hooks
+def insert_media_plan(self, media_plan: MediaPlan) -> bool
+def update_media_plan(self, media_plan: MediaPlan) -> bool
+def delete_media_plan(self, media_plan_id: str) -> bool
+def upsert_media_plan(self, media_plan: MediaPlan) -> bool
 ```
 
-### External Service Integration
-**AWS S3**:
-- **Authentication**: AWS credentials via boto3
-- **Features**: Bucket operations, object storage
-- **Configuration**: Profile, region, bucket specification
+**Query Operations:**
+```python
+def get_media_plan_summary(self, media_plan_id: str) -> Optional[Dict[str, Any]]
+def list_media_plans(self, campaign_id: Optional[str] = None, 
+                    include_archived: bool = True) -> List[Dict[str, Any]]
+def search_media_plans(self, query: str, fields: Optional[List[str]] = None) -> List[Dict[str, Any]]
+def get_version_statistics(self) -> Dict[str, int]
+```
 
-**Google Drive**:
-- **Authentication**: OAuth 2.0 flow
-- **Features**: Folder operations, file sharing
-- **Configuration**: Service account or user credentials
+### Data Synchronization
 
-**PostgreSQL**:
-- **Authentication**: Username/password or connection string
-- **Features**: Table management, query execution
-- **Configuration**: Host, port, database, schema specification
+**Automatic Sync Triggers:**
+- `MediaPlan.save()` with `include_database=True`
+- `MediaPlan.set_as_current()` (always syncs)
+- `MediaPlan.archive()` and `MediaPlan.restore()`
+
+**Sync Process:**
+1. **Validation**: Check database schema compatibility
+2. **Flattening**: Convert hierarchical MediaPlan to flat row structure
+3. **Upsert**: Insert or update database record
+4. **Verification**: Confirm successful sync
+
+**Data Flattening Strategy:**
+```python
+# Hierarchical JSON
+{
+  "meta": {"id": "plan_123", "name": "Q1 Campaign"},
+  "campaign": {"id": "camp_456", "budget_total": 50000},
+  "lineitems": [
+    {"id": "li_789", "cost_total": 25000},
+    {"id": "li_890", "cost_total": 25000}
+  ]
+}
+
+# Flattened Database Rows (2 rows)
+media_plan_id: plan_123, campaign_id: camp_456, lineitem_id: li_789, lineitem_cost_total: 25000
+media_plan_id: plan_123, campaign_id: camp_456, lineitem_id: li_890, lineitem_cost_total: 25000
+```
+
+### Version Compatibility
+
+**Supported Versions:**
+- **v1.0**: Full compatibility, all fields mapped
+- **v2.0**: Native support, all new fields included
+- **v0.0**: **REJECTED** - No longer supported in SDK v2.0
+
+**Migration Process:**
+```python
+def migrate_existing_data(self) -> Dict[str, Any]:
+    """
+    Migrate existing database records to v2.0 format.
+    Rejects v0.0 records completely.
+    """
+    # 1. Identify v0.0 records -> REJECT
+    # 2. Migrate v1.0 records -> v2.0 format
+    # 3. Update schema_version fields
+    # 4. Add v2.0 columns with defaults
+```
 
 ---
 
-## Logging & Debugging
+## Constants & Configuration Values
 
-### Logging Hierarchy
-**Logger Structure**:
+### Version Information
+
 ```python
-mediaplanpy                    # Root logger
-├── mediaplanpy.models        # Model operations
-│   ├── mediaplanpy.models.mediaplan  # MediaPlan operations
-│   ├── mediaplanpy.models.campaign   # Campaign operations
-│   └── mediaplanpy.models.lineitem   # LineItem operations
-├── mediaplanpy.storage       # Storage operations
-│   ├── mediaplanpy.storage.local     # Local storage
-│   ├── mediaplanpy.storage.s3        # S3 operations
-│   └── mediaplanpy.storage.gdrive    # Google Drive operations
-├── mediaplanpy.schema        # Schema operations
-│   ├── mediaplanpy.schema.validator  # Validation operations
-│   └── mediaplanpy.schema.migration  # Migration operations
-├── mediaplanpy.workspace     # Workspace operations
-├── mediaplanpy.excel         # Excel operations
-└── mediaplanpy.cli           # CLI operations
+# Package version constants (mediaplanpy/__init__.py)
+__version__ = '2.0.1'                    # SDK version
+__schema_version__ = '2.0'               # Current schema version
+CURRENT_MAJOR = 2                        # Major version number
+CURRENT_MINOR = 0                        # Minor version number
+SUPPORTED_MAJOR_VERSIONS = [1, 2]        # Supported major versions
+
+VERSION_NOTES = {
+    '1.0.0': 'v1.0 schema support with new versioning strategy - Schema 1.0',
+    '2.0.0': 'v2.0 schema support with v1.0 backwards compatibility - v0.0 support removed',
+    '2.0.1': 'v2.0 schema support with minor non-breaking functionality upgrades'
+}
 ```
 
-### Log Level Usage Patterns
-**DEBUG**: Detailed execution flow, variable values, API calls
+### File Paths and Defaults
+
 ```python
-logger.debug(f"Loading media plan from {file_path}")
-logger.debug(f"Schema version compatibility: {compatibility}")
+# Workspace configuration (mediaplanpy/workspace/loader.py)
+DEFAULT_FILENAME = "workspace.json"
+ENV_VAR_NAME = "MEDIAPLANPY_WORKSPACE_PATH"
+
+# Default workspace directories
+DEFAULT_WORKSPACE_DIRECTORY = {
+    'windows': "C:/mediaplanpy",
+    'unix': "~/mediaplanpy"
+}
+
+# Schema file paths
+SCHEMA_DEFINITIONS_PATH = "src/mediaplanpy/schema/definitions/"
+SCHEMA_VERSIONS = {
+    "1.0": "definitions/1.0/mediaplan.schema.json",
+    "2.0": "definitions/2.0/mediaplan.schema.json"
+}
 ```
 
-**INFO**: Normal operation flow, successful operations
+### Field Constants
+
 ```python
-logger.info(f"Media plan migrated from {from_version} to {to_version}")
-logger.info(f"Workspace created at {workspace_path}")
+# Campaign field validation (mediaplanpy/models/campaign.py)
+VALID_OBJECTIVES = {
+    "awareness", "consideration", "conversion", "retention", "loyalty", "other"
+}
+
+VALID_GENDERS = {"Male", "Female", "Any"}
+VALID_LOCATION_TYPES = {"Country", "State"}
+
+# v2.0 New constants
+COMMON_CAMPAIGN_TYPES = {
+    "Brand Awareness", "Performance", "Retargeting", "Launch", 
+    "Seasonal", "Always On", "Tactical"
+}
+
+COMMON_WORKFLOW_STATUSES = {
+    "Draft", "In Review", "Approved", "Live", "Paused", "Completed", "Cancelled"
+}
+
+# LineItem field validation (mediaplanpy/models/lineitem.py)  
+VALID_CHANNELS = {
+    "social", "search", "display", "video", "audio", "tv", "ooh", "print", "other"
+}
+
+VALID_KPIS = {"cpm", "cpc", "cpa", "ctr", "cpv", "cpl", "roas", "other"}
+
+# v2.0 New constants
+COMMON_DAYPARTS = {
+    "All Day", "Morning", "Afternoon", "Evening", "Primetime", 
+    "Late Night", "Weekdays", "Weekends"
+}
+
+COMMON_INVENTORY_TYPES = {
+    "Premium", "Remnant", "Private Marketplace", "Open Exchange", 
+    "Direct", "Programmatic", "Reserved", "Unreserved"
+}
+
+# Dictionary field validation (mediaplanpy/models/dictionary.py)
+VALID_DIMENSION_FIELDS = {f"dim_custom{i}" for i in range(1, 11)}
+VALID_METRIC_FIELDS = {f"metric_custom{i}" for i in range(1, 11)}
+VALID_COST_FIELDS = {f"cost_custom{i}" for i in range(1, 11)}
 ```
 
-**WARNING**: Non-critical issues, deprecated features, compatibility warnings
+### Storage Configuration
+
 ```python
-logger.warning(f"Schema version {file_version} is deprecated")
-logger.warning(f"Custom field '{field_name}' enabled but not used")
+# Storage backend registry (mediaplanpy/storage/__init__.py)
+_storage_backends = {
+    'local': LocalStorageBackend,
+    's3': S3StorageBackend,
+    'gdrive': GoogleDriveStorageBackend
+}
+
+# Format handler registry (mediaplanpy/storage/formats/__init__.py)
+_format_handlers = {
+    'json': JsonFormatHandler,
+    'parquet': ParquetFormatHandler
+}
+
+# File extensions mapping
+FORMAT_EXTENSIONS = {
+    '.json': 'json',
+    '.parquet': 'parquet',
+    '.xlsx': 'excel',
+    '.xls': 'excel'
+}
 ```
 
-**ERROR**: Operation failures, validation errors, system errors
+### Database Configuration
+
 ```python
-logger.error(f"Failed to connect to database: {error}")
-logger.error(f"Schema validation failed: {errors}")
+# Database defaults (mediaplanpy/storage/database.py)
+DEFAULT_DATABASE_CONFIG = {
+    'port': 5432,
+    'schema': 'public',
+    'table_name': 'media_plans',
+    'connection_timeout': 30,
+    'auto_create_table': True,
+    'ssl': True
+}
+
+# Database field mappings
+DATABASE_FIELD_MAPPINGS = {
+    'meta.id': 'media_plan_id',
+    'meta.name': 'media_plan_name',
+    'meta.schema_version': 'schema_version',
+    'campaign.id': 'campaign_id',
+    'campaign.budget_total': 'campaign_budget_total'
+    # ... complete mapping for all fields
+}
 ```
 
-### Structured Logging
-**Operation Context**:
+### Validation Settings
+
 ```python
-logger.info(f"📄 Migrating file: {args.file}")
-logger.info(f"📋 From version: {from_version}")  
-logger.info(f"🎯 To version: v{to_version}")
-logger.info(f"✅ Migration completed successfully")
+# Schema validation settings (mediaplanpy/schema/validator.py)
+VALIDATION_CATEGORIES = {
+    'errors': [],     # Blocking validation failures
+    'warnings': [],   # Non-blocking issues
+    'info': []        # Informational messages
+}
+
+# Version compatibility matrix (mediaplanpy/schema/version_utils.py)
+VERSION_COMPATIBILITY = {
+    'v0.0': 'unsupported',      # Completely removed in SDK v2.0
+    'v1.0': 'backward_compatible',
+    'v2.0': 'native',
+    'v2.1': 'forward_minor'     # Future versions
+}
 ```
 
-**Error Context**:
+### Excel Configuration
+
 ```python
-logger.error(f"❌ Media plan validation failed with {len(errors)} errors:")
-for i, error in enumerate(errors, 1):
-    logger.error(f"   {i}. {error}")
+# Excel template settings (mediaplanpy/excel/exporter.py)
+EXCEL_WORKSHEET_NAMES = {
+    'lineitems': 'Line Items',
+    'dictionary': 'Dictionary', 
+    'documentation': 'Documentation'
+}
+
+EXCEL_COLUMN_MAPPINGS = {
+    'lineitem.id': 'Line Item ID',
+    'lineitem.name': 'Line Item Name',
+    'lineitem.cost_total': 'Total Cost'
+    # ... complete column mapping
+}
+
+# Excel validation rules
+EXCEL_VALIDATION_RULES = {
+    'required_columns': ['Line Item ID', 'Line Item Name', 'Total Cost'],
+    'numeric_columns': ['Total Cost', 'Impressions', 'Clicks'],
+    'date_columns': ['Start Date', 'End Date']
+}
 ```
-
-### Debug Information
-**Schema Operations**:
-- Version compatibility checks
-- Migration path determination
-- Validation rule evaluation
-- Field mapping during migration
-
-**Storage Operations**:
-- File path resolution
-- Backend selection logic
-- Authentication status
-- Operation timing
-
-**Model Operations**:
-- Validation step execution
-- Field transformation
-- Business rule evaluation
-- Cross-model relationship validation
-
-### Troubleshooting Guidance
-**Common Issues and Log Signatures**:
-
-**Schema Version Issues**:
-```
-ERROR: Schema version v0.0 is not supported
-SOLUTION: Use SDK v1.x to migrate v0.0 → v1.0 first
-```
-
-**Storage Connection Issues**:
-```
-ERROR: Failed to connect to S3 bucket 'bucket-name'
-DEBUG: Using AWS profile 'default'
-SOLUTION: Check AWS credentials and bucket permissions
-```
-
-**Validation Failures**:
-```
-ERROR: Line item starts before campaign: 2025-01-01 < 2025-01-15
-SOLUTION: Adjust line item dates to be within campaign period
-```
-
-**Database Sync Issues**:
-```
-ERROR: Failed to sync to database: connection timeout
-DEBUG: Database host: localhost:5432
-SOLUTION: Check database connectivity and credentials
-```
-
-### Performance Monitoring
-**Operation Timing**:
-- Schema validation duration
-- File I/O operations
-- Database operations
-- Migration processing time
-
-**Resource Usage**:
-- Memory usage for large media plans
-- Disk space for storage operations
-- Network usage for cloud operations
 
 ---
 
-This technical summary provides a comprehensive reference for understanding and working with the MediaPlanPy codebase. Each section includes specific implementation details, method signatures, and architectural patterns that enable effective development and maintenance of the system.
+**End of Technical Architecture Summary**
+
+This comprehensive reference document covers all major architectural components, design patterns, and implementation details of the MediaPlanPy codebase. Use this as your primary reference for understanding the system structure and making informed development decisions.
