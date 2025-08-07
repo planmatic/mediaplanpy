@@ -311,7 +311,8 @@ def patch_mediaplan_json_methods():
 
     # Add standardized JSON methods
     MediaPlan.export_to_json = export_to_json
-    MediaPlan.import_from_json = classmethod(import_from_json)
+    # MediaPlan.import_from_json = classmethod(import_from_json)
+    MediaPlan.import_from_json = import_from_json
 
     logger.debug("Added standardized JSON methods to MediaPlan class")
 
