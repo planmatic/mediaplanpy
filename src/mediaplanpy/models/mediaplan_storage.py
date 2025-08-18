@@ -73,7 +73,7 @@ def _media_plan_file_exists(workspace_config: Dict[str, Any], media_plan_id: str
 def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
          format_name: Optional[str] = None, overwrite: bool = False,
          include_parquet: bool = True, include_database: bool = True,
-         validate_version: bool = True, set_as_current: bool = False,
+         validate_version: bool = True, set_as_current: Optional[bool] = None,
          **format_options) -> str:
     """
     Save the media plan to a storage location with comprehensive version validation.
@@ -90,6 +90,8 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         include_parquet: If True (default), also saves a Parquet file for v1.0+ schemas.
         include_database: If True (default), also saves to database if configured.
         validate_version: If True (default), validate schema version compatibility.
+        set_as_current: If None (default), no change to is_current. If True, sets as current
+                       and unsets all other plans in campaign. If False, sets is_current=False.
         **format_options: Additional format-specific options.
 
     Returns:
@@ -107,11 +109,16 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
     if not workspace_manager.is_loaded:
         workspace_manager.load()
 
-    # Set is_current to true of set_as_current is true
-    if set_as_current:
-        # Set this plan as current - the normal save logic will handle this
+    # Handle set_as_current parameter with three-way logic
+    if set_as_current is True:
+        # Set this plan as current - coordination logic will handle campaign-wide updates
         self.meta.is_current = True
         logger.debug(f"set_as_current=True: Will set media plan '{self.meta.id}' as current after save")
+    elif set_as_current is False:
+        # Explicitly set as non-current
+        self.meta.is_current = False
+        logger.debug(f"set_as_current=False: Will set media plan '{self.meta.id}' as non-current")
+    # If set_as_current is None, do nothing to is_current
 
     # Get resolved workspace config
     workspace_config = workspace_manager.get_resolved_config()
@@ -286,8 +293,8 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
             # Database errors should not prevent file save
             logger.warning(f"Database sync failed for media plan {self.meta.id}: {e}")
 
-    # Set other media plans in campaign as non-current if set_as_current is true
-    if set_as_current:
+    # Set other media plans in campaign as non-current if set_as_current is True
+    if set_as_current is True:
         try:
             # Delegate to set_as_current method with update_self=False
             # (this plan is already saved, just coordinate with others)
@@ -298,6 +305,7 @@ def save(self, workspace_manager: WorkspaceManager, path: Optional[str] = None,
         except Exception as e:
             # Don't fail the main save operation, but log the issue
             logger.warning(f"Media plan saved successfully, but could not coordinate current status: {e}")
+    # Note: No coordination needed for set_as_current=False or None
 
     # Return the path where the media plan was saved
     return path
