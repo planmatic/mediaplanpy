@@ -365,7 +365,17 @@ class WorkspaceManager:
                 "sdk_version_required": f"{current_schema_version.split('.')[0]}.0.x"  # Now "2.0.x"
             },
             "database": {
-                "enabled": False
+                "enabled": False,
+                "host": "localhost",
+                "port": 5432,
+                "database": "mediaplanpy",
+                "schema": "public",
+                "table_name": "media_plans",
+                "username": "postgres",
+                "password_env_var": "MEDIAPLAN_DB_PASSWORD",
+                "ssl": False,
+                "connection_timeout": 30,
+                "auto_create_table": True
             },
             "excel": {
                 "enabled": True
