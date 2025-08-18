@@ -225,3 +225,144 @@ print(f"Imported plan: {imported_plan.meta.id}")
 ```
 
 This creates a new media plan from the Excel file placed in the `imports` subdirectory of your workspace.
+
+
+
+## Configure Database Connection (Optional)
+
+By default, `mediaplanpy` stores media plans as JSON and Parquet files in your workspace.  
+If you would like to **push media plans in PostgreSQL** for anlaytics of visualization purpose, follow these steps.
+
+### Step 1: Install PostgreSQL (if required)
+
+- **Windows**  
+  Download and install PostgreSQL from the [official installer](https://www.postgresql.org/download/windows/).  
+  During setup, make note of the **username**, **password**, and **port** (default: `5432`).
+
+- **macOS**  
+  ```bash
+  brew install postgresql
+  brew services start postgresql
+  ```
+
+- **Linux (Debian/Ubuntu)**  
+  ```bash
+  sudo apt update
+  sudo apt install postgresql postgresql-contrib
+  sudo systemctl enable postgresql
+  sudo systemctl start postgresql
+  ```
+
+After installation, verify it works by running:
+
+```bash
+psql --version
+```
+
+### Step 2: Create or Reuse a Database
+
+You may either create a new database dedicated to `mediaplanpy` or use an existing PostgreSQL database.
+
+To create a new database you can use the PGAdmin user interface or:
+
+```bash
+psql -U postgres
+CREATE DATABASE mediaplanpy;
+```
+
+If you choose to use an existing database, simply update the connection properties in the workspace settings accordingly.
+
+### Step 3: Update Workspace Settings
+
+Locate your workspace settings file (by default stored in `C:\mediaplanpy` on Windows, or the equivalent base path on macOS/Linux).  
+Open the JSON file and update the **database** section:
+
+```json
+"database": {
+  "enabled": true,
+  "host": "localhost",
+  "port": 5432,
+  "database": "mediaplanpy",
+  "schema": "public",
+  "table_name": "media_plans",
+  "username": "postgres",
+  "password_env_var": "MEDIAPLAN_DB_PASSWORD",
+  "ssl": false,
+  "connection_timeout": 30,
+  "auto_create_table": true
+}
+```
+
+- Set `"enabled": true`  
+- Confirm or adjust database name, username, schema, and table name (the table will be created automatically if it does not exist)
+- The password will be supplied via an environment variable (next step)
+
+### Step 4: Configure Password as Environment Variable
+
+To avoid storing your password in plain text, save it as an environment variable:
+
+- **Windows (PowerShell)**  
+  ```powershell
+  setx MEDIAPLAN_DB_PASSWORD "your_password_here"
+  ```
+
+- **macOS/Linux (bash/zsh)**  
+  ```bash
+  export MEDIAPLAN_DB_PASSWORD="your_password_here"
+  ```
+
+To make this permanent on macOS/Linux, add the `export` line to your `~/.bashrc` or `~/.zshrc`.
+
+### Step 5: Test the Database Connection
+
+Now that your database is configured, you can test it in Python:
+
+```python
+from mediaplanpy import WorkspaceManager, MediaPlan
+
+# Load your existing workspace
+workspace = WorkspaceManager()
+workspace.load(workspace_id="workspace_6b48be28")  # Replace with your Workspace ID
+
+# Create a new Media Plan
+plan = MediaPlan.create(
+    created_by="you@example.com",
+    campaign_name="Database Test Campaign",
+    campaign_objective="Awareness",
+    campaign_start_date="2025-09-01",
+    campaign_end_date="2025-11-30",
+    campaign_budget=10000,
+    workspace_manager=workspace
+)
+
+# Add a line item
+lineitem = plan.create_lineitem({
+    "name": "Search Ads",
+    "channel": "Search",
+    "vehicle": "Google",
+    "partner": "Google",
+    "media_product": "Google Ads",
+    "location_type": "Country",
+    "location_name": "USA",
+    "target_audience": "Adults 18-54",
+    "adformat": "Text",
+    "kpi": "Clicks",
+    "cost_total": 2500,
+    "cost_currency": "USD"
+})
+
+# Save the plan (this will insert into the database)
+plan.save(workspace)
+```
+
+### Step 6: Verify the Connection
+
+1. Check that no errors appear in your Python logs when saving the plan.  
+2. Manually verify that a new record was inserted into your target database table (`media_plans` by default).  
+   For example:
+
+```bash
+psql -U postgres -d mediaplanpy -c "SELECT * FROM public.media_plans;"
+```
+
+If you see your newly created plan listed in the table, the connection is working correctly.
