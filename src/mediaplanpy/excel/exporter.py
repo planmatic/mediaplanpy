@@ -152,7 +152,7 @@ def _create_v2_workbook() -> Workbook:
 
 def _create_v2_styles(workbook: Workbook) -> None:
     """
-    Create styles for v2.0 Excel export.
+    Create styles for v2.0 Excel export including formula column styling.
 
     Args:
         workbook: The workbook to add styles to
@@ -190,6 +190,12 @@ def _create_v2_styles(workbook: Workbook) -> None:
     dict_header_style.fill = PatternFill(start_color="5B9BD5", end_color="5B9BD5", fill_type="solid")
     dict_header_style.alignment = Alignment(horizontal="center", vertical="center")
     workbook.add_named_style(dict_header_style)
+
+    # Grey font style for formula columns
+    grey_font_style = NamedStyle(name="grey_font_style")
+    grey_font_style.font = Font(size=11, color="808080")  # Grey color
+    grey_font_style.alignment = Alignment(vertical="center")
+    workbook.add_named_style(grey_font_style)
 
 
 def _populate_v2_workbook(workbook: Workbook, media_plan: Dict[str, Any], include_documentation: bool) -> None:
@@ -421,14 +427,19 @@ def _populate_v2_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
 
 def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
     """
-    Populate the line items sheet with v2.0 schema data.
+    Populate the line items sheet with v2.0 schema data including dynamic calculated columns.
 
     Args:
         sheet: The worksheet to populate
         line_items: List of line item data
     """
-    # Define field order for v2.0 schema (with all new fields)
-    field_order = [
+    # Determine which fields are actually present in line items
+    fields_present = set()
+    for line_item in line_items:
+        fields_present.update(line_item.keys())
+
+    # Define base field order for v2.0 schema
+    base_field_order = [
         # Required fields
         ("id", "ID"),
         ("name", "Name"),
@@ -459,7 +470,7 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         ("kpi", "KPI"),
         ("kpi_custom", "KPI Custom"),
 
-        # NEW v2.0: Dayparts and inventory fields
+        # Dayparts and inventory fields
         ("dayparts", "Dayparts"),
         ("dayparts_custom", "Dayparts Custom"),
         ("inventory", "Inventory"),
@@ -468,31 +479,27 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
 
     # Add custom dimension fields
     for i in range(1, 11):
-        field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
+        base_field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
 
-    # Cost fields (including new v2.0 cost_currency)
+    # Cost fields - we'll insert calculated columns here
     cost_fields = [
-        ("cost_currency", "Cost Currency"),  # NEW v2.0
+        ("cost_currency", "Cost Currency"),
         ("cost_media", "Cost Media"),
         ("cost_buying", "Cost Buying"),
         ("cost_platform", "Cost Platform"),
         ("cost_data", "Cost Data"),
         ("cost_creative", "Cost Creative"),
     ]
-    field_order.extend(cost_fields)
 
     # Add custom cost fields
     for i in range(1, 11):
-        field_order.append((f"cost_custom{i}", f"Cost Custom {i}"))
+        cost_fields.append((f"cost_custom{i}", f"Cost Custom {i}"))
 
-    # Metric fields - existing 3 + NEW 17 v2.0 standard metrics in schema order
-    metric_fields = [
-        # Existing 3 metrics
+    # Performance metric fields - we'll insert calculated columns here
+    performance_fields = [
         ("metric_impressions", "Impressions"),
         ("metric_clicks", "Clicks"),
         ("metric_views", "Views"),
-
-        # NEW v2.0: 17 new standard metrics in schema order
         ("metric_engagements", "Engagements"),
         ("metric_followers", "Followers"),
         ("metric_visits", "Visits"),
@@ -505,65 +512,195 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         ("metric_contact_us", "Contact Us"),
         ("metric_download", "Download"),
         ("metric_signup", "Signup"),
+    ]
+
+    # Add custom metric fields
+    for i in range(1, 11):
+        performance_fields.append((f"metric_custom{i}", f"Metric Custom {i}"))
+
+    # Determine which cost and performance metrics are present
+    present_cost_fields = []
+    present_performance_fields = []
+
+    # Check cost fields (excluding cost_total and cost_currency which don't need calculated columns)
+    for field_name, header_name in cost_fields:
+        if field_name != "cost_currency" and (field_name in fields_present):
+            present_cost_fields.append((field_name, header_name))
+
+    # Check performance fields (excluding max daily fields and audience size which are limits, not performance)
+    for field_name, header_name in performance_fields:
+        if field_name in fields_present:
+            present_performance_fields.append((field_name, header_name))
+
+    # Build dynamic field order with calculated columns
+    dynamic_field_order = []
+
+    # Add base fields (up to custom dimensions)
+    for field_name, header_name in base_field_order:
+        if field_name in fields_present or field_name in {"id", "name", "start_date", "end_date", "cost_total"}:
+            dynamic_field_order.append((field_name, header_name, "base"))
+
+    # Add cost fields with calculated columns
+    if "cost_currency" in fields_present:
+        dynamic_field_order.append(("cost_currency", "Cost Currency", "base"))
+
+    for field_name, header_name in present_cost_fields:
+        # Add percentage column before actual cost column
+        calc_field_name = f"{field_name}_pct"
+        calc_header_name = f"{header_name} %"
+        dynamic_field_order.append((calc_field_name, calc_header_name, "calculated"))
+
+        # Add actual cost column
+        dynamic_field_order.append((field_name, header_name, "formula"))
+
+    # Add performance fields with calculated columns
+    for field_name, header_name in present_performance_fields:
+        # Add cost-per-unit column before actual metric column
+        calc_field_name = f"{field_name}_cpu"
+
+        # Special handling for impressions (CPM)
+        if field_name == "metric_impressions":
+            calc_header_name = "Cost per 1000 Impressions"
+        else:
+            # Convert metric_clicks -> Cost per Click, etc.
+            metric_name = header_name  # Already clean (e.g., "Clicks")
+            if metric_name.endswith('s') and metric_name not in ['Views', 'Sales']:
+                metric_name = metric_name.rstrip('s')  # Remove plural 's'
+            calc_header_name = f"Cost per {metric_name}"
+
+        dynamic_field_order.append((calc_field_name, calc_header_name, "calculated"))
+
+        # Add actual metric column
+        dynamic_field_order.append((field_name, header_name, "formula"))
+
+    # Add remaining metric fields that don't get calculated columns
+    remaining_metrics = [
         ("metric_max_daily_spend", "Max Daily Spend"),
         ("metric_max_daily_impressions", "Max Daily Impressions"),
         ("metric_audience_size", "Audience Size"),
     ]
-    field_order.extend(metric_fields)
 
-    # Add custom metric fields
-    for i in range(1, 11):
-        field_order.append((f"metric_custom{i}", f"Metric Custom {i}"))
+    for field_name, header_name in remaining_metrics:
+        if field_name in fields_present:
+            dynamic_field_order.append((field_name, header_name, "base"))
 
-    # Determine which fields are actually present in line items
-    fields_present = set()
-    for line_item in line_items:
-        fields_present.update(line_item.keys())
-
-    # Filter field order to only include present fields (always include required fields)
-    required_fields = {"id", "name", "start_date", "end_date", "cost_total"}
-    active_fields = []
-    for field_name, header_name in field_order:
-        if field_name in required_fields or field_name in fields_present:
-            active_fields.append((field_name, header_name))
-
-    # Set column widths
-    for col_idx in range(1, len(active_fields) + 1):
+    # Set column widths based on field type
+    for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         width = 15
-        field_name = active_fields[col_idx - 1][0]
         if field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
             width = 25
         elif field_name in ["partner", "partner_custom", "vehicle", "vehicle_custom"]:
             width = 20
+        elif field_type == "calculated":
+            width = 18  # Slightly wider for calculated columns
         sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
-    # Add headers
-    for col_idx, (field_name, header_name) in enumerate(active_fields, 1):
+    # Add headers with appropriate styling
+    for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         cell = sheet.cell(row=1, column=col_idx, value=header_name)
         cell.style = "header_style"
 
-    # Add line item data
+    # Add line item data with calculated values and formulas
     for row_idx, line_item in enumerate(line_items, 2):
-        for col_idx, (field_name, header_name) in enumerate(active_fields, 1):
-            value = line_item.get(field_name)
+        cost_total_col = None
 
-            # Skip None values
-            if value is None:
-                continue
+        # First pass: populate base values and find cost_total column
+        for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
+            if field_name == "cost_total":
+                cost_total_col = col_idx
 
-            # Apply appropriate formatting based on field type
-            if field_name in ["start_date", "end_date"]:
-                cell = sheet.cell(row=row_idx, column=col_idx, value=value)
-                cell.style = "date_style"
-            elif field_name.startswith("cost") or field_name.startswith("metric") or field_name == "cost_total":
-                # Numeric fields
-                cell = sheet.cell(row=row_idx, column=col_idx, value=value)
-                if field_name.startswith("cost"):
-                    cell.style = "currency_style"
-                # Metrics remain as regular numbers
-            else:
-                # String fields
-                sheet.cell(row=row_idx, column=col_idx, value=value)
+            if field_type == "base":
+                value = line_item.get(field_name)
+                if value is None:
+                    continue
+
+                # Apply appropriate formatting based on field type
+                if field_name in ["start_date", "end_date"]:
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+                    cell.style = "date_style"
+                elif field_name.startswith("cost") or field_name.startswith("metric") or field_name == "cost_total":
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=value)
+                    if field_name.startswith("cost"):
+                        cell.style = "currency_style"
+                else:
+                    sheet.cell(row=row_idx, column=col_idx, value=value)
+
+        # Second pass: populate calculated columns and formulas
+        cost_total_value = line_item.get("cost_total", 0)
+        cost_total_cell_ref = f"{get_column_letter(cost_total_col)}{row_idx}" if cost_total_col else "0"
+
+        for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
+            if field_type == "calculated":
+                if field_name.endswith("_pct"):
+                    # Cost percentage calculation
+                    base_field = field_name.replace("_pct", "")
+                    cost_value = line_item.get(base_field, 0)
+
+                    if cost_total_value and cost_total_value != 0:
+                        percentage = (cost_value / cost_total_value) * 100
+                    else:
+                        percentage = 0
+
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=percentage)
+                    cell.number_format = '0.0%'  # Percentage format with 1 decimal place
+
+                elif field_name.endswith("_cpu"):
+                    # Cost-per-unit calculation
+                    base_field = field_name.replace("_cpu", "")
+                    metric_value = line_item.get(base_field, 0)
+
+                    if metric_value and metric_value != 0:
+                        if base_field == "metric_impressions":
+                            # CPM calculation (cost per 1000 impressions)
+                            cpu_value = (cost_total_value / metric_value) * 1000
+                        else:
+                            cpu_value = cost_total_value / metric_value
+                    else:
+                        cpu_value = 0
+
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=cpu_value)
+                    cell.style = "currency_style"  # Currency formatting
+
+            elif field_type == "formula":
+                if field_name.startswith("cost_") and field_name != "cost_total" and field_name != "cost_currency":
+                    # Cost field formula: cost_total * percentage
+                    pct_col_idx = None
+                    for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
+                        if fname == f"{field_name}_pct":
+                            pct_col_idx = idx
+                            break
+
+                    if pct_col_idx:
+                        pct_cell_ref = f"{get_column_letter(pct_col_idx)}{row_idx}"
+                        formula = f"={cost_total_cell_ref}*{pct_cell_ref}"
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
+                        cell.style = "currency_style"
+                        # Apply grey font formatting for formula columns
+                        cell.font = Font(color="808080")  # Grey color
+
+                elif field_name.startswith("metric_"):
+                    # Performance metric formula
+                    cpu_col_idx = None
+                    for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
+                        if fname == f"{field_name}_cpu":
+                            cpu_col_idx = idx
+                            break
+
+                    if cpu_col_idx:
+                        cpu_cell_ref = f"{get_column_letter(cpu_col_idx)}{row_idx}"
+
+                        if field_name == "metric_impressions":
+                            # Special formula for impressions (divide by 1000 since CPU is per 1000)
+                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref}*1000)"
+                        else:
+                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref})"
+
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
+                        # Apply grey font formatting for formula columns
+                        cell.font = Font(color="808080")  # Grey color
+
+    logger.info(
+        f"Created {len(dynamic_field_order)} columns with {len(present_cost_fields)} cost calculations and {len(present_performance_fields)} performance calculations")
 
 
 def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
