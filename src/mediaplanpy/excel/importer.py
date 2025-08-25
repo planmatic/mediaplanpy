@@ -561,7 +561,7 @@ def _import_v2_campaign(campaign_sheet) -> Dict[str, Any]:
 
 def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
     """
-    Import line items section with v2.0 fields, skipping calculated columns.
+    Import line items section with v2.0 fields, including calculated columns for zero budget reconstruction.
 
     Args:
         line_items_sheet: The line items worksheet
@@ -655,54 +655,63 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         field_mapping[f"Metric Custom {i}"] = f"metric_custom{i}"
         field_mapping[f"Metric Custom{i}"] = f"metric_custom{i}"  # Alternative format
 
-    # NEW: Identify and skip calculated columns
-    calculated_column_patterns = [
-        " %",  # Cost allocation percentages (e.g., "Cost Media %")
-        "Cost per ",  # Cost-per-unit columns (e.g., "Cost per Click", "Cost per 1000 Impressions")
-    ]
+    # NEW: Create mapping for calculated columns (for zero budget reconstruction)
+    calculated_field_mapping = {}
 
-    def is_calculated_column(header_name: str) -> bool:
-        """Check if a header represents a calculated column that should be skipped."""
-        if not header_name:
-            return False
+    # Map percentage columns: "Cost Media %" -> "cost_media_pct"
+    for header in headers:
+        if " %" in header and not header.startswith("_"):  # Skip hidden preservation columns
+            base_name = header.replace(" %", "")  # "Cost Media"
 
-        for pattern in calculated_column_patterns:
-            if pattern in header_name:
-                return True
-        return False
+            # Map to corresponding cost field
+            if base_name in ["Cost Media", "Cost Buying", "Cost Platform", "Cost Data", "Cost Creative"]:
+                schema_field = f"cost_{base_name.lower().replace('cost ', '').replace(' ', '_')}_pct"
+                calculated_field_mapping[header] = schema_field
 
-    # Map column indices to field names (skipping calculated columns)
-    header_to_field = {}
-    skipped_columns = []
+            # Handle custom cost fields: "Cost Custom 1 %" -> "cost_custom1_pct"
+            elif base_name.startswith("Cost Custom"):
+                number = base_name.replace("Cost Custom ", "").replace("Cost Custom", "")
+                schema_field = f"cost_custom{number}_pct"
+                calculated_field_mapping[header] = schema_field
 
-    for col_idx, header in enumerate(headers, 1):
-        if is_calculated_column(header):
-            skipped_columns.append(header)
-            continue
+    # Map cost-per-unit columns: "Cost per Click" -> "metric_clicks_cpu"
+    for header in headers:
+        if header.startswith("Cost per ") and not header.startswith("_"):
+            if "1000 Impressions" in header:
+                calculated_field_mapping[header] = "metric_impressions_cpu"
+            else:
+                # Extract metric name from header
+                metric_part = header.replace("Cost per ", "").lower()  # "click"
 
-        if header in field_mapping:
-            header_to_field[col_idx] = field_mapping[header]
+                # Map common metric names to schema fields
+                metric_mapping = {
+                    "click": "metric_clicks_cpu",
+                    "view": "metric_views_cpu",
+                    "engagement": "metric_engagements_cpu",
+                    "follower": "metric_followers_cpu",
+                    "visit": "metric_visits_cpu",
+                    "lead": "metric_leads_cpu",
+                    "sale": "metric_sales_cpu",
+                    "add to cart": "metric_add_to_cart_cpu",
+                    "app install": "metric_app_install_cpu",
+                    "application start": "metric_application_start_cpu",
+                    "application complete": "metric_application_complete_cpu",
+                    "contact us": "metric_contact_us_cpu",
+                    "download": "metric_download_cpu",
+                    "signup": "metric_signup_cpu",
+                }
 
-    # Log information about skipped columns
-    if skipped_columns:
-        logger.info(
-            f"Skipping {len(skipped_columns)} calculated columns during import: {', '.join(skipped_columns[:5])}")
-        if len(skipped_columns) > 5:
-            logger.info(f"... and {len(skipped_columns) - 5} more calculated columns")
+                if metric_part in metric_mapping:
+                    calculated_field_mapping[header] = metric_mapping[metric_part]
 
-    # NEW: Helper function to handle Excel errors and convert to appropriate values
+                # Handle custom metrics: "Cost per Metric Custom 1" -> "metric_custom1_cpu"
+                elif "metric custom" in metric_part:
+                    number = metric_part.replace("metric custom ", "").replace("metric custom", "")
+                    calculated_field_mapping[header] = f"metric_custom{number}_cpu"
+
+    # Helper function to handle Excel errors and convert to appropriate values
     def clean_excel_value(cell_value, field_name: str):
-        """
-        Clean Excel cell values, converting errors to appropriate defaults.
-
-        Args:
-            cell_value: The raw cell value from Excel
-            field_name: The schema field name for context
-
-        Returns:
-            Cleaned value appropriate for the field type
-        """
-        # Handle Excel errors (like #DIV/0!, #VALUE!, #REF!, etc.)
+        """Clean Excel cell values, converting errors to appropriate defaults."""
         if isinstance(cell_value, str) and cell_value.startswith('#'):
             logger.debug(f"Converting Excel error '{cell_value}' to 0 for field '{field_name}'")
             if field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
@@ -710,63 +719,89 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
             else:
                 return ""  # String fields get empty string
 
-        # Handle None values
         if cell_value is None:
             return None
 
-        # Return the value as-is for further processing
         return cell_value
+
+    # Map column indices to field names
+    header_to_field = {}
+    calculated_header_to_field = {}
+    skipped_columns = []
+
+    for col_idx, header in enumerate(headers, 1):
+        if header in field_mapping:
+            header_to_field[col_idx] = field_mapping[header]
+        elif header in calculated_field_mapping:
+            calculated_header_to_field[col_idx] = calculated_field_mapping[header]
+        elif any(pattern in str(header) for pattern in [" %", "Cost per "]):
+            # This is a calculated column we don't recognize - skip it
+            skipped_columns.append(header)
+
+    # Log information about calculated vs skipped columns
+    if calculated_header_to_field:
+        logger.info(f"Importing {len(calculated_header_to_field)} calculated columns for zero budget reconstruction")
+    if skipped_columns:
+        logger.info(
+            f"Skipping {len(skipped_columns)} unrecognized calculated columns: {', '.join(skipped_columns[:3])}")
+        if len(skipped_columns) > 3:
+            logger.info(f"... and {len(skipped_columns) - 3} more")
 
     # Process line items (skip header row)
     lineitems = []
+    reconstructed_count = 0
+
     for row in range(2, line_items_sheet.max_row + 1):
         # Skip empty rows
         if all(cell.value is None for cell in line_items_sheet[row]):
             continue
 
         line_item = {}
+        calculated_data = {}  # Store calculated column values temporarily
 
-        # Process all mapped fields (skipping calculated columns)
+        # Process all original schema fields
         for col_idx, field_name in header_to_field.items():
             cell_value = line_items_sheet.cell(row=row, column=col_idx).value
-
-            # Clean the cell value (handle Excel errors)
             cleaned_value = clean_excel_value(cell_value, field_name)
 
             if cleaned_value is not None:
                 # Handle different field types
                 if field_name in ["id", "name"] and not cleaned_value:
-                    # Generate ID if missing
                     if field_name == "id":
                         line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
                     continue
 
                 elif field_name in ["start_date", "end_date"]:
-                    # Handle date fields
                     if isinstance(cleaned_value, date):
                         line_item[field_name] = cleaned_value.isoformat()
                     else:
                         line_item[field_name] = str(cleaned_value) if cleaned_value else ""
 
                 elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
-                    # Handle numeric fields
                     try:
                         line_item[field_name] = float(cleaned_value)
                     except (ValueError, TypeError):
-                        # Skip invalid numeric values or set to 0
                         if field_name == "cost_total":
                             line_item[field_name] = 0  # cost_total is required
-                        # Skip other invalid numeric values
 
                 elif field_name == "location_type":
-                    # Handle enum field with validation
                     if cleaned_value and str(cleaned_value).strip():
                         line_item[field_name] = str(cleaned_value).strip()
 
                 else:
-                    # Handle string fields
                     if str(cleaned_value).strip():
                         line_item[field_name] = str(cleaned_value).strip()
+
+        # Process calculated fields (percentages and cost-per-unit) - only import for potential reconstruction
+        for col_idx, calc_field_name in calculated_header_to_field.items():
+            cell_value = line_items_sheet.cell(row=row, column=col_idx).value
+            cleaned_value = clean_excel_value(cell_value, calc_field_name)
+
+            if cleaned_value is not None:
+                try:
+                    calculated_data[calc_field_name] = float(cleaned_value)
+                except (ValueError, TypeError):
+                    pass
 
         # Ensure required fields have defaults
         if "id" not in line_item:
@@ -774,17 +809,100 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         if "name" not in line_item:
             line_item["name"] = line_item.get("id", "")
         if "start_date" not in line_item:
-            line_item["start_date"] = "2025-01-01"  # Default start date
+            line_item["start_date"] = "2025-01-01"
         if "end_date" not in line_item:
-            line_item["end_date"] = "2025-12-31"  # Default end date
+            line_item["end_date"] = "2025-12-31"
         if "cost_total" not in line_item:
             line_item["cost_total"] = 0
 
-        # Add line item to list
+        # Apply zero budget reconstruction if needed
+        cost_total = line_item.get('cost_total', 0)
+        if cost_total == 0 and calculated_data:
+            line_item = _reconstruct_zero_budget_breakdown(line_item, calculated_data)
+            reconstructed_count += 1
+
         lineitems.append(line_item)
 
-    logger.info(f"Imported {len(lineitems)} line items, skipped {len(skipped_columns)} calculated columns")
+    # Log final results
+    logger.info(f"Imported {len(lineitems)} line items")
+    if reconstructed_count > 0:
+        logger.info(
+            f"Applied zero budget reconstruction to {reconstructed_count} line items using calculated column data")
+
     return lineitems
+
+
+def _reconstruct_zero_budget_breakdown(line_item: Dict[str, Any], calculated_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Reconstruct cost breakdown and performance metrics from calculated column data when cost_total = 0.
+    Assumes percentages are in decimal format (0.8 = 80%).
+
+    Args:
+        line_item: The line item with cost_total = 0
+        calculated_data: Dictionary of calculated field values (percentages and cost-per-unit)
+
+    Returns:
+        Updated line item with reconstructed breakdown using minimal budget
+    """
+    name = line_item.get('name', line_item.get('id', 'Unknown'))
+    minimum_budget = 0.0001
+
+    # Check if we have meaningful calculated data to reconstruct from
+    has_cost_percentages = any(key.endswith('_pct') and calculated_data[key] > 0 for key in calculated_data.keys())
+    has_performance_cpu = any(key.endswith('_cpu') and calculated_data[key] > 0 for key in calculated_data.keys())
+
+    if not (has_cost_percentages or has_performance_cpu):
+        return line_item  # No meaningful calculated data to reconstruct from
+
+    # Apply minimum budget
+    line_item['cost_total'] = minimum_budget
+
+    # Reconstruct cost breakdown from percentages (decimal format: 0.8 = 80%)
+    if has_cost_percentages:
+        total_percentage = 0
+        cost_reconstructions = []
+
+        for calc_field, percentage in calculated_data.items():
+            if calc_field.endswith('_pct') and percentage > 0:
+                # cost_media_pct -> cost_media
+                base_field = calc_field.replace('_pct', '')
+
+                # Percentage is already in decimal format (0.8 = 80%)
+                cost_value = minimum_budget * percentage
+
+                line_item[base_field] = cost_value
+                cost_reconstructions.append(base_field)
+                total_percentage += percentage
+
+        logger.info(
+            f"Reconstructed cost breakdown for '{name}': {len(cost_reconstructions)} cost components from {total_percentage * 100:.1f}% allocation")
+
+    # Reconstruct performance metrics from cost-per-unit data
+    if has_performance_cpu:
+        metric_reconstructions = []
+
+        for calc_field, cpu_value in calculated_data.items():
+            if calc_field.endswith('_cpu') and cpu_value > 0:
+                # metric_clicks_cpu -> metric_clicks
+                base_field = calc_field.replace('_cpu', '')
+
+                if base_field == 'metric_impressions':
+                    # CPM calculation: impressions = (budget / cpu) * 1000
+                    metric_value = (minimum_budget / cpu_value) * 1000
+                else:
+                    # Standard cost-per-unit: metric = budget / cpu
+                    metric_value = minimum_budget / cpu_value
+
+                line_item[base_field] = metric_value
+                metric_reconstructions.append(base_field)
+
+        logger.info(
+            f"Reconstructed performance metrics for '{name}': {len(metric_reconstructions)} metrics from cost-per-unit ratios")
+
+    # Log the reconstruction
+    logger.info(f"Zero budget reconstruction for '{name}': ${minimum_budget:.4f} budget preserves all original ratios")
+
+    return line_item
 
 
 def _import_v2_dictionary(dictionary_sheet) -> Dict[str, Any]:
