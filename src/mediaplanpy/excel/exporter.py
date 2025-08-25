@@ -637,7 +637,7 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                     cost_value = line_item.get(base_field, 0)
 
                     if cost_total_value and cost_total_value != 0:
-                        percentage = (cost_value / cost_total_value) * 100
+                        percentage = (cost_value / cost_total_value)
                     else:
                         percentage = 0
 
@@ -659,7 +659,8 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                         cpu_value = 0
 
                     cell = sheet.cell(row=row_idx, column=col_idx, value=cpu_value)
-                    cell.style = "currency_style"  # Currency formatting
+                    cell.number_format = '$0.00'
+                    # cell.style = "currency_style"
 
             elif field_type == "formula":
                 if field_name.startswith("cost_") and field_name != "cost_total" and field_name != "cost_currency":

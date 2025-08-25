@@ -561,7 +561,7 @@ def _import_v2_campaign(campaign_sheet) -> Dict[str, Any]:
 
 def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
     """
-    Import line items section with v2.0 fields.
+    Import line items section with v2.0 fields, skipping calculated columns.
 
     Args:
         line_items_sheet: The line items worksheet
@@ -572,7 +572,7 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
     # Get headers
     headers = [cell.value for cell in line_items_sheet[1] if cell.value]
 
-    # Create comprehensive field mapping for v2.0
+    # Create comprehensive field mapping for v2.0 - ONLY original schema fields
     field_mapping = {
         # Required fields
         "ID": "id",
@@ -604,14 +604,14 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         "KPI": "kpi",
         "KPI Custom": "kpi_custom",
 
-        # NEW v2.0: Dayparts and inventory fields
+        # Dayparts and inventory fields
         "Dayparts": "dayparts",
         "Dayparts Custom": "dayparts_custom",
         "Inventory": "inventory",
         "Inventory Custom": "inventory_custom",
 
-        # Cost fields (including NEW v2.0 cost_currency)
-        "Cost Currency": "cost_currency",  # NEW v2.0
+        # Cost fields (including cost_currency)
+        "Cost Currency": "cost_currency",
         "Cost Media": "cost_media",
         "Cost Buying": "cost_buying",
         "Cost Platform": "cost_platform",
@@ -655,11 +655,67 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         field_mapping[f"Metric Custom {i}"] = f"metric_custom{i}"
         field_mapping[f"Metric Custom{i}"] = f"metric_custom{i}"  # Alternative format
 
-    # Map column indices to field names
+    # NEW: Identify and skip calculated columns
+    calculated_column_patterns = [
+        " %",  # Cost allocation percentages (e.g., "Cost Media %")
+        "Cost per ",  # Cost-per-unit columns (e.g., "Cost per Click", "Cost per 1000 Impressions")
+    ]
+
+    def is_calculated_column(header_name: str) -> bool:
+        """Check if a header represents a calculated column that should be skipped."""
+        if not header_name:
+            return False
+
+        for pattern in calculated_column_patterns:
+            if pattern in header_name:
+                return True
+        return False
+
+    # Map column indices to field names (skipping calculated columns)
     header_to_field = {}
+    skipped_columns = []
+
     for col_idx, header in enumerate(headers, 1):
+        if is_calculated_column(header):
+            skipped_columns.append(header)
+            continue
+
         if header in field_mapping:
             header_to_field[col_idx] = field_mapping[header]
+
+    # Log information about skipped columns
+    if skipped_columns:
+        logger.info(
+            f"Skipping {len(skipped_columns)} calculated columns during import: {', '.join(skipped_columns[:5])}")
+        if len(skipped_columns) > 5:
+            logger.info(f"... and {len(skipped_columns) - 5} more calculated columns")
+
+    # NEW: Helper function to handle Excel errors and convert to appropriate values
+    def clean_excel_value(cell_value, field_name: str):
+        """
+        Clean Excel cell values, converting errors to appropriate defaults.
+
+        Args:
+            cell_value: The raw cell value from Excel
+            field_name: The schema field name for context
+
+        Returns:
+            Cleaned value appropriate for the field type
+        """
+        # Handle Excel errors (like #DIV/0!, #VALUE!, #REF!, etc.)
+        if isinstance(cell_value, str) and cell_value.startswith('#'):
+            logger.debug(f"Converting Excel error '{cell_value}' to 0 for field '{field_name}'")
+            if field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
+                return 0  # Numeric fields get 0
+            else:
+                return ""  # String fields get empty string
+
+        # Handle None values
+        if cell_value is None:
+            return None
+
+        # Return the value as-is for further processing
+        return cell_value
 
     # Process line items (skip header row)
     lineitems = []
@@ -670,13 +726,16 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
 
         line_item = {}
 
-        # Process all mapped fields
+        # Process all mapped fields (skipping calculated columns)
         for col_idx, field_name in header_to_field.items():
             cell_value = line_items_sheet.cell(row=row, column=col_idx).value
 
-            if cell_value is not None:
+            # Clean the cell value (handle Excel errors)
+            cleaned_value = clean_excel_value(cell_value, field_name)
+
+            if cleaned_value is not None:
                 # Handle different field types
-                if field_name in ["id", "name"] and not cell_value:
+                if field_name in ["id", "name"] and not cleaned_value:
                     # Generate ID if missing
                     if field_name == "id":
                         line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
@@ -684,27 +743,30 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
 
                 elif field_name in ["start_date", "end_date"]:
                     # Handle date fields
-                    if isinstance(cell_value, date):
-                        line_item[field_name] = cell_value.isoformat()
+                    if isinstance(cleaned_value, date):
+                        line_item[field_name] = cleaned_value.isoformat()
                     else:
-                        line_item[field_name] = str(cell_value) if cell_value else ""
+                        line_item[field_name] = str(cleaned_value) if cleaned_value else ""
 
                 elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
                     # Handle numeric fields
                     try:
-                        line_item[field_name] = float(cell_value)
+                        line_item[field_name] = float(cleaned_value)
                     except (ValueError, TypeError):
-                        # Skip invalid numeric values
-                        pass
+                        # Skip invalid numeric values or set to 0
+                        if field_name == "cost_total":
+                            line_item[field_name] = 0  # cost_total is required
+                        # Skip other invalid numeric values
 
                 elif field_name == "location_type":
                     # Handle enum field with validation
-                    if cell_value and str(cell_value).strip():
-                        line_item[field_name] = str(cell_value).strip()
+                    if cleaned_value and str(cleaned_value).strip():
+                        line_item[field_name] = str(cleaned_value).strip()
 
                 else:
                     # Handle string fields
-                    line_item[field_name] = str(cell_value).strip() if str(cell_value).strip() else ""
+                    if str(cleaned_value).strip():
+                        line_item[field_name] = str(cleaned_value).strip()
 
         # Ensure required fields have defaults
         if "id" not in line_item:
@@ -721,6 +783,7 @@ def _import_v2_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         # Add line item to list
         lineitems.append(line_item)
 
+    logger.info(f"Imported {len(lineitems)} line items, skipped {len(skipped_columns)} calculated columns")
     return lineitems
 
 
