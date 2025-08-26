@@ -343,7 +343,7 @@ class WorkspaceManager:
             raise WorkspaceError(
                 f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
 
-        # Create default configuration with new workspace_settings structure - UPDATED FOR v2.0
+        # Create default configuration with both local and S3 storage options - UPDATED FOR S3 SUPPORT
         from mediaplanpy import __schema_version__
         current_schema_version = __schema_version__  # This will be "2.0"
 
@@ -357,6 +357,14 @@ class WorkspaceManager:
                 "local": {
                     "base_path": storage_path_name,
                     "create_if_missing": True
+                },
+                "s3": {
+                    "bucket": "", # Fill in your bucket name
+                    "region": "", # Fill in your region name
+                    "prefix": workspace_id,
+                    "profile": "",  # Optional AWS profile
+                    "endpoint_url": "",  # Optional custom endpoint
+                    "use_ssl": True  # Default to secure connections
                 }
             },
             "workspace_settings": {
