@@ -3,8 +3,10 @@
 ## [v2.0.2] - 2025-08-25
 
 ### Improved
-- `MediaPlan.export_to_excel()`  
+- `MediaPlan.export_to_excel()`
   Added formulas for cost allocation and metric columns so that they auto-calculate with budget changes.
+- `Workspace.create()`
+  Upgraded to include database connection settings in default Workspace Settings for ease of configuration.
 
 
 ## [v2.0.1] - 2025-07-31
