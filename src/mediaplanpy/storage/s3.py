@@ -386,7 +386,29 @@ class S3StorageBackend(StorageBackend):
             # Apply pattern filter if specified
             if pattern:
                 import fnmatch
-                files = [f for f in files if fnmatch.fnmatch(f, pattern)]
+
+                # FIXED: Handle pattern matching correctly when searching within a directory
+                if path:
+                    # When searching within a specific directory, match pattern against just the filename
+                    # Extract directory and filename parts
+                    filtered_files = []
+                    for file_path in files:
+                        if file_path.startswith(path):
+                            # Extract just the filename part after the directory
+                            filename_part = file_path[len(path):].lstrip('/')
+
+                            # Match pattern against filename only
+                            if fnmatch.fnmatch(filename_part, pattern):
+                                filtered_files.append(file_path)
+                        else:
+                            # File not in the expected directory - match against full path
+                            if fnmatch.fnmatch(file_path, pattern):
+                                filtered_files.append(file_path)
+
+                    files = filtered_files
+                else:
+                    # When searching in root, match pattern against full relative path
+                    files = [f for f in files if fnmatch.fnmatch(f, pattern)]
 
             # Sort files for consistent ordering
             files.sort()

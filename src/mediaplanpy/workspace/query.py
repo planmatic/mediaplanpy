@@ -447,13 +447,16 @@ def sql_query(self,
     """
     Execute SQL query against workspace parquet files.
 
+    Enhanced with S3 storage support - automatically detects storage backend type
+    and configures DuckDB appropriately for local files or S3 URLs.
+
     Use {pattern} syntax to specify which parquet files to query:
     - {*} queries all parquet files in the mediaplans directory
     - {*abc*} queries files containing 'abc' in their name
     - {abc} queries the specific file abc.parquet
 
     Examples:
-        # Query all files
+        # Query all files (works with both local and S3 storage)
         workspace.sql_query("SELECT DISTINCT campaign_id FROM {*}")
 
         # Query files matching pattern
@@ -490,7 +493,7 @@ def sql_query(self,
     # Validate SQL query safety
     _validate_sql_safety(query)
 
-    # Resolve file patterns in the query
+    # Resolve file patterns in the query (now handles S3 URLs)
     resolved_query = _resolve_sql_file_patterns(self, query)
 
     # Apply limit if specified
@@ -500,9 +503,45 @@ def sql_query(self,
             resolved_query = f"SELECT * FROM ({resolved_query}) LIMIT {limit}"
 
     try:
-        # Execute the query using DuckDB
-        logger.debug(f"Executing SQL query: {resolved_query}")
-        result_df = duckdb.query(resolved_query).df()
+        # Get storage backend info for logging
+        storage_backend = self.get_storage_backend()
+        storage_type = type(storage_backend).__name__
+
+        logger.debug(f"Executing SQL query with {storage_type}")
+        logger.debug(f"Resolved query: {resolved_query}")
+
+        # Create DuckDB connection
+        conn = duckdb.connect()
+
+        # Configure S3 access if using S3 storage
+        if storage_type == "S3StorageBackend":
+            try:
+                # Install and load httpfs extension for S3 support
+                conn.execute("INSTALL httpfs;")
+                conn.execute("LOAD httpfs;")
+
+                # Configure S3 settings
+                conn.execute(f"SET s3_region='{storage_backend.region}';")
+
+                if storage_backend.endpoint_url:
+                    conn.execute(f"SET s3_endpoint='{storage_backend.endpoint_url}';")
+
+                conn.execute(f"SET s3_use_ssl={'true' if storage_backend.use_ssl else 'false'};")
+
+                # Configure credentials
+                _configure_duckdb_credentials(conn, storage_backend)
+
+                logger.debug("DuckDB configured for S3 access")
+
+            except Exception as e:
+                conn.close()
+                raise SQLQueryError(f"Failed to configure DuckDB for S3 access: {e}")
+
+        # Execute the query
+        result_df = conn.execute(resolved_query).df()
+        conn.close()
+
+        logger.debug(f"Query executed successfully, returned {len(result_df)} rows")
 
         # Return in requested format
         if return_dataframe:
@@ -511,8 +550,34 @@ def sql_query(self,
             return result_df.to_dict(orient='records')
 
     except Exception as e:
-        # Wrap DuckDB errors in our custom exception
-        raise SQLQueryError(f"SQL query execution failed: {str(e)}")
+        # Provide helpful error messages for common S3 issues
+        error_msg = str(e).lower()
+
+        if "s3" in error_msg and ("credentials" in error_msg or "access" in error_msg):
+            raise SQLQueryError(
+                f"S3 access failed - check AWS credentials and bucket permissions. "
+                f"DuckDB needs the same AWS credentials as your S3StorageBackend. "
+                f"Original error: {str(e)}"
+            )
+        elif "s3" in error_msg and "region" in error_msg:
+            raise SQLQueryError(
+                f"S3 region configuration error. Verify bucket region matches workspace config. "
+                f"Original error: {str(e)}"
+            )
+        elif "httpfs" in error_msg or "extension" in error_msg:
+            raise SQLQueryError(
+                f"DuckDB S3 extension error. Make sure DuckDB can install/load the httpfs extension. "
+                f"Original error: {str(e)}"
+            )
+        else:
+            # Wrap other DuckDB errors in our custom exception
+            raise SQLQueryError(f"SQL query execution failed: {str(e)}")
+
+
+# Also update the SQLQueryError definition if not already present
+class SQLQueryError(Exception):
+    """Exception raised when SQL query execution fails."""
+    pass
 
 
 def _validate_sql_safety(query: str) -> None:
@@ -574,20 +639,23 @@ def _validate_sql_safety(query: str) -> None:
 
 def _resolve_sql_file_patterns(workspace_manager, query: str) -> str:
     """
-    Replace {pattern} placeholders with actual parquet file paths.
+    Replace {pattern} placeholders with actual file paths or S3 URLs.
+
+    Enhanced for S3 storage support - generates S3 URLs when using S3 storage backend.
 
     Args:
         workspace_manager: The WorkspaceManager instance.
         query: SQL query with {pattern} placeholders.
 
     Returns:
-        Query with resolved file paths.
+        Query with resolved file paths or S3 URLs.
 
     Raises:
         SQLQueryError: If pattern resolution fails or no matching files found.
     """
-    # Get the storage backend to check for files
+    # Get the storage backend to check for files and determine storage type
     storage_backend = workspace_manager.get_storage_backend()
+    storage_backend_type = type(storage_backend).__name__
 
     # Find all {pattern} occurrences in the query
     pattern_matches = re.findall(r'\{([^}]+)\}', query)
@@ -617,37 +685,57 @@ def _resolve_sql_file_patterns(workspace_manager, query: str) -> str:
                     f"in {MEDIAPLANS_SUBDIR} directory"
                 )
 
-            # Convert file paths to full paths for DuckDB
-            # Resolve full paths for each matching file
-            full_paths = []
-            for file_path in matching_files:
-                # Ensure the file path includes the mediaplans subdirectory
-                if not file_path.startswith(MEDIAPLANS_SUBDIR):
-                    full_file_path = f"{MEDIAPLANS_SUBDIR}/{file_path}"
-                else:
-                    full_file_path = file_path
+            # Convert file paths to appropriate format based on storage backend type
+            if storage_backend_type == "S3StorageBackend":
+                # For S3: generate S3 URLs that DuckDB can read directly
+                file_urls = []
+                for file_path in matching_files:
+                    # Ensure the file path includes the mediaplans subdirectory
+                    if not file_path.startswith(MEDIAPLANS_SUBDIR):
+                        full_file_path = f"{MEDIAPLANS_SUBDIR}/{file_path}"
+                    else:
+                        full_file_path = file_path
 
-                # Get the absolute path from storage backend
-                if hasattr(storage_backend, 'resolve_path'):
-                    resolved_path = storage_backend.resolve_path(full_file_path)
-                    full_paths.append(f"'{resolved_path}'")
-                else:
-                    # Fallback for storage backends without resolve_path
-                    full_paths.append(f"'{full_file_path}'")
+                    # Generate S3 URL
+                    s3_key = storage_backend.resolve_s3_key(full_file_path)
+                    s3_url = f"s3://{storage_backend.bucket}/{s3_key}"
+                    file_urls.append(f"'{s3_url}'")
 
-            # Join multiple files with UNION ALL if more than one file
-            if len(full_paths) == 1:
-                resolved_pattern = full_paths[0]
+                logger.debug(f"Generated {len(file_urls)} S3 URLs for pattern '{pattern}'")
+
+                # Configure DuckDB for S3 access using the same credentials as storage backend
+                resolved_pattern = _prepare_duckdb_s3_access(storage_backend, file_urls)
+
             else:
-                # Create a UNION ALL query for multiple files
-                # This requires wrapping the original query
-                file_list = ', '.join(full_paths)
-                resolved_pattern = f"read_parquet([{file_list}])"
+                # For local storage: use local file paths (existing logic)
+                full_paths = []
+                for file_path in matching_files:
+                    # Ensure the file path includes the mediaplans subdirectory
+                    if not file_path.startswith(MEDIAPLANS_SUBDIR):
+                        full_file_path = f"{MEDIAPLANS_SUBDIR}/{file_path}"
+                    else:
+                        full_file_path = file_path
+
+                    # Get the absolute path from storage backend
+                    if hasattr(storage_backend, 'resolve_path'):
+                        resolved_path = storage_backend.resolve_path(full_file_path)
+                        full_paths.append(f"'{resolved_path}'")
+                    else:
+                        # Fallback for storage backends without resolve_path
+                        full_paths.append(f"'{full_file_path}'")
+
+                # Handle multiple files with UNION ALL or read_parquet array
+                if len(full_paths) == 1:
+                    resolved_pattern = full_paths[0]
+                else:
+                    # Create a list for read_parquet function
+                    file_list = ', '.join(full_paths)
+                    resolved_pattern = f"read_parquet([{file_list}])"
 
             # Replace the pattern in the query
             resolved_query = resolved_query.replace(f'{{{pattern}}}', resolved_pattern)
 
-            logger.debug(f"Resolved pattern '{pattern}' to {len(matching_files)} file(s)")
+            logger.debug(f"Resolved pattern '{pattern}' to {len(matching_files)} file(s) for {storage_backend_type}")
 
         except Exception as e:
             if isinstance(e, SQLQueryError):
@@ -656,6 +744,113 @@ def _resolve_sql_file_patterns(workspace_manager, query: str) -> str:
                 raise SQLQueryError(f"Failed to resolve file pattern '{pattern}': {str(e)}")
 
     return resolved_query
+
+
+def _prepare_duckdb_s3_access(s3_storage_backend, file_urls: List[str]) -> str:
+    """
+    Prepare DuckDB S3 access configuration and return the file pattern for the query.
+
+    This function configures DuckDB to use the same AWS credentials as the S3StorageBackend
+    and returns the appropriate file pattern for the SQL query.
+
+    Args:
+        s3_storage_backend: The S3StorageBackend instance
+        file_urls: List of S3 URLs to access
+
+    Returns:
+        String representing the file pattern for DuckDB (single file or read_parquet array)
+    """
+    try:
+        import duckdb
+    except ImportError:
+        raise SQLQueryError(
+            "DuckDB is required for SQL query functionality. "
+            "Install it with: pip install duckdb"
+        )
+
+    # Configure DuckDB for S3 access using the same credentials as storage backend
+    conn = duckdb.connect()
+
+    try:
+        # Install and load the httpfs extension for S3 support
+        conn.execute("INSTALL httpfs;")
+        conn.execute("LOAD httpfs;")
+
+        # Configure S3 settings to match the storage backend
+        conn.execute(f"SET s3_region='{s3_storage_backend.region}';")
+
+        if s3_storage_backend.endpoint_url:
+            conn.execute(f"SET s3_endpoint='{s3_storage_backend.endpoint_url}';")
+
+        conn.execute(f"SET s3_use_ssl={'true' if s3_storage_backend.use_ssl else 'false'};")
+
+        # Configure AWS credentials - use the same authentication as S3StorageBackend
+        _configure_duckdb_credentials(conn, s3_storage_backend)
+
+        logger.debug("DuckDB S3 configuration completed successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to configure DuckDB for S3 access: {e}")
+        raise SQLQueryError(f"Failed to configure DuckDB for S3: {e}")
+    finally:
+        conn.close()
+
+    # Return the appropriate file pattern for the query
+    if len(file_urls) == 1:
+        return file_urls[0]
+    else:
+        # Multiple files - use read_parquet with array
+        file_list = ', '.join(file_urls)
+        return f"read_parquet([{file_list}])"
+
+
+def _configure_duckdb_credentials(duckdb_conn, s3_storage_backend):
+    """
+    Configure DuckDB S3 credentials to match the S3StorageBackend authentication.
+
+    Args:
+        duckdb_conn: DuckDB connection object
+        s3_storage_backend: S3StorageBackend instance
+    """
+    try:
+        # Get AWS credentials from the same session/client as S3StorageBackend
+        # This ensures DuckDB uses exactly the same authentication
+
+        if s3_storage_backend.profile:
+            # If using a specific AWS profile, set it for DuckDB
+            duckdb_conn.execute(f"SET s3_aws_profile='{s3_storage_backend.profile}';")
+            logger.debug(f"DuckDB configured to use AWS profile: {s3_storage_backend.profile}")
+
+        else:
+            # Use credential chain (environment variables, IAM roles, etc.)
+            # Try to get credentials from the boto3 session
+            try:
+                # Get credentials from the S3 client's session
+                credentials = s3_storage_backend.s3_client._request_signer._credentials
+
+                if hasattr(credentials, 'access_key') and credentials.access_key:
+                    duckdb_conn.execute(f"SET s3_access_key_id='{credentials.access_key}';")
+                    logger.debug("DuckDB configured with access key from S3 client")
+
+                if hasattr(credentials, 'secret_key') and credentials.secret_key:
+                    duckdb_conn.execute(f"SET s3_secret_access_key='{credentials.secret_key}';")
+                    logger.debug("DuckDB configured with secret key from S3 client")
+
+                if hasattr(credentials, 'session_token') and credentials.session_token:
+                    duckdb_conn.execute(f"SET s3_session_token='{credentials.session_token}';")
+                    logger.debug("DuckDB configured with session token from S3 client")
+
+            except Exception as e:
+                logger.warning(f"Could not extract credentials from S3 client: {e}")
+                logger.info("DuckDB will use default AWS credential chain")
+
+                # Fallback: let DuckDB use its own credential chain
+                # This should work if environment variables or IAM roles are configured
+                pass
+
+    except Exception as e:
+        logger.warning(f"DuckDB credential configuration failed: {e}")
+        logger.info("DuckDB will attempt to use default AWS credential chain")
 
 
 def _get_mediaplans_path(workspace_manager) -> str:
