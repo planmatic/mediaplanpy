@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, Type, Union
 from mediaplanpy.exceptions import StorageError
 from mediaplanpy.storage.base import StorageBackend
 from mediaplanpy.storage.local import LocalStorageBackend
+from mediaplanpy.storage.s3 import S3StorageBackend
 from mediaplanpy.storage.formats import (
     FormatHandler,
     get_format_handler_instance,
@@ -21,7 +22,8 @@ logger = logging.getLogger("mediaplanpy.storage")
 
 # Registry of storage backend classes
 _storage_backends = {
-    'local': LocalStorageBackend
+    'local': LocalStorageBackend,
+    's3': S3StorageBackend  # Added S3 backend
 }
 
 
@@ -45,10 +47,18 @@ def get_storage_backend(workspace_config: Dict[str, Any]) -> StorageBackend:
         raise StorageError("No storage mode specified in workspace configuration")
 
     if mode not in _storage_backends:
-        raise StorageError(f"No storage backend available for mode '{mode}'")
+        available_modes = ', '.join(_storage_backends.keys())
+        raise StorageError(
+            f"No storage backend available for mode '{mode}'. "
+            f"Available modes: {available_modes}"
+        )
 
     backend_class = _storage_backends[mode]
-    return backend_class(workspace_config)
+
+    try:
+        return backend_class(workspace_config)
+    except Exception as e:
+        raise StorageError(f"Failed to initialize {mode} storage backend: {e}")
 
 
 def read_mediaplan(workspace_config: Dict[str, Any], path: str, format_name: Optional[str] = None) -> Dict[str, Any]:
@@ -111,6 +121,7 @@ def write_mediaplan(workspace_config: Dict[str, Any], data: Dict[str, Any], path
 __all__ = [
     'StorageBackend',
     'LocalStorageBackend',
+    'S3StorageBackend',  # Added S3StorageBackend to exports
     'FormatHandler',
     'JsonFormatHandler',
     'get_storage_backend',

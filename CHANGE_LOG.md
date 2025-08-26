@@ -1,5 +1,12 @@
 # Changelog
 
+## [v2.0.3] - 2025-08-26
+
+### Added
+- S3 Storage Support  
+  Cloud storage in S3 now supported across all core SDK functionality. Configure in Workspace Settings JSON. 
+
+
 ## [v2.0.2] - 2025-08-25
 
 ### Improved
