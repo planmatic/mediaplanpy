@@ -746,7 +746,7 @@ class MediaPlan(BaseModel):
                     overwrite=True,
                     include_parquet=True,
                     include_database=True,
-                    set_as_current=False  # Prevent recursion
+                    # set_as_current=False  # Prevent recursion
                 )
 
             # Success!
