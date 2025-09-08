@@ -223,79 +223,73 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
-        self.load()
+        from mediaplanpy.exceptions import WorkspaceError
+        raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
-    # Load all data
-    all_data = self._load_workspace_data(filters)
-    if all_data.empty:
-        return [] if not return_dataframe else all_data
+    # Build SQL query with all campaign fields (using correct database column names from database.py)
+    query = """
+    SELECT 
+        campaign_id,
+        campaign_name,
+        campaign_objective,
+        campaign_start_date,
+        campaign_end_date,
+        campaign_budget_total,
+        campaign_product_name,
+        campaign_product_description,
+        campaign_audience_name,
+        campaign_audience_age_start,
+        campaign_audience_age_end,
+        campaign_audience_gender,
+        campaign_audience_interests,
+        campaign_location_type,
+        campaign_locations,
+        campaign_budget_currency,
+        campaign_agency_id,
+        campaign_agency_name,
+        campaign_advertiser_id,
+        campaign_advertiser_name,
+        campaign_product_id,
+        campaign_campaign_type_id,
+        campaign_campaign_type_name,
+        campaign_workflow_status_id,
+        campaign_workflow_status_name"""
 
-    # Get unique campaigns - ONLY using campaign_id for deduplication
-    campaign_cols = [col for col in all_data.columns if col.startswith('campaign_')]
-    campaigns_df = all_data[campaign_cols].drop_duplicates(subset=['campaign_id'])
-
-    # Add statistics if requested
     if include_stats:
-        stats_list = []
-        for idx, row in campaigns_df.iterrows():
-            campaign_id = row['campaign_id']
-            campaign_data = all_data[all_data['campaign_id'] == campaign_id]
+        query += """,
+        COUNT(DISTINCT meta_id) as stat_media_plan_count,
+        COUNT(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN 1 END) as stat_lineitem_count,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_total ELSE 0 END) as stat_total_cost,
+        MAX(meta_created_at) as stat_last_updated,
+        MIN(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_start_date IS NOT NULL THEN lineitem_start_date END) as stat_min_start_date,
+        MAX(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_end_date IS NOT NULL THEN lineitem_end_date END) as stat_max_end_date,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_channel IS NOT NULL AND lineitem_channel != '' THEN lineitem_channel END) as stat_distinct_channel_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_vehicle IS NOT NULL AND lineitem_vehicle != '' THEN lineitem_vehicle END) as stat_distinct_vehicle_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_partner IS NOT NULL AND lineitem_partner != '' THEN lineitem_partner END) as stat_distinct_partner_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_media_product IS NOT NULL AND lineitem_media_product != '' THEN lineitem_media_product END) as stat_distinct_media_product_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_adformat IS NOT NULL AND lineitem_adformat != '' THEN lineitem_adformat END) as stat_distinct_adformat_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_kpi IS NOT NULL AND lineitem_kpi != '' THEN lineitem_kpi END) as stat_distinct_kpi_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_location_name IS NOT NULL AND lineitem_location_name != '' THEN lineitem_location_name END) as stat_distinct_location_name_count"""
 
-            # Count line items (exclude placeholder records)
-            if 'is_placeholder' in campaign_data.columns:
-                actual_lineitems = campaign_data[~campaign_data['is_placeholder']]
-                stats = {
-                    'stat_media_plan_count': campaign_data['meta_id'].nunique(),
-                    'stat_lineitem_count': len(actual_lineitems),  # Exclude placeholders
-                    'stat_total_cost': actual_lineitems['lineitem_cost_total'].sum(),
-                    'stat_last_updated': campaign_data['meta_created_at'].max(),
-                }
-            else:
-                stats = {
-                    'stat_media_plan_count': campaign_data['meta_id'].nunique(),
-                    'stat_lineitem_count': len(campaign_data),
-                    'stat_total_cost': campaign_data['lineitem_cost_total'].sum(),
-                    'stat_last_updated': campaign_data['meta_created_at'].max(),
-                }
+    query += """
+    FROM {*}
+    GROUP BY campaign_id, campaign_name, campaign_objective, 
+             campaign_start_date, campaign_end_date, campaign_budget_total,
+             campaign_product_name, campaign_product_description,
+             campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end, 
+             campaign_audience_gender, campaign_audience_interests, campaign_location_type, campaign_locations,
+             campaign_budget_currency, campaign_agency_id, campaign_agency_name,
+             campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
+             campaign_campaign_type_id, campaign_campaign_type_name,
+             campaign_workflow_status_id, campaign_workflow_status_name
+    ORDER BY campaign_name"""
 
-            # Add date stats if available
-            if 'lineitem_start_date' in campaign_data.columns:
-                non_null_start_dates = campaign_data['lineitem_start_date'].dropna()
-                if not non_null_start_dates.empty:
-                    stats['stat_min_start_date'] = non_null_start_dates.min()
+    # Add filters if provided
+    if filters:
+        query = self._add_sql_filters(query, filters)
 
-            if 'lineitem_end_date' in campaign_data.columns:
-                non_null_end_dates = campaign_data['lineitem_end_date'].dropna()
-                if not non_null_end_dates.empty:
-                    stats['stat_max_end_date'] = non_null_end_dates.max()
-
-            # Calculate dimension counts (only for actual line items)
-            lineitem_data = campaign_data
-            if 'is_placeholder' in lineitem_data.columns:
-                lineitem_data = lineitem_data[~lineitem_data['is_placeholder']]
-
-            for dim in ['channel', 'vehicle', 'partner', 'media_product',
-                        'adformat', 'kpi', 'location_name']:
-                col = f'lineitem_{dim}'
-                if col in lineitem_data.columns:
-                    # Count distinct non-empty values
-                    non_empty_values = lineitem_data[col].dropna().astype(str)
-                    non_empty_values = non_empty_values[non_empty_values != '']
-                    stats[f'stat_distinct_{dim}_count'] = len(non_empty_values.unique())
-
-            stats_list.append(stats)
-
-        # Add stats to campaigns DataFrame
-        stats_df = pd.DataFrame(stats_list)
-        campaigns_df.reset_index(drop=True, inplace=True)
-        stats_df.reset_index(drop=True, inplace=True)
-        campaigns_df = pd.concat([campaigns_df, stats_df], axis=1)
-
-    # Return as requested format
-    if return_dataframe:
-        return campaigns_df
-    else:
-        return campaigns_df.to_dict(orient='records')
+    # Use routing logic - automatically chooses database vs Parquet!
+    return self.sql_query(query, return_dataframe=return_dataframe)
 
 
 def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=False):
@@ -313,92 +307,81 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
-        self.load()
+        from mediaplanpy.exceptions import WorkspaceError
+        raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
-    # Load all data
-    all_data = self._load_workspace_data(filters)
-    if all_data.empty:
-        return [] if not return_dataframe else all_data
+    # Build SQL query with all meta and campaign fields (using correct database column names)
+    query = """
+    SELECT 
+        meta_id,
+        meta_schema_version,
+        meta_created_at,
+        meta_name,
+        meta_comments,
+        meta_created_by_id,
+        meta_created_by_name,
+        meta_is_current,
+        meta_is_archived,
+        meta_parent_id,
+        campaign_id,
+        campaign_name,
+        campaign_objective,
+        campaign_start_date,
+        campaign_end_date,
+        campaign_budget_total,
+        campaign_product_name,
+        campaign_budget_currency,
+        campaign_agency_id,
+        campaign_agency_name,
+        campaign_advertiser_id,
+        campaign_advertiser_name,
+        campaign_product_id,
+        campaign_campaign_type_id,
+        campaign_campaign_type_name,
+        campaign_workflow_status_id,
+        campaign_workflow_status_name"""
 
-    # Get unique media plans (combine meta and campaign fields)
-    meta_cols = [col for col in all_data.columns if col.startswith('meta_')]
-    campaign_cols = [col for col in all_data.columns if col.startswith('campaign_')]
-    plan_cols = meta_cols + campaign_cols
-    plans_df = all_data[plan_cols].drop_duplicates(subset=['meta_id'])
-
-    # Add statistics if requested
     if include_stats:
-        stats_list = []
-        for plan_id in plans_df['meta_id']:
-            plan_data = all_data[all_data['meta_id'] == plan_id]
+        query += """,
+        COUNT(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN 1 END) as stat_lineitem_count,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_total ELSE 0 END) as stat_total_cost,
+        AVG(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_total END) as stat_avg_cost_per_item,
+        MIN(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_start_date IS NOT NULL THEN lineitem_start_date END) as stat_min_start_date,
+        MAX(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_end_date IS NOT NULL THEN lineitem_end_date END) as stat_max_end_date,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_channel IS NOT NULL AND lineitem_channel != '' THEN lineitem_channel END) as stat_distinct_channel_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_vehicle IS NOT NULL AND lineitem_vehicle != '' THEN lineitem_vehicle END) as stat_distinct_vehicle_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_partner IS NOT NULL AND lineitem_partner != '' THEN lineitem_partner END) as stat_distinct_partner_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_media_product IS NOT NULL AND lineitem_media_product != '' THEN lineitem_media_product END) as stat_distinct_media_product_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_adformat IS NOT NULL AND lineitem_adformat != '' THEN lineitem_adformat END) as stat_distinct_adformat_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_kpi IS NOT NULL AND lineitem_kpi != '' THEN lineitem_kpi END) as stat_distinct_kpi_count,
+        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_location_name IS NOT NULL AND lineitem_location_name != '' THEN lineitem_location_name END) as stat_distinct_location_name_count,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_media ELSE 0 END) as stat_sum_cost_media,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_buying ELSE 0 END) as stat_sum_cost_buying,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_platform ELSE 0 END) as stat_sum_cost_platform,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_data ELSE 0 END) as stat_sum_cost_data,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_creative ELSE 0 END) as stat_sum_cost_creative,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_metric_impressions ELSE 0 END) as stat_sum_metric_impressions,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_metric_clicks ELSE 0 END) as stat_sum_metric_clicks,
+        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_metric_views ELSE 0 END) as stat_sum_metric_views"""
 
-            # Filter out placeholder records for statistics
-            lineitem_data = plan_data
-            if 'is_placeholder' in lineitem_data.columns:
-                lineitem_data = lineitem_data[~lineitem_data['is_placeholder']]
+    query += """
+    FROM {*}
+    GROUP BY meta_id, meta_schema_version, meta_created_at, meta_name, meta_comments,
+             meta_created_by_id, meta_created_by_name, meta_is_current, meta_is_archived, meta_parent_id,
+             campaign_id, campaign_name, campaign_objective, 
+             campaign_start_date, campaign_end_date, campaign_budget_total, campaign_product_name,
+             campaign_budget_currency, campaign_agency_id, campaign_agency_name,
+             campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
+             campaign_campaign_type_id, campaign_campaign_type_name,
+             campaign_workflow_status_id, campaign_workflow_status_name
+    ORDER BY meta_created_at DESC"""
 
-            # Count of actual line items (0 if all are placeholders)
-            lineitem_count = len(lineitem_data)
+    # Add filters if provided
+    if filters:
+        query = self._add_sql_filters(query, filters)
 
-            # Calculate basic statistics
-            stats = {
-                'stat_lineitem_count': lineitem_count,
-                'stat_total_cost': lineitem_data['lineitem_cost_total'].sum() if lineitem_count > 0 else 0,
-                'stat_avg_cost_per_item': lineitem_data['lineitem_cost_total'].mean() if lineitem_count > 0 else 0,
-            }
-
-            # Add date stats if available and there are actual line items
-            if lineitem_count > 0:
-                if 'lineitem_start_date' in lineitem_data.columns:
-                    non_null_start_dates = lineitem_data['lineitem_start_date'].dropna()
-                    if not non_null_start_dates.empty:
-                        stats['stat_min_start_date'] = non_null_start_dates.min()
-
-                if 'lineitem_end_date' in lineitem_data.columns:
-                    non_null_end_dates = lineitem_data['lineitem_end_date'].dropna()
-                    if not non_null_end_dates.empty:
-                        stats['stat_max_end_date'] = non_null_end_dates.max()
-
-                # Calculate dimension counts
-                for dim in ['channel', 'vehicle', 'partner', 'media_product',
-                            'adformat', 'kpi', 'location_name']:
-                    col = f'lineitem_{dim}'
-                    if col in lineitem_data.columns:
-                        # Count distinct non-empty values
-                        non_empty_values = lineitem_data[col].dropna().astype(str)
-                        non_empty_values = non_empty_values[non_empty_values != '']
-                        stats[f'stat_distinct_{dim}_count'] = len(non_empty_values.unique())
-
-                # Calculate metric sums
-                for metric in ['cost_media', 'cost_platform', 'cost_creative',
-                            'metric_impressions', 'metric_clicks', 'metric_views']:
-                    col = f'lineitem_{metric}'
-                    if col in lineitem_data.columns and not lineitem_data[col].isna().all():
-                        stats[f'stat_sum_{metric}'] = lineitem_data[col].sum()
-            else:
-                # For empty media plans with no line items, set dimension counts to 0
-                for dim in ['channel', 'vehicle', 'partner', 'media_product',
-                            'adformat', 'kpi', 'location_name']:
-                    stats[f'stat_distinct_{dim}_count'] = 0
-
-                # Set metric sums to 0
-                for metric in ['cost_media', 'cost_platform', 'cost_creative',
-                            'metric_impressions', 'metric_clicks', 'metric_views']:
-                    stats[f'stat_sum_{metric}'] = 0
-
-            stats_list.append(stats)
-
-        # Add stats to plans DataFrame
-        stats_df = pd.DataFrame(stats_list)
-        plans_df.reset_index(drop=True, inplace=True)
-        stats_df.reset_index(drop=True, inplace=True)
-        plans_df = pd.concat([plans_df, stats_df], axis=1)
-
-    # Return as requested format
-    if return_dataframe:
-        return plans_df
-    else:
-        return plans_df.to_dict(orient='records')
+    # Use routing logic - automatically chooses database vs Parquet!
+    return self.sql_query(query, return_dataframe=return_dataframe)
 
 
 def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
@@ -416,28 +399,221 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
     """
     # Ensure workspace is loaded
     if not self.is_loaded:
-        self.load()
+        from mediaplanpy.exceptions import WorkspaceError
+        raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
-    # Load all data with filters applied
-    all_data = self._load_workspace_data(filters)
-    if all_data.empty:
-        return [] if not return_dataframe else all_data
+    # Build SQL query - select all columns, filter out placeholders
+    query = """
+    SELECT * FROM {*}
+    WHERE is_placeholder = FALSE OR is_placeholder IS NULL"""
 
-    # Filter out placeholder records (these represent media plans with no line items)
-    if 'is_placeholder' in all_data.columns:
-        all_data = all_data[all_data['is_placeholder'] == False]
-        # Drop the is_placeholder column as it's no longer needed
-        all_data = all_data.drop(columns=['is_placeholder'])
+    # Add filters if provided
+    if filters:
+        # For line items, we need to add filters as additional WHERE conditions
+        filter_conditions = self._build_sql_filter_conditions(filters)
+        if filter_conditions:
+            query += f" AND ({filter_conditions})"
 
-    # Apply limit if specified
-    if limit is not None and limit > 0:
-        all_data = all_data.head(limit)
+    query += " ORDER BY lineitem_start_date DESC, lineitem_name"
 
-    # Return as requested format
-    if return_dataframe:
-        return all_data
-    else:
-        return all_data.to_dict(orient='records')
+    # Use routing logic with limit - automatically chooses database vs Parquet!
+    return self.sql_query(query, return_dataframe=return_dataframe, limit=limit)
+
+
+def _add_sql_filters(self, base_query, filters):
+    """
+    Convert filter dict to SQL WHERE clauses and add to base query.
+
+    Handles the GROUP BY case by inserting WHERE clause before GROUP BY.
+
+    Args:
+        base_query: SQL query string
+        filters: Dictionary of filter criteria
+
+    Returns:
+        Query with WHERE clause added
+
+    Raises:
+        SQLQueryError: If filter cannot be converted safely
+    """
+    if not filters:
+        return base_query
+
+    try:
+        filter_conditions = self._build_sql_filter_conditions(filters)
+        if not filter_conditions:
+            return base_query
+
+        # Find the position to insert WHERE clause
+        # Look for GROUP BY, ORDER BY, or end of query
+        base_query_upper = base_query.upper()
+
+        insert_positions = []
+        for clause in ['GROUP BY', 'ORDER BY', 'LIMIT']:
+            pos = base_query_upper.find(clause)
+            if pos != -1:
+                insert_positions.append(pos)
+
+        if insert_positions:
+            insert_pos = min(insert_positions)
+            # Insert WHERE clause before the first found clause
+            filtered_query = (
+                    base_query[:insert_pos].rstrip() +
+                    f"\nWHERE {filter_conditions}\n" +
+                    base_query[insert_pos:]
+            )
+        else:
+            # No special clauses found, add WHERE at the end
+            filtered_query = f"{base_query.rstrip()}\nWHERE {filter_conditions}"
+
+        return filtered_query
+
+    except Exception as e:
+        from mediaplanpy.exceptions import SQLQueryError
+        raise SQLQueryError(f"Failed to add SQL filters: {str(e)}")
+
+
+def _build_sql_filter_conditions(self, filters):
+    """
+    Convert filter dictionary to SQL WHERE conditions.
+
+    Handles:
+    - List values (IN operator)
+    - Range filters {'min': x, 'max': y}
+    - Exact matches
+    - Date field detection and conversion
+    - SQL injection prevention through proper escaping
+
+    Args:
+        filters: Dictionary of field names and filter values
+
+    Returns:
+        String of SQL WHERE conditions joined with AND
+
+    Raises:
+        SQLQueryError: If filter cannot be converted safely
+    """
+    if not filters:
+        return ""
+
+    conditions = []
+
+    # Define date field patterns for smart detection
+    date_field_patterns = [
+        'start_date', 'end_date', 'created_at', 'updated_at',
+        'last_updated', 'min_start_date', 'max_end_date'
+    ]
+
+    for field, value in filters.items():
+        try:
+            # Detect if this is likely a date field
+            is_date_field = any(pattern in field.lower() for pattern in date_field_patterns)
+
+            if isinstance(value, list):
+                # List of values (IN operator)
+                if not value:  # Empty list
+                    continue
+
+                if is_date_field:
+                    # Date list - convert to proper date format
+                    escaped_values = []
+                    for v in value:
+                        escaped_values.append(f"'{self._escape_sql_value(str(v))}'")
+                    conditions.append(f"{field} IN ({', '.join(escaped_values)})")
+                else:
+                    # Regular list
+                    escaped_values = [f"'{self._escape_sql_value(str(v))}'" for v in value]
+                    conditions.append(f"{field} IN ({', '.join(escaped_values)})")
+
+            elif isinstance(value, dict):
+                # Range filter {'min': x, 'max': y} or regex
+                if 'min' in value or 'max' in value:
+                    range_conditions = []
+
+                    if 'min' in value:
+                        min_val = self._escape_sql_value(str(value['min']))
+                        if is_date_field:
+                            range_conditions.append(f"{field} >= '{min_val}'")
+                        else:
+                            # Try numeric first, fall back to string
+                            try:
+                                float(value['min'])
+                                range_conditions.append(f"{field} >= {min_val}")
+                            except (ValueError, TypeError):
+                                range_conditions.append(f"{field} >= '{min_val}'")
+
+                    if 'max' in value:
+                        max_val = self._escape_sql_value(str(value['max']))
+                        if is_date_field:
+                            range_conditions.append(f"{field} <= '{max_val}'")
+                        else:
+                            # Try numeric first, fall back to string
+                            try:
+                                float(value['max'])
+                                range_conditions.append(f"{field} <= {max_val}")
+                            except (ValueError, TypeError):
+                                range_conditions.append(f"{field} <= '{max_val}'")
+
+                    if range_conditions:
+                        conditions.append(f"({' AND '.join(range_conditions)})")
+
+                if 'regex' in value:
+                    # Regex filter - convert to SQL LIKE or similar
+                    # Note: Full regex support varies by database, using LIKE for compatibility
+                    regex_pattern = self._escape_sql_value(value['regex'])
+                    # Convert basic regex patterns to SQL LIKE
+                    if regex_pattern.startswith('^') and regex_pattern.endswith('$'):
+                        # Exact match pattern
+                        pattern = regex_pattern[1:-1].replace('.*', '%').replace('.', '_')
+                        conditions.append(f"{field} LIKE '{pattern}'")
+                    else:
+                        # Contains pattern
+                        pattern = regex_pattern.replace('.*', '%').replace('.', '_')
+                        conditions.append(f"{field} LIKE '%{pattern}%'")
+
+            else:
+                # Exact match
+                escaped_value = self._escape_sql_value(str(value))
+                if is_date_field:
+                    conditions.append(f"{field} = '{escaped_value}'")
+                else:
+                    # Try numeric first, fall back to string
+                    try:
+                        float(value)
+                        conditions.append(f"{field} = {escaped_value}")
+                    except (ValueError, TypeError):
+                        conditions.append(f"{field} = '{escaped_value}'")
+
+        except Exception as e:
+            from mediaplanpy.exceptions import SQLQueryError
+            raise SQLQueryError(f"Failed to process filter for field '{field}': {str(e)}")
+
+    return ' AND '.join(conditions)
+
+
+def _escape_sql_value(self, value):
+    """
+    Escape SQL value to prevent injection attacks.
+
+    Args:
+        value: String value to escape
+
+    Returns:
+        Escaped string safe for SQL
+    """
+    if value is None:
+        return 'NULL'
+
+    # Convert to string and escape single quotes
+    str_value = str(value)
+    # Escape single quotes by doubling them
+    escaped = str_value.replace("'", "''")
+    # Remove other potentially dangerous characters
+    # Keep alphanumeric, spaces, hyphens, underscores, periods, colons
+    import re
+    escaped = re.sub(r"[^\w\s\-\.:@]", "", escaped)
+
+    return escaped
 
 
 def sql_query(self,
@@ -1160,7 +1336,7 @@ def patch_workspace_manager():
     WorkspaceManager.SQLQueryError = SQLQueryError
 
     # =========================================================================
-    # EXISTING METHODS (preserved unchanged)
+    # EXISTING METHODS
     # =========================================================================
     WorkspaceManager._get_parquet_files = _get_parquet_files
     WorkspaceManager._load_workspace_data = _load_workspace_data
@@ -1170,30 +1346,26 @@ def patch_workspace_manager():
     WorkspaceManager.list_lineitems = list_lineitems
 
     # =========================================================================
-    # ENHANCED SQL QUERY METHODS (Steps 1.1 & 1.2)
+    # SQL QUERY METHODS
     # =========================================================================
-
-    # Core routing method (Step 1.1 - revised to use existing methods)
     WorkspaceManager._should_route_to_database = _should_route_to_database
-
-    # PostgreSQL execution methods (Step 1.2)
     WorkspaceManager._sql_query_postgres = _sql_query_postgres
     WorkspaceManager._add_workspace_filter = _add_workspace_filter
-
-    # Enhanced main sql_query method (Step 1.1)
     WorkspaceManager.sql_query = sql_query
-
-    # Keep existing DuckDB logic as fallback (Step 1.1)
     WorkspaceManager._sql_query_duckdb = _sql_query_duckdb
 
     # =========================================================================
-    # EXISTING HELPER METHODS (preserved unchanged)
+    # HELPER METHODS
     # =========================================================================
     WorkspaceManager._validate_sql_safety = _validate_sql_safety
     WorkspaceManager._resolve_sql_file_patterns = _resolve_sql_file_patterns
     WorkspaceManager._get_mediaplans_path = _get_mediaplans_path
     WorkspaceManager._prepare_duckdb_s3_access = _prepare_duckdb_s3_access
     WorkspaceManager._configure_duckdb_credentials = _configure_duckdb_credentials
+
+    WorkspaceManager._add_sql_filters = _add_sql_filters
+    WorkspaceManager._build_sql_filter_conditions = _build_sql_filter_conditions
+    WorkspaceManager._escape_sql_value = _escape_sql_value
 
 # Update the patch call at the bottom of the file
 patch_workspace_manager()
