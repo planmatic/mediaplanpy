@@ -946,15 +946,17 @@ def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
     """
     Add workspace isolation filter to SQL query for multi-tenant safety.
 
+    ENHANCED to properly handle existing WHERE clauses from user filters.
+
     This is CRITICAL - every database query must be filtered by workspace_id
     to prevent data leakage between workspaces in multi-tenant deployments.
 
     Args:
-        query: Original SQL query
+        query: Original SQL query (may already contain WHERE clause from user filters)
         workspace_id: Current workspace identifier
 
     Returns:
-        Query with workspace filter added
+        Query with workspace filter added (combined with existing WHERE if present)
 
     Raises:
         SQLQueryError: If workspace filter cannot be added safely
@@ -962,34 +964,61 @@ def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
     if not workspace_id:
         raise SQLQueryError("workspace_id is required for database query isolation")
 
-    # Normalize query for parsing
-    query_upper = query.upper().strip()
-
     # Escape single quotes in workspace_id for SQL safety
     safe_workspace_id = workspace_id.replace("'", "''")
     workspace_filter = f"workspace_id = '{safe_workspace_id}'"
 
     try:
-        # Case 1: Query already has WHERE clause
-        if ' WHERE ' in query_upper:
-            # Find the WHERE clause and add our filter with AND
-            where_pattern = re.compile(r'\bWHERE\b', re.IGNORECASE)
-            match = where_pattern.search(query)
+        # Normalize query for parsing - but preserve original formatting
+        query_upper = query.upper()
 
-            if match:
-                # Insert our filter right after WHERE
-                where_pos = match.end()
-                filtered_query = (
-                        query[:where_pos] +
-                        f" {workspace_filter} AND (" +
-                        query[where_pos:] +
-                        ")"
-                )
-                return filtered_query
+        # Case 1: Query already has WHERE clause (from user filters)
+        where_match = re.search(r'\bWHERE\b', query, re.IGNORECASE)
+        if where_match:
+            # Find the WHERE keyword position
+            where_pos = where_match.start()
+            where_end = where_match.end()
+
+            # We need to add our workspace filter with AND
+            # Find what comes after WHERE to inject our filter properly
+
+            # Look for the next major SQL clause after WHERE
+            remaining_query = query[where_end:]
+            remaining_upper = query_upper[where_end:]
+
+            # Find positions of major clauses that could come after WHERE
+            clause_patterns = [
+                (r'\bGROUP\s+BY\b', 'GROUP BY'),
+                (r'\bHAVING\b', 'HAVING'),
+                (r'\bORDER\s+BY\b', 'ORDER BY'),
+                (r'\bLIMIT\b', 'LIMIT')
+            ]
+
+            # Find the first major clause after WHERE
+            next_clause_pos = len(remaining_query)  # Default to end if no clause found
+
+            for pattern, clause_name in clause_patterns:
+                match = re.search(pattern, remaining_query, re.IGNORECASE)
+                if match:
+                    next_clause_pos = min(next_clause_pos, match.start())
+
+            # Extract the existing WHERE conditions
+            existing_conditions = remaining_query[:next_clause_pos].strip()
+            rest_of_query = remaining_query[next_clause_pos:]
+
+            # Combine workspace filter with existing conditions using AND
+            combined_conditions = f"({workspace_filter}) AND ({existing_conditions})"
+
+            # Reconstruct the query
+            filtered_query = (
+                    query[:where_end] +  # Everything up to and including WHERE
+                    f" {combined_conditions}" +  # Combined conditions
+                    rest_of_query  # Rest of query (GROUP BY, ORDER BY, etc.)
+            )
+
+            return filtered_query
 
         # Case 2: Query has no WHERE clause - add one
-        # We need to add WHERE before ORDER BY, GROUP BY, HAVING, LIMIT
-
         # Find the position to insert WHERE clause
         # Look for these clauses in order of precedence
         clause_patterns = [
@@ -1020,7 +1049,6 @@ def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
             f"Failed to add workspace isolation filter to query. "
             f"This is required for multi-tenant safety. Original error: {str(e)}"
         )
-
 
 # Also update the SQLQueryError definition if not already present
 class SQLQueryError(Exception):
