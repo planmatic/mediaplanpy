@@ -442,13 +442,15 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
 
 def sql_query(self,
               query: str,
+              engine: str = "auto",
               return_dataframe: bool = True,
               limit: Optional[int] = None) -> Union[pd.DataFrame, List[Dict[str, Any]]]:
     """
-    Execute SQL query against workspace parquet files.
+    Execute SQL query against workspace data with intelligent routing.
 
-    Enhanced with S3 storage support - automatically detects storage backend type
-    and configures DuckDB appropriately for local files or S3 URLs.
+    Enhanced with intelligent routing:
+    - {*} queries with database enabled → PostgreSQL (server-side processing)
+    - All other queries → DuckDB + Parquet (existing fast path)
 
     Use {pattern} syntax to specify which parquet files to query:
     - {*} queries all parquet files in the mediaplans directory
@@ -456,18 +458,22 @@ def sql_query(self,
     - {abc} queries the specific file abc.parquet
 
     Examples:
-        # Query all files (works with both local and S3 storage)
+        # Query all data (auto-routes to database if enabled)
         workspace.sql_query("SELECT DISTINCT campaign_id FROM {*}")
 
-        # Query files matching pattern
-        workspace.sql_query("SELECT * FROM {campaign_*} WHERE cost_total > 1000")
+        # Force database engine
+        workspace.sql_query("SELECT * FROM {*}", engine="database")
 
-        # Query specific file
-        workspace.sql_query("SELECT COUNT(*) FROM {my_mediaplan}")
+        # Force DuckDB engine
+        workspace.sql_query("SELECT * FROM {*}", engine="duckdb")
+
+        # Pattern queries (always use DuckDB)
+        workspace.sql_query("SELECT SUM(cost_total) FROM {campaign_*}")
 
     Args:
         query: SQL query string with {pattern} placeholders for file patterns.
                Only SELECT operations are allowed.
+        engine: Query engine ("auto", "database", "duckdb"). Default "auto".
         return_dataframe: If True, return pandas DataFrame; if False, return list of dicts.
         limit: Optional maximum number of rows to return.
 
@@ -482,6 +488,99 @@ def sql_query(self,
     if not self.is_loaded:
         raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
+    # Validate SQL query safety (existing logic)
+    _validate_sql_safety(query)
+
+    # Intelligent routing decision
+    if self._should_route_to_database(query, engine):
+        return self._sql_query_postgres(query, return_dataframe, limit)
+    else:
+        return self._sql_query_duckdb(query, return_dataframe, limit)
+
+
+def _should_route_to_database(self, query: str, engine_override: str) -> bool:
+    """
+    Determine whether to route query to database or DuckDB using EXISTING methods.
+
+    Routing Logic:
+    - engine="database" → Always database (with validation using existing PostgreSQLBackend)
+    - engine="duckdb" → Always DuckDB
+    - engine="auto" → Database if enabled AND {*} pattern detected (lightweight check)
+
+    Args:
+        query: SQL query string
+        engine_override: Engine preference ("auto", "database", "duckdb")
+
+    Returns:
+        True if should route to database, False for DuckDB
+
+    Raises:
+        SQLQueryError: If database requested but not available
+    """
+    if engine_override == "database":
+        # Explicit database request - use existing methods for validation
+        db_config = self.get_database_config()  # Existing WorkspaceManager method
+
+        if not db_config.get('enabled', False):
+            raise SQLQueryError(
+                "Database engine requested but database is not enabled in workspace configuration"
+            )
+
+        # Use existing PostgreSQLBackend for validation
+        try:
+            from mediaplanpy.storage.database import PostgreSQLBackend
+            backend = PostgreSQLBackend(self.get_resolved_config())  # Existing validation in constructor
+
+            # Use existing test_connection method
+            if not backend.test_connection():
+                raise SQLQueryError(
+                    "Database engine requested but database connection failed"
+                )
+        except Exception as e:
+            if isinstance(e, SQLQueryError):
+                raise  # Re-raise our custom errors
+            else:
+                raise SQLQueryError(f"Database engine requested but unavailable: {e}")
+
+        return True
+
+    elif engine_override == "duckdb":
+        # Explicit DuckDB request
+        return False
+
+    elif engine_override == "auto":
+        # Auto routing: lightweight check for performance
+        db_config = self.get_database_config()  # Existing method
+
+        # Quick checks first (no expensive operations for auto mode)
+        if not db_config.get('enabled', False):
+            return False
+
+        if '{*}' not in query:
+            return False
+
+        # For auto mode, assume database is available if enabled
+        # The actual connection will be tested in _sql_query_postgres()
+        # where we can provide better error handling
+        return True
+
+    else:
+        raise SQLQueryError(
+            f"Invalid engine parameter: {engine_override}. "
+            "Must be 'auto', 'database', or 'duckdb'"
+        )
+
+
+def _sql_query_duckdb(self, query: str, return_dataframe: bool = True,
+                      limit: Optional[int] = None) -> Union[pd.DataFrame, List[Dict[str, Any]]]:
+    """
+    Execute query using DuckDB against Parquet files (existing logic).
+
+    This is the existing sql_query implementation renamed for routing.
+    """
+    # This is the existing implementation from the original sql_query method
+    # (all the DuckDB + S3 logic that was already working)
+
     try:
         import duckdb
     except ImportError:
@@ -490,10 +589,7 @@ def sql_query(self,
             "Install it with: pip install duckdb"
         )
 
-    # Validate SQL query safety
-    _validate_sql_safety(query)
-
-    # Resolve file patterns in the query (now handles S3 URLs)
+    # Resolve file patterns in the query (handles S3 URLs)
     resolved_query = _resolve_sql_file_patterns(self, query)
 
     # Apply limit if specified
@@ -507,7 +603,7 @@ def sql_query(self,
         storage_backend = self.get_storage_backend()
         storage_type = type(storage_backend).__name__
 
-        logger.debug(f"Executing SQL query with {storage_type}")
+        logger.debug(f"Executing SQL query with DuckDB using {storage_type}")
         logger.debug(f"Resolved query: {resolved_query}")
 
         # Create DuckDB connection
@@ -541,7 +637,7 @@ def sql_query(self,
         result_df = conn.execute(resolved_query).df()
         conn.close()
 
-        logger.debug(f"Query executed successfully, returned {len(result_df)} rows")
+        logger.debug(f"DuckDB query executed successfully, returned {len(result_df)} rows")
 
         # Return in requested format
         if return_dataframe:
@@ -571,7 +667,182 @@ def sql_query(self,
             )
         else:
             # Wrap other DuckDB errors in our custom exception
-            raise SQLQueryError(f"SQL query execution failed: {str(e)}")
+            raise SQLQueryError(f"DuckDB query execution failed: {str(e)}")
+
+
+def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
+                        limit: Optional[int] = None) -> Union[pd.DataFrame, List[Dict[str, Any]]]:
+    """
+    Execute query against PostgreSQL database with workspace isolation.
+
+    Args:
+        query: SQL query with {*} pattern
+        return_dataframe: Return format preference
+        limit: Optional row limit
+
+    Returns:
+        Query results as DataFrame or list of dictionaries
+
+    Raises:
+        SQLQueryError: If database execution fails
+    """
+    try:
+        from mediaplanpy.storage.database import PostgreSQLBackend
+        import pandas as pd
+    except ImportError as e:
+        raise SQLQueryError(f"Required dependencies not available: {e}")
+
+    try:
+        # Get database configuration and table name
+        database_config = self.get_database_config()
+        table_name = database_config.get('table_name', 'media_plans')
+
+        # Get current workspace ID for isolation
+        workspace_config = self.get_resolved_config()
+        workspace_id = workspace_config.get('workspace_id')
+
+        if not workspace_id:
+            raise SQLQueryError("No workspace_id found in configuration - required for database queries")
+
+        # Create database backend
+        db_backend = PostgreSQLBackend(database_config)
+
+        # Pattern replacement: {*} → table_name
+        resolved_query = query.replace('{*}', table_name)
+
+        # Add workspace isolation (CRITICAL for multi-tenant safety)
+        resolved_query = self._add_workspace_filter(resolved_query, workspace_id)
+
+        # Apply limit if specified
+        if limit and not re.search(r'\bLIMIT\b', resolved_query, re.IGNORECASE):
+            resolved_query = f"SELECT * FROM ({resolved_query}) AS limited LIMIT {limit}"
+
+        logger.debug(f"Executing PostgreSQL query: {resolved_query}")
+
+        # Execute query using database backend
+        with db_backend.get_connection() as conn:
+            if return_dataframe:
+                result_df = pd.read_sql(resolved_query, conn)
+                logger.debug(f"PostgreSQL query executed successfully, returned {len(result_df)} rows")
+                return result_df
+            else:
+                # Return list of dicts
+                cursor = conn.cursor()
+                cursor.execute(resolved_query)
+
+                # Get column names
+                columns = [desc[0] for desc in cursor.description]
+
+                # Fetch all rows and convert to list of dicts
+                rows = cursor.fetchall()
+                result = [dict(zip(columns, row)) for row in rows]
+
+                cursor.close()
+                logger.debug(f"PostgreSQL query executed successfully, returned {len(result)} rows")
+                return result
+
+    except Exception as e:
+        # Provide specific error context for database issues
+        error_msg = str(e).lower()
+
+        if "connection" in error_msg or "connect" in error_msg:
+            raise SQLQueryError(
+                f"Database connection failed. Check database configuration and ensure "
+                f"PostgreSQL is running. Original error: {str(e)}"
+            )
+        elif "table" in error_msg and "does not exist" in error_msg:
+            raise SQLQueryError(
+                f"Database table '{table_name}' does not exist. "
+                f"Enable auto_create_table or create table manually. Original error: {str(e)}"
+            )
+        elif "workspace_id" in error_msg:
+            raise SQLQueryError(
+                f"Workspace isolation error - invalid workspace_id filter. "
+                f"Original error: {str(e)}"
+            )
+        else:
+            # Generic database error
+            raise SQLQueryError(f"PostgreSQL query execution failed: {str(e)}")
+
+
+def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
+    """
+    Add workspace isolation filter to SQL query for multi-tenant safety.
+
+    This is CRITICAL - every database query must be filtered by workspace_id
+    to prevent data leakage between workspaces in multi-tenant deployments.
+
+    Args:
+        query: Original SQL query
+        workspace_id: Current workspace identifier
+
+    Returns:
+        Query with workspace filter added
+
+    Raises:
+        SQLQueryError: If workspace filter cannot be added safely
+    """
+    if not workspace_id:
+        raise SQLQueryError("workspace_id is required for database query isolation")
+
+    # Normalize query for parsing
+    query_upper = query.upper().strip()
+
+    # Escape single quotes in workspace_id for SQL safety
+    safe_workspace_id = workspace_id.replace("'", "''")
+    workspace_filter = f"workspace_id = '{safe_workspace_id}'"
+
+    try:
+        # Case 1: Query already has WHERE clause
+        if ' WHERE ' in query_upper:
+            # Find the WHERE clause and add our filter with AND
+            where_pattern = re.compile(r'\bWHERE\b', re.IGNORECASE)
+            match = where_pattern.search(query)
+
+            if match:
+                # Insert our filter right after WHERE
+                where_pos = match.end()
+                filtered_query = (
+                        query[:where_pos] +
+                        f" {workspace_filter} AND (" +
+                        query[where_pos:] +
+                        ")"
+                )
+                return filtered_query
+
+        # Case 2: Query has no WHERE clause - add one
+        # We need to add WHERE before ORDER BY, GROUP BY, HAVING, LIMIT
+
+        # Find the position to insert WHERE clause
+        # Look for these clauses in order of precedence
+        clause_patterns = [
+            (r'\bGROUP\s+BY\b', re.IGNORECASE),
+            (r'\bHAVING\b', re.IGNORECASE),
+            (r'\bORDER\s+BY\b', re.IGNORECASE),
+            (r'\bLIMIT\b', re.IGNORECASE)
+        ]
+
+        insert_pos = len(query)  # Default to end of query
+
+        for pattern, flags in clause_patterns:
+            match = re.search(pattern, query, flags)
+            if match:
+                insert_pos = min(insert_pos, match.start())
+
+        # Insert WHERE clause
+        filtered_query = (
+                query[:insert_pos].rstrip() +
+                f" WHERE {workspace_filter} " +
+                query[insert_pos:]
+        )
+
+        return filtered_query
+
+    except Exception as e:
+        raise SQLQueryError(
+            f"Failed to add workspace isolation filter to query. "
+            f"This is required for multi-tenant safety. Original error: {str(e)}"
+        )
 
 
 # Also update the SQLQueryError definition if not already present
@@ -873,14 +1144,23 @@ def _get_mediaplans_path(workspace_manager) -> str:
 
 # Add the new exception and method to the patch function
 def patch_workspace_manager():
-    """Patch query methods into WorkspaceManager class."""
+    """
+    Patch enhanced query methods into WorkspaceManager class.
+
+    This replaces the existing patch_workspace_manager() function to include:
+    - Enhanced sql_query with intelligent routing (Steps 1.1 & 1.2)
+    - PostgreSQL query execution with workspace isolation
+    - All existing methods (preserved unchanged)
+    """
     from mediaplanpy.workspace import WorkspaceManager
     from mediaplanpy.exceptions import WorkspaceError
 
     # Add the SQL query exception to the workspace module
     WorkspaceManager.SQLQueryError = SQLQueryError
 
-    # Add existing methods
+    # =========================================================================
+    # EXISTING METHODS (preserved unchanged)
+    # =========================================================================
     WorkspaceManager._get_parquet_files = _get_parquet_files
     WorkspaceManager._load_workspace_data = _load_workspace_data
     WorkspaceManager._apply_filters = _apply_filters
@@ -888,12 +1168,31 @@ def patch_workspace_manager():
     WorkspaceManager.list_mediaplans = list_mediaplans
     WorkspaceManager.list_lineitems = list_lineitems
 
-    # Add new SQL query method
+    # =========================================================================
+    # ENHANCED SQL QUERY METHODS (Steps 1.1 & 1.2)
+    # =========================================================================
+
+    # Core routing method (Step 1.1 - revised to use existing methods)
+    WorkspaceManager._should_route_to_database = _should_route_to_database
+
+    # PostgreSQL execution methods (Step 1.2)
+    WorkspaceManager._sql_query_postgres = _sql_query_postgres
+    WorkspaceManager._add_workspace_filter = _add_workspace_filter
+
+    # Enhanced main sql_query method (Step 1.1)
     WorkspaceManager.sql_query = sql_query
+
+    # Keep existing DuckDB logic as fallback (Step 1.1)
+    WorkspaceManager._sql_query_duckdb = _sql_query_duckdb
+
+    # =========================================================================
+    # EXISTING HELPER METHODS (preserved unchanged)
+    # =========================================================================
     WorkspaceManager._validate_sql_safety = _validate_sql_safety
     WorkspaceManager._resolve_sql_file_patterns = _resolve_sql_file_patterns
     WorkspaceManager._get_mediaplans_path = _get_mediaplans_path
-
+    WorkspaceManager._prepare_duckdb_s3_access = _prepare_duckdb_s3_access
+    WorkspaceManager._configure_duckdb_credentials = _configure_duckdb_credentials
 
 # Update the patch call at the bottom of the file
 patch_workspace_manager()

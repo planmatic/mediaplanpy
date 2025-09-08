@@ -1,5 +1,12 @@
 # Changelog
 
+## [v2.0.4] - 2025-09-08
+
+### Improved
+- `Workspace.sql_query()`  
+  Upgraded performance for S3 storage by querying Database (PostgreSQL) instead of Parquet files, when enabled. 
+
+
 ## [v2.0.3] - 2025-08-26
 
 ### Added
