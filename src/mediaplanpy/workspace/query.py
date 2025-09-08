@@ -705,7 +705,7 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
             raise SQLQueryError("No workspace_id found in configuration - required for database queries")
 
         # Create database backend
-        db_backend = PostgreSQLBackend(database_config)
+        db_backend = PostgreSQLBackend(workspace_config)
 
         # Pattern replacement: {*} → table_name
         resolved_query = query.replace('{*}', table_name)
@@ -720,7 +720,8 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
         logger.debug(f"Executing PostgreSQL query: {resolved_query}")
 
         # Execute query using database backend
-        with db_backend.get_connection() as conn:
+        # with db_backend.get_connection() as conn:
+        with db_backend.connect() as conn:
             if return_dataframe:
                 result_df = pd.read_sql(resolved_query, conn)
                 logger.debug(f"PostgreSQL query executed successfully, returned {len(result_df)} rows")
