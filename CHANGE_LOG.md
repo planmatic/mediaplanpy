@@ -3,8 +3,10 @@
 ## [v2.0.5] - 2025-09-10
 
 ### Improved
-- `MediaPlan.set_as_current()`  
+- `MediaPlan.set_as_current()`
   Performance optimization for faster execution in large workspaces with cloud-based storage.
+- `Workspace.sql_query()`  
+  Performance optimization for single plan SQL queries on database enabled workspaces.
 
 
 ## [v2.0.4] - 2025-09-08

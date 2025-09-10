@@ -681,7 +681,7 @@ def _should_route_to_database(self, query: str, engine_override: str) -> bool:
     Routing Logic:
     - engine="database" → Always database (with validation using existing PostgreSQLBackend)
     - engine="duckdb" → Always DuckDB
-    - engine="auto" → Database if enabled AND {*} pattern detected (lightweight check)
+    - engine="auto" → Database if enabled (performance optimization for all queries)
 
     Args:
         query: SQL query string
@@ -725,20 +725,14 @@ def _should_route_to_database(self, query: str, engine_override: str) -> bool:
         return False
 
     elif engine_override == "auto":
-        # Auto routing: lightweight check for performance
+        # Auto routing: use database whenever enabled for optimal performance
         db_config = self.get_database_config()  # Existing method
 
-        # Quick checks first (no expensive operations for auto mode)
-        if not db_config.get('enabled', False):
+        # Route to database if enabled, regardless of query pattern
+        if db_config.get('enabled', False):
+            return True
+        else:
             return False
-
-        if '{*}' not in query:
-            return False
-
-        # For auto mode, assume database is available if enabled
-        # The actual connection will be tested in _sql_query_postgres()
-        # where we can provide better error handling
-        return True
 
     else:
         raise SQLQueryError(
@@ -851,8 +845,11 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
     """
     Execute query against PostgreSQL database with workspace isolation.
 
+    Enhanced to support both {*} and {plan_id} patterns with automatic
+    plan_id filtering for optimal performance.
+
     Args:
-        query: SQL query with {*} pattern
+        query: SQL query with {*} or {plan_id} pattern
         return_dataframe: Return format preference
         limit: Optional row limit
 
@@ -883,8 +880,8 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
         # Create database backend
         db_backend = PostgreSQLBackend(workspace_config)
 
-        # Pattern replacement: {*} → table_name
-        resolved_query = query.replace('{*}', table_name)
+        # Resolve patterns: {*} → table_name, {plan_id} → table_name + WHERE filter
+        resolved_query = self._resolve_database_patterns(query, table_name)
 
         # Add workspace isolation (CRITICAL for multi-tenant safety)
         resolved_query = self._add_workspace_filter(resolved_query, workspace_id)
@@ -896,7 +893,6 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
         logger.debug(f"Executing PostgreSQL query: {resolved_query}")
 
         # Execute query using database backend
-        # with db_backend.get_connection() as conn:
         with db_backend.connect() as conn:
             if return_dataframe:
                 result_df = pd.read_sql(resolved_query, conn)
@@ -940,6 +936,160 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
         else:
             # Generic database error
             raise SQLQueryError(f"PostgreSQL query execution failed: {str(e)}")
+
+
+def _resolve_database_patterns(self, query: str, table_name: str) -> str:
+    """
+    Resolve database query patterns for {*} and {plan_id} cases.
+
+    Handles:
+    - {*} → table_name (query all plans)
+    - {plan_id} → table_name + WHERE media_plan_id = 'plan_id' (query specific plan)
+
+    Uses only the first pattern found if multiple exist.
+
+    Args:
+        query: SQL query with {pattern} placeholder
+        table_name: Database table name to substitute
+
+    Returns:
+        Query with pattern resolved and plan_id filter added if applicable
+
+    Raises:
+        SQLQueryError: If pattern resolution fails
+    """
+    try:
+        # Extract all patterns from the query
+        pattern_matches = re.findall(r'\{([^}]+)\}', query)
+
+        if not pattern_matches:
+            raise SQLQueryError(
+                "No file patterns found in query. Use {*} for all plans or {plan_id} for specific plan."
+            )
+
+        # Use only the first pattern (as per requirements)
+        pattern = pattern_matches[0].strip()
+
+        if pattern == '*':
+            # {*} case: replace with table name, no additional filtering
+            resolved_query = query.replace('{*}', table_name)
+            logger.debug(f"Resolved {{*}} pattern to table: {table_name}")
+
+        else:
+            # {plan_id} case: replace with table name and add plan_id filter
+            resolved_query = query.replace(f'{{{pattern}}}', table_name)
+            resolved_query = self._add_plan_id_filter(resolved_query, pattern)
+            logger.debug(f"Resolved {{{{}}}} pattern to table with plan_id filter: {pattern}")
+
+        return resolved_query
+
+    except Exception as e:
+        if isinstance(e, SQLQueryError):
+            raise
+        else:
+            raise SQLQueryError(f"Failed to resolve database pattern: {str(e)}")
+
+def _add_plan_id_filter(self, query: str, plan_id: str) -> str:
+    """
+    Add plan_id filter to SQL query using the same logic as workspace filter.
+
+    Properly handles existing WHERE clauses by combining filters with AND.
+    This follows the same pattern as _add_workspace_filter() for consistency.
+
+    Args:
+        query: Original SQL query (may already contain WHERE clause)
+        plan_id: Media plan identifier to filter by
+
+    Returns:
+        Query with plan_id filter added (combined with existing WHERE if present)
+
+    Raises:
+        SQLQueryError: If plan_id filter cannot be added safely
+    """
+    if not plan_id:
+        raise SQLQueryError("plan_id is required for plan-specific database queries")
+
+    # Escape single quotes in plan_id for SQL safety
+    safe_plan_id = self._escape_sql_value(plan_id)
+    plan_filter = f"meta_id = '{safe_plan_id}'"
+
+    try:
+        # Normalize query for parsing - but preserve original formatting
+        query_upper = query.upper()
+
+        # Case 1: Query already has WHERE clause
+        where_match = re.search(r'\bWHERE\b', query, re.IGNORECASE)
+        if where_match:
+            # Find the WHERE keyword position
+            where_pos = where_match.start()
+            where_end = where_match.end()
+
+            # Find what comes after WHERE to inject our filter properly
+            remaining_query = query[where_end:]
+            remaining_upper = query_upper[where_end:]
+
+            # Find positions of major clauses that could come after WHERE
+            clause_patterns = [
+                (r'\bGROUP\s+BY\b', 'GROUP BY'),
+                (r'\bHAVING\b', 'HAVING'),
+                (r'\bORDER\s+BY\b', 'ORDER BY'),
+                (r'\bLIMIT\b', 'LIMIT')
+            ]
+
+            # Find the first major clause after WHERE
+            next_clause_pos = len(remaining_query)  # Default to end if no clause found
+
+            for pattern, clause_name in clause_patterns:
+                match = re.search(pattern, remaining_query, re.IGNORECASE)
+                if match:
+                    next_clause_pos = min(next_clause_pos, match.start())
+
+            # Extract the existing WHERE conditions
+            existing_conditions = remaining_query[:next_clause_pos].strip()
+            rest_of_query = remaining_query[next_clause_pos:]
+
+            # Combine plan_id filter with existing conditions using AND
+            combined_conditions = f"({plan_filter}) AND ({existing_conditions})"
+
+            # Reconstruct the query
+            filtered_query = (
+                    query[:where_end] +  # Everything up to and including WHERE
+                    f" {combined_conditions}" +  # Combined conditions
+                    rest_of_query  # Rest of query (GROUP BY, ORDER BY, etc.)
+            )
+
+            return filtered_query
+
+        # Case 2: Query has no WHERE clause - add one
+        # Find the position to insert WHERE clause
+        clause_patterns = [
+            (r'\bGROUP\s+BY\b', re.IGNORECASE),
+            (r'\bHAVING\b', re.IGNORECASE),
+            (r'\bORDER\s+BY\b', re.IGNORECASE),
+            (r'\bLIMIT\b', re.IGNORECASE)
+        ]
+
+        insert_pos = len(query)  # Default to end of query
+
+        for pattern, flags in clause_patterns:
+            match = re.search(pattern, query, flags)
+            if match:
+                insert_pos = min(insert_pos, match.start())
+
+        # Insert WHERE clause
+        filtered_query = (
+                query[:insert_pos].rstrip() +
+                f" WHERE {plan_filter} " +
+                query[insert_pos:]
+        )
+
+        return filtered_query
+
+    except Exception as e:
+        raise SQLQueryError(
+            f"Failed to add plan_id filter to query. "
+            f"Original error: {str(e)}"
+        )
 
 
 def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
@@ -1381,6 +1531,8 @@ def patch_workspace_manager():
     WorkspaceManager._add_workspace_filter = _add_workspace_filter
     WorkspaceManager.sql_query = sql_query
     WorkspaceManager._sql_query_duckdb = _sql_query_duckdb
+    WorkspaceManager._resolve_database_patterns = _resolve_database_patterns
+    WorkspaceManager._add_plan_id_filter = _add_plan_id_filter
 
     # =========================================================================
     # HELPER METHODS
