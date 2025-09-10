@@ -1,5 +1,12 @@
 # Changelog
 
+## [v2.0.5] - 2025-09-10
+
+### Improved
+- `MediaPlan.set_as_current()`  
+  Performance optimization for faster execution in large workspaces with cloud-based storage.
+
+
 ## [v2.0.4] - 2025-09-08
 
 ### Improved

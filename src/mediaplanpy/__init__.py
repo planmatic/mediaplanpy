@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v2.0
-__version__ = '2.0.4'          # SDK version
+__version__ = '2.0.5'          # SDK version
 __schema_version__ = '2.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -16,6 +16,7 @@ VERSION_NOTES = {
     '2.0.2': 'v2.0 schema support with minor non-breaking functionality upgrades',
     '2.0.3': 'Implement support for S3 storage',
     '2.0.4': 'Performance upgrades for S3 storage',
+    '2.0.5': 'Performance upgrades for S3 storage - continued',
 }
 
 # Schema version compatibility constants - Updated for v2.0
