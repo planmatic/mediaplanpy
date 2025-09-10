@@ -596,6 +596,8 @@ class MediaPlan(BaseModel):
         """
         Find all media plans in the same campaign that are currently set as current.
 
+        OPTIMIZED: Uses workspace.list_mediaplans() with filters instead of scanning all files.
+
         Args:
             workspace_manager: The WorkspaceManager instance
 
@@ -604,55 +606,47 @@ class MediaPlan(BaseModel):
             (should normally be 0 or 1 plans due to business constraint)
         """
         try:
-            # Get storage backend
-            storage_backend = workspace_manager.get_storage_backend()
 
-            # Find all JSON files in mediaplans directory
-            json_files = []
-            try:
-                json_files = storage_backend.list_files("mediaplans", "*.json")
-            except Exception:
-                # Try root directory as fallback
-                json_files = storage_backend.list_files("", "*.json")
+            logger.debug(f"Querying for current plans in campaign {self.campaign.id}")
 
+            # Query using the optimized list_mediaplans method
+            filters = {
+                "campaign_id": [self.campaign.id],
+                "meta_is_current": [True]
+            }
+            matching_plan_metadata = workspace_manager.list_mediaplans(
+                filters=filters,
+                include_stats=False,  # We don't need statistics, just metadata
+                return_dataframe=False  # We want list of dicts
+            )
+
+            logger.debug(f"Found {len(matching_plan_metadata)} current plan(s) for campaign {self.campaign.id}")
+
+            # Load only the specific MediaPlan objects that match our criteria
             current_plans = []
-
-            for file_path in json_files:
+            for plan_metadata in matching_plan_metadata:
                 try:
-                    # Read the file to check campaign and current status
-                    content = storage_backend.read_file(file_path, binary=False)
-                    import json
-                    data = json.loads(content)
+                    media_plan_id = plan_metadata['meta_id']
 
-                    # Check if this plan belongs to the same campaign and is current
-                    file_campaign_id = data.get("campaign", {}).get("id")
-                    file_is_current = data.get("meta", {}).get("is_current")
-
-                    if (file_campaign_id == self.campaign.id and
-                            file_is_current is True):
-
-                        # Load the full MediaPlan object
-                        try:
-                            plan = MediaPlan.load(
-                                workspace_manager,
-                                path=file_path,
-                                validate_version=True,
-                                auto_migrate=True
-                            )
-                            current_plans.append(plan)
-                            logger.debug(f"Found current plan for campaign {self.campaign.id}: {plan.meta.id}")
-                        except Exception as e:
-                            logger.warning(f"Could not load media plan from {file_path}: {e}")
+                    # Load the full MediaPlan object by ID
+                    plan = MediaPlan.load(
+                        workspace_manager,
+                        media_plan_id=media_plan_id,
+                        validate_version=True,
+                        auto_migrate=True
+                    )
+                    current_plans.append(plan)
+                    logger.debug(f"Loaded current plan for campaign {self.campaign.id}: {plan.meta.id}")
 
                 except Exception as e:
-                    logger.warning(f"Could not process file {file_path}: {e}")
+                    logger.warning(f"Could not load media plan with ID {plan_metadata.get('meta_id', 'unknown')}: {e}")
                     continue
 
-            logger.info(f"Found {len(current_plans)} current media plans for campaign {self.campaign.id}")
+            logger.info(f"Successfully loaded {len(current_plans)} current media plans for campaign {self.campaign.id}")
             return current_plans
 
         except Exception as e:
-            logger.error(f"Failed to find campaign current plans: {e}")
+            logger.error(f"Failed to find campaign current plans using optimized query: {e}")
             return []
 
     def set_as_current(self, workspace_manager: 'WorkspaceManager', update_self: bool = True) -> Dict[str, Any]:

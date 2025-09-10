@@ -4,7 +4,13 @@
 
 ### Improved
 - `Workspace.sql_query()`  
-  Upgraded performance for S3 storage by querying Database (PostgreSQL) instead of Parquet files, when enabled. 
+  Upgraded performance for S3 storage by querying Database (PostgreSQL) instead of Parquet files, when enabled.
+- `Workspace.list_campaigns()`  
+  Upgraded performance by leveraging native workspace.sql_query() method. 
+- `Workspace.list_mediaplans()`  
+  Upgraded performance by leveraging native workspace.sql_query() method. 
+- `Workspace.list_lineitems()`  
+  Upgraded performance by leveraging native workspace.sql_query() method. 
 
 
 ## [v2.0.3] - 2025-08-26
