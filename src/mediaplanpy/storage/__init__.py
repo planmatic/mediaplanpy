@@ -11,7 +11,6 @@ from typing import Dict, Any, Optional, Type, Union
 from mediaplanpy.exceptions import StorageError
 from mediaplanpy.storage.base import StorageBackend
 from mediaplanpy.storage.local import LocalStorageBackend
-from mediaplanpy.storage.s3 import S3StorageBackend
 from mediaplanpy.storage.formats import (
     FormatHandler,
     get_format_handler_instance,
@@ -20,11 +19,20 @@ from mediaplanpy.storage.formats import (
 
 logger = logging.getLogger("mediaplanpy.storage")
 
-# Registry of storage backend classes
+# Registry of storage backend classes with defensive S3 loading
 _storage_backends = {
     'local': LocalStorageBackend,
-    's3': S3StorageBackend  # Added S3 backend
 }
+
+# Try to register S3 backend - handles circular import issues
+try:
+    from mediaplanpy.storage.s3 import S3StorageBackend
+    _storage_backends['s3'] = S3StorageBackend
+    logger.debug("S3 storage backend registered successfully")
+except ImportError as e:
+    logger.warning(f"S3 storage backend not available: {e}")
+except Exception as e:
+    logger.error(f"Failed to register S3 storage backend: {e}")
 
 
 def get_storage_backend(workspace_config: Dict[str, Any]) -> StorageBackend:
@@ -118,10 +126,10 @@ def write_mediaplan(workspace_config: Dict[str, Any], data: Dict[str, Any], path
         raise StorageError(f"Failed to write media plan to {path}: {e}")
 
 
+# Build __all__ list dynamically based on available backends
 __all__ = [
     'StorageBackend',
     'LocalStorageBackend',
-    'S3StorageBackend',  # Added S3StorageBackend to exports
     'FormatHandler',
     'JsonFormatHandler',
     'get_storage_backend',
@@ -129,3 +137,7 @@ __all__ = [
     'read_mediaplan',
     'write_mediaplan'
 ]
+
+# Add S3StorageBackend to exports if it was successfully imported
+if 's3' in _storage_backends:
+    __all__.append('S3StorageBackend')
