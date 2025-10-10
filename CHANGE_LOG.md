@@ -1,5 +1,19 @@
 # Changelog
 
+## [v2.0.6] - 2025-10-10
+
+### Fixed
+- `MediaPlan.load()`
+  Change approach to loading S3 Storage Backend due to circular import issues on Linux.
+
+### Improved
+- `Workspace.create()`
+  Optimized indexing for PostgreSQL database table and removed unnecessary indexes.
+  Note: Existing databases are not automatically upgraded with new indexes.
+- `Mediaplan.load()`, `Mediaplan.import_from_excel()`, `Mediaplan.import_from_json()`  
+  Removed unnecessary media plan data validation for agency, advertiser, product and workflow_status id / names.
+
+
 ## [v2.0.5] - 2025-09-10
 
 ### Improved

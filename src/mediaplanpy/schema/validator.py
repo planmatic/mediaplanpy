@@ -472,8 +472,9 @@ class SchemaValidator:
         errors = []
 
         # Validate campaign field consistency
-        campaign = media_plan.get("campaign", {})
-        errors.extend(self._validate_campaign_v2_consistency(campaign))
+        # Removed unnecessary data validation
+        # campaign = media_plan.get("campaign", {})
+        # errors.extend(self._validate_campaign_v2_consistency(campaign))
 
         # Validate line item field consistency
         lineitems = media_plan.get("lineitems", [])

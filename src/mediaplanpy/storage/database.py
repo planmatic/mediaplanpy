@@ -510,21 +510,36 @@ class PostgreSQLBackend:
                 with conn.cursor() as cursor:
                     cursor.execute(create_sql)
 
-                    # Create index on schema version for efficient querying
+                    # Create index on workspace_id
                     cursor.execute(f"""
-                        CREATE INDEX IF NOT EXISTS idx_{self.table_name}_schema_version 
-                        ON {self.schema}.{self.table_name} (meta_schema_version)
+                        CREATE INDEX idx_{self.table_name}_workspaces
+                            ON {self.schema}.{self.table_name} (workspace_id)
                     """)
 
+                    # Create index on meta_id
+                    cursor.execute(f"""
+                    CREATE INDEX idx_{self.table_name}_plans 
+                        ON {self.schema}.{self.table_name} (workspace_id, meta_id) 
+                        INCLUDE (meta_is_current, meta_is_archived, campaign_id, campaign_agency_id, campaign_advertiser_id, campaign_product_id)
+                    """)
+
+                    # Create index on schema version for efficient querying
+                    # DISCONTINUED 20251010 - Not beneficial
+                    # cursor.execute(f"""
+                    #     CREATE INDEX IF NOT EXISTS idx_{self.table_name}_schema_version
+                    #     ON {self.schema}.{self.table_name} (meta_schema_version)
+                    # """)
+
                     # Create additional indexes for v2.0 fields that might be queried frequently
+                    # DISCONTINUED 20251010 - Not beneficial
                     v2_indexes = [
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_campaign_type ON {self.schema}.{self.table_name} (campaign_campaign_type_id)",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_workflow_status ON {self.schema}.{self.table_name} (campaign_workflow_status_id)",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_agency ON {self.schema}.{self.table_name} (campaign_agency_id)",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_advertiser ON {self.schema}.{self.table_name} (campaign_advertiser_id)",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_created_by_id ON {self.schema}.{self.table_name} (meta_created_by_id)",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_current_plans ON {self.schema}.{self.table_name} (meta_is_current) WHERE meta_is_current = true",
-                        f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_active_plans ON {self.schema}.{self.table_name} (meta_is_archived) WHERE meta_is_archived = false OR meta_is_archived IS NULL"
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_campaign_type ON {self.schema}.{self.table_name} (campaign_campaign_type_id)",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_workflow_status ON {self.schema}.{self.table_name} (campaign_workflow_status_id)",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_agency ON {self.schema}.{self.table_name} (campaign_agency_id)",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_advertiser ON {self.schema}.{self.table_name} (campaign_advertiser_id)",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_created_by_id ON {self.schema}.{self.table_name} (meta_created_by_id)",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_current_plans ON {self.schema}.{self.table_name} (meta_is_current) WHERE meta_is_current = true",
+                        # f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_active_plans ON {self.schema}.{self.table_name} (meta_is_archived) WHERE meta_is_archived = false OR meta_is_archived IS NULL"
                     ]
 
                     for index_sql in v2_indexes:
