@@ -8,7 +8,7 @@ Three new methods have been added to the `WorkspaceManager` class:
 
 ### 1. `list_campaigns(filters=None, include_stats=True, return_dataframe=False)`
 
-Retrieve a list of unique campaigns with metadata and optional statistics.
+Retrieve a list of unique campaigns with metadata and optional statistics. Returns one row per campaign with current campaign settings and statistics from the current/latest media plan.
 
 - **Parameters:**
   - `filters` (dict, optional): Filters to apply to the data
@@ -18,14 +18,19 @@ Retrieve a list of unique campaigns with metadata and optional statistics.
 - **Returns:**
   A list of dictionaries or a pandas DataFrame, each representing a unique campaign.
 
+- **Behavior:**
+  - Returns one row per `campaign_id` (no duplicates)
+  - Campaign settings are taken from the current media plan (`meta_is_current = TRUE`), or the most recent plan if no current plan exists
+  - Statistics are calculated from the current/latest media plan only, except for `stat_media_plan_count`
+
 - **Statistics included:**
-  - `stat_media_plan_count`: Number of media plans associated with the campaign
-  - `stat_lineitem_count`: Total number of line items in the campaign
-  - `stat_total_cost`: Sum of all line item costs in the campaign
-  - `stat_min_start_date`: Earliest start date among line items
-  - `stat_max_end_date`: Latest end date among line items
+  - `stat_media_plan_count`: Number of non-archived media plans associated with the campaign (all plans)
+  - `stat_lineitem_count`: Number of line items in the current/latest media plan
+  - `stat_total_cost`: Sum of line item costs in the current/latest media plan
+  - `stat_min_start_date`: Earliest start date among line items in the current/latest media plan
+  - `stat_max_end_date`: Latest end date among line items in the current/latest media plan
   - `stat_last_updated`: Most recent update timestamp
-  - `stat_distinct_*_count`: Count of distinct values for various dimensions
+  - `stat_distinct_*_count`: Count of distinct values for various dimensions in the current/latest media plan
 
 ### 2. `list_mediaplans(filters=None, include_stats=True, return_dataframe=False)`
 

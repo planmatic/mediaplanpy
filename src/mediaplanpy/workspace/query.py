@@ -212,6 +212,9 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     """
     Retrieve a list of unique campaigns with metadata and statistics.
 
+    Returns one row per campaign_id with current settings and statistics from the
+    current/latest media plan.
+
     Args:
         filters (dict, optional): Filters to apply. Keys are field names, values are
                                  filter values or lists of values.
@@ -221,75 +224,147 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     Returns:
         List of dictionaries or DataFrame, each row representing a unique campaign.
     """
+    import pandas as pd
+
     # Ensure workspace is loaded
     if not self.is_loaded:
         from mediaplanpy.exceptions import WorkspaceError
         raise WorkspaceError("No workspace configuration loaded. Call load() first.")
 
-    # Build SQL query with all campaign fields (using correct database column names from database.py)
-    query = """
-    SELECT 
-        campaign_id,
-        campaign_name,
-        campaign_objective,
-        campaign_start_date,
-        campaign_end_date,
-        campaign_budget_total,
-        campaign_product_name,
-        campaign_product_description,
-        campaign_audience_name,
-        campaign_audience_age_start,
-        campaign_audience_age_end,
-        campaign_audience_gender,
-        campaign_audience_interests,
-        campaign_location_type,
-        campaign_locations,
-        campaign_budget_currency,
-        campaign_agency_id,
-        campaign_agency_name,
-        campaign_advertiser_id,
-        campaign_advertiser_name,
-        campaign_product_id,
-        campaign_campaign_type_id,
-        campaign_campaign_type_name,
-        campaign_workflow_status_id,
-        campaign_workflow_status_name"""
-
+    # Step 1: Build simple SQL query to get all campaign data with line item aggregations
+    # The workspace_id filter will be automatically injected by sql_query
+    # Filter out archived plans at SQL level
     if include_stats:
-        query += """,
-        COUNT(DISTINCT meta_id) as stat_media_plan_count,
-        COUNT(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN 1 END) as stat_lineitem_count,
-        SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_total ELSE 0 END) as stat_total_cost,
-        MAX(meta_created_at) as stat_last_updated,
-        MIN(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_start_date IS NOT NULL THEN lineitem_start_date END) as stat_min_start_date,
-        MAX(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_end_date IS NOT NULL THEN lineitem_end_date END) as stat_max_end_date,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_channel IS NOT NULL AND lineitem_channel != '' THEN lineitem_channel END) as stat_distinct_channel_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_vehicle IS NOT NULL AND lineitem_vehicle != '' THEN lineitem_vehicle END) as stat_distinct_vehicle_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_partner IS NOT NULL AND lineitem_partner != '' THEN lineitem_partner END) as stat_distinct_partner_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_media_product IS NOT NULL AND lineitem_media_product != '' THEN lineitem_media_product END) as stat_distinct_media_product_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_adformat IS NOT NULL AND lineitem_adformat != '' THEN lineitem_adformat END) as stat_distinct_adformat_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_kpi IS NOT NULL AND lineitem_kpi != '' THEN lineitem_kpi END) as stat_distinct_kpi_count,
-        COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_location_name IS NOT NULL AND lineitem_location_name != '' THEN lineitem_location_name END) as stat_distinct_location_name_count"""
+        query = """
+        SELECT
+            campaign_id,
+            campaign_name,
+            campaign_objective,
+            campaign_start_date,
+            campaign_end_date,
+            campaign_budget_total,
+            campaign_product_name,
+            campaign_product_description,
+            campaign_audience_name,
+            campaign_audience_age_start,
+            campaign_audience_age_end,
+            campaign_audience_gender,
+            campaign_audience_interests,
+            campaign_location_type,
+            campaign_locations,
+            campaign_budget_currency,
+            campaign_agency_id,
+            campaign_agency_name,
+            campaign_advertiser_id,
+            campaign_advertiser_name,
+            campaign_product_id,
+            campaign_campaign_type_id,
+            campaign_campaign_type_name,
+            campaign_workflow_status_id,
+            campaign_workflow_status_name,
+            meta_id,
+            meta_is_current,
+            meta_created_at,
+            -- Line item statistics per media plan
+            COUNT(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN 1 END) as stat_lineitem_count,
+            SUM(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN lineitem_cost_total ELSE 0 END) as stat_total_cost,
+            MIN(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_start_date IS NOT NULL THEN lineitem_start_date END) as stat_min_start_date,
+            MAX(CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_end_date IS NOT NULL THEN lineitem_end_date END) as stat_max_end_date,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_channel IS NOT NULL AND lineitem_channel != '' THEN lineitem_channel END) as stat_distinct_channel_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_vehicle IS NOT NULL AND lineitem_vehicle != '' THEN lineitem_vehicle END) as stat_distinct_vehicle_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_partner IS NOT NULL AND lineitem_partner != '' THEN lineitem_partner END) as stat_distinct_partner_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_media_product IS NOT NULL AND lineitem_media_product != '' THEN lineitem_media_product END) as stat_distinct_media_product_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_adformat IS NOT NULL AND lineitem_adformat != '' THEN lineitem_adformat END) as stat_distinct_adformat_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_kpi IS NOT NULL AND lineitem_kpi != '' THEN lineitem_kpi END) as stat_distinct_kpi_count,
+            COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_location_name IS NOT NULL AND lineitem_location_name != '' THEN lineitem_location_name END) as stat_distinct_location_name_count
+        FROM {*}
+        WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL
+        GROUP BY campaign_id, campaign_name, campaign_objective,
+                 campaign_start_date, campaign_end_date, campaign_budget_total,
+                 campaign_product_name, campaign_product_description,
+                 campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end,
+                 campaign_audience_gender, campaign_audience_interests, campaign_location_type, campaign_locations,
+                 campaign_budget_currency, campaign_agency_id, campaign_agency_name,
+                 campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
+                 campaign_campaign_type_id, campaign_campaign_type_name,
+                 campaign_workflow_status_id, campaign_workflow_status_name,
+                 meta_id, meta_is_current, meta_created_at
+        ORDER BY campaign_id,
+                 CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END,
+                 meta_created_at DESC
+        """
+    else:
+        query = """
+        SELECT DISTINCT
+            campaign_id,
+            campaign_name,
+            campaign_objective,
+            campaign_start_date,
+            campaign_end_date,
+            campaign_budget_total,
+            campaign_product_name,
+            campaign_product_description,
+            campaign_audience_name,
+            campaign_audience_age_start,
+            campaign_audience_age_end,
+            campaign_audience_gender,
+            campaign_audience_interests,
+            campaign_location_type,
+            campaign_locations,
+            campaign_budget_currency,
+            campaign_agency_id,
+            campaign_agency_name,
+            campaign_advertiser_id,
+            campaign_advertiser_name,
+            campaign_product_id,
+            campaign_campaign_type_id,
+            campaign_campaign_type_name,
+            campaign_workflow_status_id,
+            campaign_workflow_status_name,
+            meta_id,
+            meta_is_current,
+            meta_created_at
+        FROM {*}
+        WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL
+        ORDER BY campaign_id,
+                 CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END,
+                 meta_created_at DESC
+        """
 
-    query += """
-    FROM {*}
-    GROUP BY campaign_id, campaign_name, campaign_objective, 
-             campaign_start_date, campaign_end_date, campaign_budget_total,
-             campaign_product_name, campaign_product_description,
-             campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end, 
-             campaign_audience_gender, campaign_audience_interests, campaign_location_type, campaign_locations,
-             campaign_budget_currency, campaign_agency_id, campaign_agency_name,
-             campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
-             campaign_campaign_type_id, campaign_campaign_type_name,
-             campaign_workflow_status_id, campaign_workflow_status_name
-    ORDER BY campaign_name"""
-
-    # Add filters if provided
+    # Add user filters if provided
     if filters:
         query = self._add_sql_filters(query, filters)
 
-    # Use routing logic - automatically chooses database vs Parquet!
-    return self.sql_query(query, return_dataframe=return_dataframe)
+    # Step 2: Execute query - workspace_id filter is automatically injected
+    df = self.sql_query(query, return_dataframe=True)
+
+    if df.empty:
+        return df if return_dataframe else []
+
+    # Step 3: Count non-archived plans per campaign (before filtering to first row)
+    if include_stats:
+        plan_counts = df.groupby('campaign_id')['meta_id'].nunique().reset_index()
+        plan_counts.columns = ['campaign_id', 'stat_media_plan_count']
+
+    # Step 4: Keep only the first row per campaign_id (current or most recent)
+    # The ORDER BY in the SQL already sorted by is_current and created_at DESC
+    result_df = df.groupby('campaign_id', as_index=False).first()
+
+    # Step 5: Add plan counts back to the filtered dataframe
+    if include_stats:
+        result_df = result_df.merge(plan_counts, on='campaign_id', how='left')
+        result_df['stat_media_plan_count'] = result_df['stat_media_plan_count'].fillna(0).astype(int)
+        # Add stat_last_updated as meta_created_at
+        result_df['stat_last_updated'] = result_df['meta_created_at']
+
+    # Step 6: Sort by campaign name
+    result_df = result_df.sort_values('campaign_name').reset_index(drop=True)
+
+    # Step 7: Return in requested format (keep meta fields for future use)
+    if return_dataframe:
+        return result_df
+    else:
+        return result_df.to_dict(orient='records')
 
 
 def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=False):

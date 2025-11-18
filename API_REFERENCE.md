@@ -88,15 +88,19 @@ result = workspace.upgrade_workspace()
 
 **`list_campaigns(filters=None, include_stats=True, return_dataframe=False) -> Union[List[Dict], DataFrame]`**
 - **Location**: `src/mediaplanpy/workspace/query.py:211`
-- **Description**: Retrieves campaigns with metadata and statistics
+- **Description**: Retrieves campaigns with metadata and statistics. Returns one row per campaign_id with current settings and statistics from the current/latest media plan.
 - **Key Use Cases**: Campaign reporting, dashboard data
+- **Behavior**:
+  - Returns one row per `campaign_id` (no duplicates)
+  - Campaign settings from current plan (`meta_is_current = TRUE`) or most recent plan
+  - Statistics calculated from current/latest media plan only (except `stat_media_plan_count`)
 - **Parameters**:
   - `filters`: Dictionary of filter criteria
   - `include_stats`: Include summary statistics
   - `return_dataframe`: Return pandas DataFrame instead of list
 - **Example**:
 ```python
-# Get all campaigns with stats
+# Get all campaigns with stats (one row per campaign)
 campaigns = workspace.list_campaigns(include_stats=True)
 
 # Filter by date range
