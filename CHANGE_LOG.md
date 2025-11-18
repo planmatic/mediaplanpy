@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.0.7] - 2025-10-18
+
+### Fixed
+- `Workspace.list_campaigns()`
+  Bug fix whereby duplicate entries were being returned in campaign list.
+
 ## [v2.0.6] - 2025-10-10
 
 ### Fixed
