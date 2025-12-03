@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mediaplan.schema.json",
+  "title": "Media Plan",
+  "type": "object",
+  "required": ["meta", "campaign", "lineitems"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "description": "Metadata about the media plan document itself",
+      "required": ["id", "schema_version", "created_by_name", "created_at"],
+      "properties": {
+		"id": {
+          "type": "string",
+          "description": "Unique identifier for this media plan document"
+        },
+        "schema_version": {
+          "type": "string",
+          "description": "Version of the media plan schema used (e.g., '2.0')"
+        },
+        "name": {
+          "type": "string",
+          "description": "Human-readable name for the media plan"
+        },
+        "created_by_id": {
+          "type": "string",
+          "description": "Unique identifier of the user who created this media plan"
+        },
+        "created_by_name": {
+          "type": "string",
+          "description": "Full name of the user who created this media plan"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when this media plan was created in ISO 8601 format"
+        },
+        "comments": {
+          "type": "string",
+          "description": "General comments or notes about this media plan"
+        },
+        "is_current": {
+          "type": "boolean",
+          "description": "Whether this is the current/active version of the media plan"
+        },
+        "is_archived": {
+          "type": "boolean",
+          "description": "Whether this media plan has been archived"
+        },
+		"parent_id": {
+          "type": "string",
+          "description": "Identifier of the parent media plan if this is a revision or copy"
+        },
+		"dim_custom1": {
+          "type": "string",
+          "description": "Custom dimension field 1 - configuration defined in dictionary schema"
+        },
+		"dim_custom2": {
+          "type": "string",
+          "description": "Custom dimension field 2 - configuration defined in dictionary schema"
+        },
+		"dim_custom3": {
+          "type": "string",
+          "description": "Custom dimension field 3 - configuration defined in dictionary schema"
+        },
+		"dim_custom4": {
+          "type": "string",
+          "description": "Custom dimension field 4 - configuration defined in dictionary schema"
+        },
+		"dim_custom5": {
+          "type": "string",
+          "description": "Custom dimension field 5 - configuration defined in dictionary schema"
+        },
+		"custom_properties": {
+          "type": "object",
+          "description": "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
+        }
+      }
+    },
+    "campaign": {
+      "$ref": "campaign.schema.json",
+      "description": "Campaign information and configuration for this media plan"
+    },
+    "lineitems": {
+      "type": "array",
+      "description": "Collection of individual line items that make up the media plan",
+      "items": { "$ref": "lineitem.schema.json" }
+    },
+    "dictionary": {
+      "$ref": "dictionary.schema.json",
+      "description": "Configuration dictionary defining custom field settings and captions"
+    }
+  }
+}

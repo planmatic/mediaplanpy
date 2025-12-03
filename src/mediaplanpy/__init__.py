@@ -5,9 +5,9 @@ A lightweight, open-source Python SDK for interacting with the open data
 standard for media plans.
 """
 
-# Central Version Definitions - Updated for v2.0
-__version__ = '2.0.7'          # SDK version
-__schema_version__ = '2.0'     # Current schema version supported
+# Central Version Definitions - Updated for v3.0
+__version__ = '3.0.0'          # SDK version
+__schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
     '1.0.0': 'v1.0 schema support with new versioning strategy - Schema 1.0',
@@ -18,13 +18,14 @@ VERSION_NOTES = {
     '2.0.4': 'Performance upgrades for S3 storage',
     '2.0.5': 'Performance upgrades for S3 storage - continued',
     '2.0.6': 'Miscellaneous minor fixes / upgrades',
-    '2.0.7': 'Buf fix in workspace.list_campaigns',
+    '2.0.7': 'Bug fix in workspace.list_campaigns',
+    '3.0.0': 'v3.0 schema support - Target audiences/locations arrays, metric formulas, 42+ new fields - v0.0 and v1.0 support removed',
 }
 
-# Schema version compatibility constants - Updated for v2.0
-CURRENT_MAJOR = 2
+# Schema version compatibility constants - Updated for v3.0
+CURRENT_MAJOR = 3
 CURRENT_MINOR = 0
-SUPPORTED_MAJOR_VERSIONS = [1, 2]  # v0.0 no longer supported - only v1.0 and v2.0
+SUPPORTED_MAJOR_VERSIONS = [2, 3]  # v0.0 and v1.0 no longer supported - only v2.0 and v3.0
 
 # Setup package-level logger
 import logging
