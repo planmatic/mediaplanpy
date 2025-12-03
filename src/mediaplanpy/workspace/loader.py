@@ -133,6 +133,70 @@ class WorkspaceManager:
 
         return migrated_config
 
+    def _validate_workspace_version_compatibility(self) -> None:
+        """
+        Validate that the workspace schema version is compatible with the current SDK version.
+
+        This enforces strict version matching: SDK v3.0.x can ONLY load v3.0 workspaces.
+        Users must explicitly upgrade v2.0 workspaces or downgrade their SDK.
+
+        Raises:
+            WorkspaceError: If workspace version is incompatible with SDK version.
+        """
+        from mediaplanpy import __schema_version__
+        sdk_version = __schema_version__  # e.g., "3.0"
+
+        # Get workspace schema version from config
+        workspace_version = self.config.get('workspace_settings', {}).get('schema_version')
+
+        if not workspace_version:
+            raise WorkspaceError(
+                "Workspace configuration is missing 'workspace_settings.schema_version'. "
+                "This workspace may be corrupted or from a very old SDK version."
+            )
+
+        # Extract major.minor version (ignore patch if present)
+        sdk_major_minor = '.'.join(sdk_version.split('.')[:2])  # "3.0"
+        workspace_major_minor = '.'.join(workspace_version.split('.')[:2])  # "2.0" or "3.0"
+
+        # Check for version mismatch
+        if workspace_major_minor != sdk_major_minor:
+            # Workspace is older than SDK
+            if workspace_major_minor < sdk_major_minor:
+                raise WorkspaceError(
+                    f"❌ WORKSPACE VERSION MISMATCH\n\n"
+                    f"Workspace version: {workspace_version}\n"
+                    f"SDK version: {sdk_version}\n\n"
+                    f"This workspace uses schema v{workspace_version}, but you are running SDK v{sdk_version}.\n"
+                    f"SDK v{sdk_major_minor}.x can ONLY load v{sdk_major_minor} workspaces.\n\n"
+                    f"To resolve this issue, choose ONE of the following options:\n\n"
+                    f"OPTION 1 - Upgrade workspace to v{sdk_major_minor} (RECOMMENDED):\n"
+                    f"  1. Create a backup of your workspace files\n"
+                    f"  2. Run: workspace_manager.upgrade_workspace(dry_run=True)  # Preview changes\n"
+                    f"  3. Run: workspace_manager.upgrade_workspace()  # Perform upgrade\n"
+                    f"  Note: Upgrade will create automatic backups before making changes\n\n"
+                    f"OPTION 2 - Downgrade SDK to v{workspace_major_minor}.x:\n"
+                    f"  pip install mediaplanpy~={workspace_major_minor}.0\n\n"
+                    f"For more information, see the migration guide in the documentation."
+                )
+
+            # Workspace is newer than SDK
+            else:
+                raise WorkspaceError(
+                    f"❌ WORKSPACE VERSION MISMATCH\n\n"
+                    f"Workspace version: {workspace_version}\n"
+                    f"SDK version: {sdk_version}\n\n"
+                    f"This workspace uses schema v{workspace_version}, which is NEWER than your SDK v{sdk_version}.\n"
+                    f"You must upgrade your SDK to work with this workspace.\n\n"
+                    f"To resolve this issue:\n\n"
+                    f"  pip install --upgrade mediaplanpy~={workspace_major_minor}.0\n\n"
+                    f"Alternatively, if you need to stay on SDK v{sdk_major_minor}.x, create a new workspace:\n"
+                    f"  workspace_manager.create(workspace_name='My v{sdk_major_minor} Workspace')"
+                )
+
+        # Versions match - allow load
+        logger.debug(f"Workspace version v{workspace_version} is compatible with SDK v{sdk_version}")
+
     @property
     def is_loaded(self) -> bool:
         """Return True if a workspace configuration is loaded."""
@@ -528,6 +592,9 @@ class WorkspaceManager:
             errors = validate_workspace(self.config, lenient_mode=True)
             if errors:
                 raise WorkspaceValidationError("\n".join(errors))
+
+            # NEW v3.0: Validate workspace version compatibility (strict enforcement)
+            self._validate_workspace_version_compatibility()
 
             logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {self.workspace_path}")
 
