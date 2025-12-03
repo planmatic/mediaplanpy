@@ -101,9 +101,10 @@ from mediaplanpy.excel import (
     ExcelFormatHandler
 )
 
-# Import database integration (this will patch MediaPlan with database methods)
+# Database integration now uses DatabaseMixin inheritance (no monkey patching needed)
+# Check if database dependencies are available
 try:
-    import mediaplanpy.models.mediaplan_database
+    import psycopg2
     _database_available = True
 except ImportError:
     _database_available = False

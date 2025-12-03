@@ -19,6 +19,10 @@ from mediaplanpy.models.campaign import Campaign
 from mediaplanpy.models.target_audience import TargetAudience
 from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.models.dictionary import Dictionary
+from mediaplanpy.models.mediaplan_json import JsonMixin
+from mediaplanpy.models.mediaplan_storage import StorageMixin
+from mediaplanpy.models.mediaplan_excel import ExcelMixin
+from mediaplanpy.models.mediaplan_database import DatabaseMixin
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError, StorageError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
@@ -90,7 +94,7 @@ class Meta(BaseModel):
         return errors
 
 
-class MediaPlan(BaseModel):
+class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
     """
     Represents a complete media plan following the Media Plan Open Data Standard v2.0.
 

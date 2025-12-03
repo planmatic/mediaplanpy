@@ -202,14 +202,6 @@ def setup_argparse():
     excel_import_parser.add_argument("--target-schema", help="Target schema version (default: 2.0)",
                                     default="2.0")
 
-    # excel update
-    excel_update_parser = excel_subparsers.add_parser("update", help="Update media plan from Excel with v2.0 compatibility")
-    excel_update_parser.add_argument("file", help="Path to Excel file with updates")
-    excel_update_parser.add_argument("--target", help="Path to media plan JSON file to update")
-    excel_update_parser.add_argument("--workspace", help="Path to workspace.json")
-    excel_update_parser.add_argument("--path", help="Path to media plan in workspace storage")
-    excel_update_parser.add_argument("--campaign-id", help="Campaign ID to load from workspace storage")
-    excel_update_parser.add_argument("--output", help="Output path for updated JSON file")
 
     # excel validate
     excel_validate_parser = excel_subparsers.add_parser("validate", help="Validate Excel file against v2.0 schema")
@@ -997,69 +989,6 @@ def handle_excel_import(args):
         return 1
 
 
-def handle_excel_update(args):
-    """Handle the 'excel update' command."""
-    try:
-        from mediaplanpy.models import MediaPlan
-
-        # Load the media plan from file
-        if args.target:
-            media_plan = MediaPlan.import_from_json(args.target)
-        elif args.path and args.workspace:
-            # Load workspace
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            # Load from storage
-            media_plan = MediaPlan.load(manager, path=args.path)
-        elif args.campaign_id and args.workspace:
-            # Load workspace
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            # Load by campaign ID
-            media_plan = MediaPlan.load(manager, campaign_id=args.campaign_id)
-        else:
-            print("❌ Error: You must specify either --target, or both --workspace and (--path or --campaign-id)")
-            return 1
-
-        print(f"📄 Updating from Excel: {args.file}")
-        original_version = media_plan.meta.schema_version
-
-        # Update from Excel
-        media_plan.update_from_excel_path(args.file)
-
-        # Determine output path
-        if args.output:
-            output_path = args.output
-        elif args.target:
-            # Use the same file
-            output_path = args.target
-        else:
-            # Default to campaign ID
-            output_path = f"{media_plan.campaign.id}.json"
-
-        # Save the updated media plan
-        if args.workspace:
-            # Use workspace-based save
-            manager = WorkspaceManager(args.workspace)
-            manager.load()
-
-            result_path = media_plan.save(manager, path=output_path)
-        else:
-            # Use direct save
-            media_plan.export_to_json(output_path)
-            result_path = output_path
-
-        print(f"✅ Media plan updated from Excel and saved to: {result_path}")
-        print(f"📋 Schema version: {original_version} → {media_plan.meta.schema_version}")
-        return 0
-
-    except Exception as e:
-        print(f"❌ Error updating media plan from Excel: {e}")
-        return 1
-
-
 def handle_excel_validate(args):
     """Handle the 'excel validate' command."""
     try:
@@ -1313,8 +1242,6 @@ def main():
             return handle_excel_export(args)
         elif args.excel_command == "import":
             return handle_excel_import(args)
-        elif args.excel_command == "update":
-            return handle_excel_update(args)
         elif args.excel_command == "validate":
             return handle_excel_validate(args)
 

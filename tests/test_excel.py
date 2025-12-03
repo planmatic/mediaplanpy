@@ -12,7 +12,6 @@ from mediaplanpy.models import MediaPlan, Meta, Campaign, LineItem
 from mediaplanpy.excel import (
     export_to_excel,
     import_from_excel,
-    update_from_excel,
     validate_excel
 )
 
@@ -144,45 +143,6 @@ class TestExcelImport:
             assert len(imported_plan.lineitems) == 1
             assert imported_plan.lineitems[0].name == "Social Line Item"
             assert imported_plan.lineitems[0].cost_total == 50000  # Note: precision may be lost in Excel
-
-        finally:
-            # Clean up
-            if os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-    def test_update_from_excel(self, sample_mediaplan_v1):
-        """Test updating a media plan from Excel."""
-        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-            tmp_path = tmp.name
-
-        try:
-            # Export to Excel
-            sample_mediaplan_v1.export_to_excel_path(tmp_path)
-
-            # Modify the Excel file
-            import openpyxl
-            workbook = openpyxl.load_workbook(tmp_path)
-
-            # Update campaign name
-            campaign_sheet = workbook["Campaign"]
-            for row in range(1, 10):
-                if campaign_sheet.cell(row=row, column=1).value == "Campaign Name:":
-                    campaign_sheet.cell(row=row, column=2).value = "Updated Campaign Name"
-                    break
-
-            # Save changes
-            workbook.save(tmp_path)
-
-            # Create a copy of the original plan
-            import copy
-            updated_plan = copy.deepcopy(sample_mediaplan_v1)
-
-            # Update from Excel
-            updated_plan.update_from_excel_path(tmp_path)
-
-            # Check updates
-            assert updated_plan.campaign.name == "Updated Campaign Name"
-            assert updated_plan.meta.id == sample_mediaplan_v1.meta.id  # Should preserve ID
 
         finally:
             # Clean up

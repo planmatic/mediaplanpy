@@ -14,14 +14,9 @@ from mediaplanpy.models.metric_formula import MetricFormula
 from mediaplanpy.models.dictionary import Dictionary, CustomFieldConfig
 from mediaplanpy.models.mediaplan import MediaPlan, Meta
 
-# Import storage integration (which patches MediaPlan with storage methods)
-import mediaplanpy.models.mediaplan_storage
-
-# Import JSON integration (which patches MediaPlan with JSON methods)
-import mediaplanpy.models.mediaplan_json
-
-# Import Excel integration (which patches MediaPlan with Excel methods)
-import mediaplanpy.models.mediaplan_excel
+# Storage integration now uses StorageMixin inheritance (no monkey patching needed)
+# JSON integration now uses JsonMixin inheritance (no monkey patching needed)
+# Excel integration now uses ExcelMixin inheritance (no monkey patching needed)
 
 __all__ = [
     'BaseModel',
