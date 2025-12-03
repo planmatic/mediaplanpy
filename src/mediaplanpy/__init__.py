@@ -79,6 +79,10 @@ from mediaplanpy.models import (
     TargetAudience,
     TargetLocation,
     MetricFormula,
+    Dictionary,
+    CustomFieldConfig,
+    MetricFormulaConfig,
+    CustomMetricConfig,
     MediaPlan,
     Meta
 )
@@ -158,6 +162,10 @@ __all__ = [
     'TargetAudience',
     'TargetLocation',
     'MetricFormula',
+    'Dictionary',
+    'CustomFieldConfig',
+    'MetricFormulaConfig',
+    'CustomMetricConfig',
     'MediaPlan',
     'Meta',
 

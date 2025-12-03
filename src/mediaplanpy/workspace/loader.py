@@ -361,9 +361,12 @@ class WorkspaceManager:
             raise WorkspaceError(f"Failed to load workspace template: {e}")
 
         # Replace placeholders in template
+        # Convert Windows backslashes to forward slashes for JSON compatibility
+        storage_path_json_safe = storage_path_name.replace('\\', '/')
+
         template_content = template_content.replace('{{WORKSPACE_ID}}', workspace_id)
         template_content = template_content.replace('{{WORKSPACE_NAME}}', workspace_name)
-        template_content = template_content.replace('{{STORAGE_PATH}}', storage_path_name)
+        template_content = template_content.replace('{{STORAGE_PATH}}', storage_path_json_safe)
         template_content = template_content.replace('{{SCHEMA_VERSION}}', current_schema_version)
         template_content = template_content.replace('{{LAST_UPGRADED}}', datetime.now().strftime("%Y-%m-%d"))
         template_content = template_content.replace('{{SDK_VERSION_REQUIRED}}', f"{current_schema_version.split('.')[0]}.0.x")
