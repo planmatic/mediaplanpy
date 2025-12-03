@@ -261,140 +261,28 @@ class ParquetFormatHandler(FormatHandler):
     def _get_arrow_schema(self) -> pa.Schema:
         """
         Define explicit schema for the Parquet file with version metadata.
-        Updated for v2.0 schema support.
+        Updated for v3.0 schema support using shared schema definition.
 
         Returns:
             PyArrow schema with proper data types and version fields.
         """
-        fields = []
+        # Use shared schema definition for v3.0 fields
+        from mediaplanpy.storage.schema_columns import get_pyarrow_schema
 
-        # Meta fields (all strings except created_at) - updated for v2.0
-        fields.extend([
-            pa.field("meta_id", pa.string()),
-            pa.field("meta_schema_version", pa.string()),  # 2-digit format (e.g., "1.0")
-            pa.field("meta_created_by", pa.string()),  # Legacy field for backward compatibility
-            pa.field("meta_created_at", pa.timestamp('ns')),
-            pa.field("meta_name", pa.string()),
-            pa.field("meta_comments", pa.string()),
-            # NEW v2.0 meta fields
-            pa.field("meta_created_by_id", pa.string()),
-            pa.field("meta_created_by_name", pa.string()),  # Required in v2.0
-            pa.field("meta_is_current", pa.bool_()),
-            pa.field("meta_is_archived", pa.bool_()),
-            pa.field("meta_parent_id", pa.string()),
-        ])
-
-        # Campaign fields - existing v1.0 fields
-        fields.extend([
-            pa.field("campaign_id", pa.string()),
-            pa.field("campaign_name", pa.string()),
-            pa.field("campaign_objective", pa.string()),
-            pa.field("campaign_start_date", pa.date32()),
-            pa.field("campaign_end_date", pa.date32()),
-            pa.field("campaign_budget_total", pa.float64()),
-            pa.field("campaign_product_name", pa.string()),
-            pa.field("campaign_product_description", pa.string()),
-            pa.field("campaign_audience_name", pa.string()),
-            pa.field("campaign_audience_age_start", pa.int32()),
-            pa.field("campaign_audience_age_end", pa.int32()),
-            pa.field("campaign_audience_gender", pa.string()),
-            pa.field("campaign_audience_interests", pa.string()),  # JSON string
-            pa.field("campaign_location_type", pa.string()),
-            pa.field("campaign_locations", pa.string()),  # JSON string
-        ])
-
-        # NEW v2.0 Campaign fields
-        fields.extend([
-            pa.field("campaign_budget_currency", pa.string()),
-            pa.field("campaign_agency_id", pa.string()),
-            pa.field("campaign_agency_name", pa.string()),
-            pa.field("campaign_advertiser_id", pa.string()),
-            pa.field("campaign_advertiser_name", pa.string()),
-            pa.field("campaign_product_id", pa.string()),
-            pa.field("campaign_campaign_type_id", pa.string()),
-            pa.field("campaign_campaign_type_name", pa.string()),
-            pa.field("campaign_workflow_status_id", pa.string()),
-            pa.field("campaign_workflow_status_name", pa.string()),
-        ])
-
-        # Line item fields - existing v1.0 fields
-        fields.extend([
-            pa.field("lineitem_id", pa.string()),
-            pa.field("lineitem_name", pa.string()),
-            pa.field("lineitem_start_date", pa.date32()),
-            pa.field("lineitem_end_date", pa.date32()),
-            pa.field("lineitem_cost_total", pa.float64()),
-            pa.field("lineitem_channel", pa.string()),
-            pa.field("lineitem_channel_custom", pa.string()),
-            pa.field("lineitem_vehicle", pa.string()),
-            pa.field("lineitem_vehicle_custom", pa.string()),
-            pa.field("lineitem_partner", pa.string()),
-            pa.field("lineitem_partner_custom", pa.string()),
-            pa.field("lineitem_media_product", pa.string()),
-            pa.field("lineitem_media_product_custom", pa.string()),
-            pa.field("lineitem_location_type", pa.string()),
-            pa.field("lineitem_location_name", pa.string()),
-            pa.field("lineitem_target_audience", pa.string()),
-            pa.field("lineitem_adformat", pa.string()),
-            pa.field("lineitem_adformat_custom", pa.string()),
-            pa.field("lineitem_kpi", pa.string()),
-            pa.field("lineitem_kpi_custom", pa.string()),
-        ])
-
-        # NEW v2.0 Line item fields
-        fields.extend([
-            pa.field("lineitem_cost_currency", pa.string()),
-            pa.field("lineitem_dayparts", pa.string()),
-            pa.field("lineitem_dayparts_custom", pa.string()),
-            pa.field("lineitem_inventory", pa.string()),
-            pa.field("lineitem_inventory_custom", pa.string()),
-        ])
-
-        # Custom dimension fields (all strings) - unchanged from v1.0
-        for i in range(1, 11):
-            fields.append(pa.field(f"lineitem_dim_custom{i}", pa.string()))
-
-        # Cost fields (all floats) - unchanged from v1.0
-        cost_fields = [
-            "lineitem_cost_media", "lineitem_cost_buying",
-            "lineitem_cost_platform", "lineitem_cost_data",
-            "lineitem_cost_creative"
-        ]
-        fields.extend([pa.field(name, pa.float64()) for name in cost_fields])
-
-        # Custom cost fields (all floats) - unchanged from v1.0
-        for i in range(1, 11):
-            fields.append(pa.field(f"lineitem_cost_custom{i}", pa.float64()))
-
-        # Existing v1.0 metric fields (all floats)
-        metric_fields = [
-            "lineitem_metric_impressions", "lineitem_metric_clicks",
-            "lineitem_metric_views"
-        ]
-        fields.extend([pa.field(name, pa.float64()) for name in metric_fields])
-
-        # NEW v2.0 standard metric fields (all floats) - 17 new metrics
-        new_metric_fields = [
-            "lineitem_metric_engagements", "lineitem_metric_followers", "lineitem_metric_visits",
-            "lineitem_metric_leads", "lineitem_metric_sales", "lineitem_metric_add_to_cart",
-            "lineitem_metric_app_install", "lineitem_metric_application_start", "lineitem_metric_application_complete",
-            "lineitem_metric_contact_us", "lineitem_metric_download", "lineitem_metric_signup",
-            "lineitem_metric_max_daily_spend", "lineitem_metric_max_daily_impressions", "lineitem_metric_audience_size"
-        ]
-        fields.extend([pa.field(name, pa.float64()) for name in new_metric_fields])
-
-        # Custom metric fields (all floats) - unchanged from v1.0
-        for i in range(1, 11):
-            fields.append(pa.field(f"lineitem_metric_custom{i}", pa.float64()))
+        # Get base schema from shared definition (all v3.0 scalar fields)
+        schema = get_pyarrow_schema()
 
         # Add metadata fields for version tracking
-        fields.extend([
+        metadata_fields = [
             pa.field("is_placeholder", pa.bool_()),
             pa.field("export_timestamp", pa.timestamp('ns')),  # When this Parquet was created
             pa.field("sdk_version", pa.string()),  # SDK version used for export
-        ])
+        ]
 
-        return pa.schema(fields)
+        # Combine base schema fields with metadata fields
+        all_fields = list(schema) + metadata_fields
+
+        return pa.schema(all_fields)
 
     def _create_complete_dataframe(self, rows: List[Dict[str, Any]]) -> pd.DataFrame:
         """
@@ -518,7 +406,7 @@ class ParquetFormatHandler(FormatHandler):
     def _apply_data_types(self, df: pd.DataFrame) -> pd.DataFrame:
         """
         Apply explicit data types to DataFrame columns with enhanced version handling.
-        Updated for v2.0 field support and optimized for pandas future compatibility.
+        Updated for v3.0 field support using type inference from shared schema.
 
         Args:
             df: The DataFrame to type.
@@ -529,75 +417,51 @@ class ParquetFormatHandler(FormatHandler):
         # Make a copy to avoid SettingWithCopyWarning
         df = df.copy()
 
-        # String columns (convert None to empty string)
-        string_columns = [
-            col for col in df.columns
-            if col.startswith(('meta_', 'campaign_', 'lineitem_'))
-               and not any(col.endswith(x) for x in [
-                '_age_start', '_age_end', '_total', '_cost_', '_metric_',
-                '_impressions', '_clicks', '_views', '_created_at',
-                '_start_date', '_end_date', '_is_current', '_is_archived'
-            ])
-        ]
+        # Import type utilities from shared schema
+        from mediaplanpy.storage.schema_columns import get_column_types
+        from decimal import Decimal
+        from datetime import datetime, date
 
-        for col in string_columns:
-            if col in df.columns:
+        # Get column type mapping from shared schema
+        column_types = get_column_types()
+
+        # Apply types based on shared schema definition
+        for col in df.columns:
+            if col not in df.columns:
+                continue
+
+            # Skip metadata columns (handled separately)
+            if col in ['is_placeholder', 'export_timestamp', 'sdk_version']:
+                continue
+
+            # Get expected type from shared schema
+            expected_type = column_types.get(col)
+
+            if expected_type == str:
                 df[col] = df[col].fillna('').astype(str)
+            elif expected_type == Decimal:
+                # Decimal -> float for Parquet
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(float)
+            elif expected_type == datetime:
+                df[col] = pd.to_datetime(df[col], errors='coerce')
+            elif expected_type == date:
+                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
+            elif expected_type == bool:
+                df[col] = df[col].where(df[col].notna(), False).astype(bool)
 
-        # Ensure schema version is properly formatted
+        # Ensure schema version is properly formatted (remove 'v' prefix)
         if 'meta_schema_version' in df.columns:
-            # Remove 'v' prefix if present and ensure 2-digit format
             df['meta_schema_version'] = df['meta_schema_version'].apply(
                 lambda x: x.lstrip('v') if isinstance(x, str) else str(x) if x else ''
             )
 
-        # Integer columns (unchanged from v1.0)
-        int_columns = ['campaign_audience_age_start', 'campaign_audience_age_end']
-        for col in int_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype('Int32')
+        # Handle metadata columns
+        if 'is_placeholder' in df.columns:
+            df['is_placeholder'] = df['is_placeholder'].where(df['is_placeholder'].notna(), False).astype(bool)
 
-        # Float columns - existing v1.0 fields plus new v2.0 metric fields
-        float_columns = [
-            col for col in df.columns
-            if col.endswith(('_total', '_cost_media', '_cost_buying',
-                             '_cost_platform', '_cost_data', '_cost_creative',
-                             '_impressions', '_clicks', '_views'))
-               or ('_cost_custom' in col)
-               or ('_metric_custom' in col)
-               # NEW v2.0 metric fields
-               or col.endswith(('_metric_engagements', '_metric_followers', '_metric_visits',
-                                '_metric_leads', '_metric_sales', '_metric_add_to_cart',
-                                '_metric_app_install', '_metric_application_start', '_metric_application_complete',
-                                '_metric_contact_us', '_metric_download', '_metric_signup',
-                                '_metric_max_daily_spend', '_metric_max_daily_impressions', '_metric_audience_size'))
-        ]
+        if 'export_timestamp' in df.columns:
+            df['export_timestamp'] = pd.to_datetime(df['export_timestamp'], errors='coerce')
 
-        for col in float_columns:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0).astype(float)
-
-        # Date columns (unchanged from v1.0)
-        date_columns = [col for col in df.columns if col.endswith(('_start_date', '_end_date'))]
-        for col in date_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
-
-        # Timestamp columns (unchanged from v1.0)
-        timestamp_columns = ['meta_created_at', 'export_timestamp']
-        for col in timestamp_columns:
-            if col in df.columns:
-                df[col] = pd.to_datetime(df[col], errors='coerce')
-
-        # Boolean columns - existing and NEW v2.0 fields
-        # Explicit boolean conversion to avoid FutureWarning about downcasting
-        boolean_columns = ['is_placeholder', 'meta_is_current', 'meta_is_archived']
-        for col in boolean_columns:
-            if col in df.columns:
-                # Simple approach: replace NaN with False first, then convert to bool
-                df[col] = df[col].where(df[col].notna(), False).astype(bool)
-
-        # SDK version should be string (unchanged from v1.0)
         if 'sdk_version' in df.columns:
             df['sdk_version'] = df['sdk_version'].fillna('unknown').astype(str)
 
@@ -626,100 +490,17 @@ class ParquetFormatHandler(FormatHandler):
 
     def _get_all_columns(self) -> List[str]:
         """
-        Get all expected columns for v1.0.0+ schema with version metadata.
-        Updated for v2.0 schema support.
+        Get all expected columns for v3.0 schema with version metadata.
+        Updated to use shared schema definition.
 
         Returns:
             List of column names in order.
         """
-        # Meta fields - updated for v2.0
-        meta_fields = [
-            "meta_id", "meta_schema_version", "meta_created_by",
-            "meta_created_at", "meta_name", "meta_comments",
-            # NEW v2.0 meta fields
-            "meta_created_by_id", "meta_created_by_name",
-            "meta_is_current", "meta_is_archived", "meta_parent_id"
-        ]
+        # Use shared schema definition for v3.0 fields
+        from mediaplanpy.storage.schema_columns import get_column_names
 
-        # Campaign fields - existing v1.0 fields
-        campaign_fields = [
-            "campaign_id", "campaign_name", "campaign_objective",
-            "campaign_start_date", "campaign_end_date", "campaign_budget_total",
-            "campaign_product_name", "campaign_product_description",
-            "campaign_audience_name", "campaign_audience_age_start",
-            "campaign_audience_age_end", "campaign_audience_gender",
-            "campaign_audience_interests", "campaign_location_type",
-            "campaign_locations"
-        ]
-
-        # NEW v2.0 campaign fields
-        campaign_fields.extend([
-            "campaign_budget_currency",
-            "campaign_agency_id", "campaign_agency_name",
-            "campaign_advertiser_id", "campaign_advertiser_name",
-            "campaign_product_id",
-            "campaign_campaign_type_id", "campaign_campaign_type_name",
-            "campaign_workflow_status_id", "campaign_workflow_status_name"
-        ])
-
-        # Line item fields - existing v1.0 fields
-        lineitem_fields = [
-            "lineitem_id", "lineitem_name", "lineitem_start_date",
-            "lineitem_end_date", "lineitem_cost_total",
-            "lineitem_channel", "lineitem_channel_custom",
-            "lineitem_vehicle", "lineitem_vehicle_custom",
-            "lineitem_partner", "lineitem_partner_custom",
-            "lineitem_media_product", "lineitem_media_product_custom",
-            "lineitem_location_type", "lineitem_location_name",
-            "lineitem_target_audience", "lineitem_adformat",
-            "lineitem_adformat_custom", "lineitem_kpi", "lineitem_kpi_custom"
-        ]
-
-        # NEW v2.0 line item fields
-        lineitem_fields.extend([
-            "lineitem_cost_currency",
-            "lineitem_dayparts", "lineitem_dayparts_custom",
-            "lineitem_inventory", "lineitem_inventory_custom"
-        ])
-
-        # Add dimension custom fields (unchanged from v1.0)
-        for i in range(1, 11):
-            lineitem_fields.append(f"lineitem_dim_custom{i}")
-
-        # Add cost fields (unchanged from v1.0)
-        cost_fields = [
-            "lineitem_cost_media", "lineitem_cost_buying",
-            "lineitem_cost_platform", "lineitem_cost_data",
-            "lineitem_cost_creative"
-        ]
-        lineitem_fields.extend(cost_fields)
-
-        # Add cost custom fields (unchanged from v1.0)
-        for i in range(1, 11):
-            lineitem_fields.append(f"lineitem_cost_custom{i}")
-
-        # Add existing v1.0 metric fields
-        metric_fields = [
-            "lineitem_metric_impressions", "lineitem_metric_clicks",
-            "lineitem_metric_views"
-        ]
-        lineitem_fields.extend(metric_fields)
-
-        # Add NEW v2.0 standard metric fields (17 new metrics)
-        new_metric_fields = [
-            "lineitem_metric_engagements", "lineitem_metric_followers", "lineitem_metric_visits",
-            "lineitem_metric_leads", "lineitem_metric_sales", "lineitem_metric_add_to_cart",
-            "lineitem_metric_app_install", "lineitem_metric_application_start", "lineitem_metric_application_complete",
-            "lineitem_metric_contact_us", "lineitem_metric_download", "lineitem_metric_signup",
-            "lineitem_metric_max_daily_spend", "lineitem_metric_max_daily_impressions", "lineitem_metric_audience_size"
-        ]
-        lineitem_fields.extend(new_metric_fields)
-
-        # Add metric custom fields (unchanged from v1.0)
-        for i in range(1, 11):
-            lineitem_fields.append(f"lineitem_metric_custom{i}")
-
-        return meta_fields + campaign_fields + lineitem_fields
+        # Get all v3.0 scalar field columns from shared definition
+        return get_column_names()
 
     def get_version_compatibility_info(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
