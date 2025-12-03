@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional, Set, ClassVar, Union
 from pydantic import Field, field_validator, model_validator
 
 from mediaplanpy.models.base import BaseModel
+from mediaplanpy.models.target_audience import TargetAudience
+from mediaplanpy.models.target_location import TargetLocation
 
 
 class Campaign(BaseModel):
@@ -19,10 +21,10 @@ class Campaign(BaseModel):
     Represents a campaign within a media plan.
 
     A campaign is a collection of media activities with a common objective,
-    audience, or theme, following the Media Plan Open Data Standard v2.0.
+    audience, or theme, following the Media Plan Open Data Standard v3.0.
     """
 
-    # Required fields per v2.0 schema (same as v1.0)
+    # Required fields per v3.0 schema (same as v2.0)
     id: str = Field(..., description="Unique identifier for the campaign")
     name: str = Field(..., description="Name of the campaign")
     objective: str = Field(..., description="Objective of the campaign")
@@ -34,16 +36,18 @@ class Campaign(BaseModel):
     product_name: Optional[str] = Field(None, description="Name of the product being advertised")
     product_description: Optional[str] = Field(None, description="Description of the product being advertised")
 
-    # Audience fields from v1.0 (maintained for backward compatibility)
-    audience_name: Optional[str] = Field(None, description="Name or label for the target audience")
-    audience_age_start: Optional[int] = Field(None, description="Starting age for target audience range")
-    audience_age_end: Optional[int] = Field(None, description="Ending age for target audience range")
-    audience_gender: Optional[str] = Field(None, description="Target gender", enum=["Male", "Female", "Any"])
-    audience_interests: Optional[List[str]] = Field(None, description="List of audience interests")
+    # DEPRECATED v3.0: Audience fields from v1.0/v2.0 (maintained for backward compatibility)
+    # Use target_audiences array in v3.0
+    audience_name: Optional[str] = Field(None, description="DEPRECATED: Use target_audiences array instead. Name or label for the target audience")
+    audience_age_start: Optional[int] = Field(None, description="DEPRECATED: Use target_audiences array instead. Starting age for target audience range")
+    audience_age_end: Optional[int] = Field(None, description="DEPRECATED: Use target_audiences array instead. Ending age for target audience range")
+    audience_gender: Optional[str] = Field(None, description="DEPRECATED: Use target_audiences array instead. Target gender", enum=["Male", "Female", "Any"])
+    audience_interests: Optional[List[str]] = Field(None, description="DEPRECATED: Use target_audiences array instead. List of audience interests")
 
-    # Location fields from v1.0 (maintained for backward compatibility)
-    location_type: Optional[str] = Field(None, description="Type of location targeting", enum=["Country", "State"])
-    locations: Optional[List[str]] = Field(None, description="List of targeted locations")
+    # DEPRECATED v3.0: Location fields from v1.0/v2.0 (maintained for backward compatibility)
+    # Use target_locations array in v3.0
+    location_type: Optional[str] = Field(None, description="DEPRECATED: Use target_locations array instead. Type of location targeting", enum=["Country", "State"])
+    locations: Optional[List[str]] = Field(None, description="DEPRECATED: Use target_locations array instead. List of targeted locations")
 
     # NEW v2.0 FIELDS - All optional for backward compatibility
 
@@ -68,6 +72,36 @@ class Campaign(BaseModel):
     # Workflow status tracking
     workflow_status_id: Optional[str] = Field(None, description="Unique identifier for the current workflow status")
     workflow_status_name: Optional[str] = Field(None, description="Human-readable name of the current workflow status (e.g., Draft, Approved, Live, Paused, Completed)")
+
+    # NEW v3.0 FIELDS - All optional for backward compatibility
+
+    # Target audiences (replaces deprecated audience_* fields)
+    target_audiences: Optional[List[TargetAudience]] = Field(None, description="List of target audiences for this campaign")
+
+    # Target locations (replaces deprecated location_* fields)
+    target_locations: Optional[List[TargetLocation]] = Field(None, description="List of target locations for this campaign")
+
+    # KPI fields for tracking key performance indicators
+    kpi_name1: Optional[str] = Field(None, description="Name of KPI 1")
+    kpi_value1: Optional[Decimal] = Field(None, description="Value for KPI 1")
+    kpi_name2: Optional[str] = Field(None, description="Name of KPI 2")
+    kpi_value2: Optional[Decimal] = Field(None, description="Value for KPI 2")
+    kpi_name3: Optional[str] = Field(None, description="Name of KPI 3")
+    kpi_value3: Optional[Decimal] = Field(None, description="Value for KPI 3")
+    kpi_name4: Optional[str] = Field(None, description="Name of KPI 4")
+    kpi_value4: Optional[Decimal] = Field(None, description="Value for KPI 4")
+    kpi_name5: Optional[str] = Field(None, description="Name of KPI 5")
+    kpi_value5: Optional[Decimal] = Field(None, description="Value for KPI 5")
+
+    # Custom dimension fields for campaign-specific dimensions
+    dim_custom1: Optional[str] = Field(None, description="Custom dimension 1 for campaign")
+    dim_custom2: Optional[str] = Field(None, description="Custom dimension 2 for campaign")
+    dim_custom3: Optional[str] = Field(None, description="Custom dimension 3 for campaign")
+    dim_custom4: Optional[str] = Field(None, description="Custom dimension 4 for campaign")
+    dim_custom5: Optional[str] = Field(None, description="Custom dimension 5 for campaign")
+
+    # Custom properties as key-value pairs
+    custom_properties: Optional[Dict[str, Any]] = Field(None, description="Additional custom properties as key-value pairs")
 
     # Constants and reference data
     VALID_OBJECTIVES: ClassVar[Set[str]] = {

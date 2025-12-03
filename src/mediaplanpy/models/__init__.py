@@ -11,7 +11,12 @@ from mediaplanpy.models.campaign import Campaign
 from mediaplanpy.models.target_audience import TargetAudience
 from mediaplanpy.models.target_location import TargetLocation
 from mediaplanpy.models.metric_formula import MetricFormula
-from mediaplanpy.models.dictionary import Dictionary, CustomFieldConfig
+from mediaplanpy.models.dictionary import (
+    Dictionary,
+    CustomFieldConfig,
+    MetricFormulaConfig,
+    CustomMetricConfig
+)
 from mediaplanpy.models.mediaplan import MediaPlan, Meta
 
 # Storage integration now uses StorageMixin inheritance (no monkey patching needed)
@@ -27,6 +32,8 @@ __all__ = [
     'MetricFormula',
     'Dictionary',
     'CustomFieldConfig',
+    'MetricFormulaConfig',
+    'CustomMetricConfig',
     'MediaPlan',
     'Meta'
 ]

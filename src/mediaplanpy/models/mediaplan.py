@@ -41,9 +41,9 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan")
 
 class Meta(BaseModel):
     """
-    Metadata for a media plan following v2.0 schema.
+    Metadata for a media plan following v3.0 schema.
 
-    Updated from v1.0 to include new identification and status fields.
+    Updated from v2.0 to include custom dimensions and properties.
     """
     id: str = Field(..., description="Unique identifier for the media plan")
     schema_version: str = Field(..., description="Version of the schema being used")
@@ -61,6 +61,14 @@ class Meta(BaseModel):
     is_current: Optional[bool] = Field(None, description="Whether this is the current/active version of the media plan")
     is_archived: Optional[bool] = Field(None, description="Whether this media plan has been archived")
     parent_id: Optional[str] = Field(None, description="Identifier of the parent media plan if this is a revision or copy")
+
+    # NEW v3.0 FIELDS - All optional for backward compatibility
+    dim_custom1: Optional[str] = Field(None, description="Custom dimension 1 for meta")
+    dim_custom2: Optional[str] = Field(None, description="Custom dimension 2 for meta")
+    dim_custom3: Optional[str] = Field(None, description="Custom dimension 3 for meta")
+    dim_custom4: Optional[str] = Field(None, description="Custom dimension 4 for meta")
+    dim_custom5: Optional[str] = Field(None, description="Custom dimension 5 for meta")
+    custom_properties: Optional[Dict[str, Any]] = Field(None, description="Additional custom properties as key-value pairs")
 
     def validate_model(self) -> List[str]:
         """
@@ -273,11 +281,24 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         """
         Create one or more line items for this media plan.
 
+        Automatically inherits start_date, end_date from campaign if not provided.
+        All v3.0 LineItem fields are supported.
+
         Args:
             line_items: Single line item or list of line items to create.
                        Each item can be a LineItem object or dictionary.
             validate: Whether to validate line items before creation.
             **kwargs: Additional line item parameters (applied to all items if line_items is a list).
+
+                      Common v3.0 kwargs examples:
+                      - kpi_value: Target KPI value
+                      - buy_type, buy_commitment: Buy information
+                      - is_aggregate, aggregation_level: Aggregation settings
+                      - cost_currency_exchange_rate: Multi-currency support
+                      - cost_minimum, cost_maximum: Budget constraints
+                      - metric_view_starts, metric_reach, etc.: New v3.0 metrics
+                      - metric_formulas: Dict[str, MetricFormula] for calculated metrics
+                      - custom_properties: Dict for extensibility
 
         Returns:
             Single LineItem object if input was single item, or List[LineItem]
@@ -287,11 +308,25 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
             ValidationError: If line item data is invalid
             MediaPlanError: If creation fails
 
-        Example:
+        Examples:
             # Single line item (backward compatible)
-            item = plan.create_lineitem({"name": "Campaign", "cost_total": 5000})
+            item = plan.create_lineitem({
+                "name": "Social Campaign",
+                "cost_total": 5000,
+                "channel": "social"
+            })
 
-            # Multiple line items (new capability)
+            # v3.0 line item with new fields
+            item = plan.create_lineitem({
+                "name": "Display Campaign",
+                "cost_total": 10000,
+                "buy_type": "Programmatic",
+                "kpi_value": 2.5,
+                "metric_reach": 100000,
+                "custom_properties": {"audience_segment": "premium"}
+            })
+
+            # Multiple line items
             items = plan.create_lineitem([item1_dict, item2_dict])
         """
         from datetime import date
@@ -971,6 +1006,12 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         This method dynamically routes parameters to the appropriate model objects
         based on their field definitions, ensuring proper JSON structure.
 
+        NEW v3.0: Supports prefixed parameters for disambiguation of fields that exist
+        at multiple levels (e.g., dim_custom1 exists in Meta, Campaign, and LineItem):
+        - Use meta_* prefix for Meta fields (e.g., meta_dim_custom1, meta_custom_properties)
+        - Use campaign_* prefix for Campaign fields (e.g., campaign_dim_custom1, campaign_custom_properties)
+        - Unprefixed fields are routed automatically based on field definitions
+
         Args:
             created_by: Email or name of the creator
             campaign_name: Name of the campaign
@@ -978,9 +1019,18 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
             campaign_start_date: Start date (string YYYY-MM-DD or date object)
             campaign_end_date: End date (string YYYY-MM-DD or date object)
             campaign_budget: Total budget amount
-            schema_version: Version of the schema to use, defaults to current version
+            schema_version: Version of the schema to use, defaults to current version (v3.0)
             workspace_manager: Optional WorkspaceManager for workspace status checking
             **kwargs: Additional fields - automatically routed to Campaign, Meta, or MediaPlan
+
+                      Common v3.0 kwargs examples:
+                      - target_audiences: List[Dict] or List[TargetAudience] (Campaign)
+                      - target_locations: List[Dict] or List[TargetLocation] (Campaign)
+                      - kpi_name1, kpi_value1: KPI tracking (Campaign)
+                      - meta_dim_custom1: Custom dimension for Meta (use meta_ prefix)
+                      - campaign_dim_custom1: Custom dimension for Campaign (use campaign_ prefix)
+                      - meta_custom_properties: Dict (use meta_ prefix)
+                      - campaign_custom_properties: Dict (use campaign_ prefix)
 
         Returns:
             A new MediaPlan instance.
@@ -988,6 +1038,21 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         Raises:
             ValidationError: If the provided parameters fail validation.
             WorkspaceInactiveError: If workspace is inactive.
+
+        Example:
+            plan = MediaPlan.create(
+                created_by="user@example.com",
+                campaign_name="Q1 Campaign",
+                campaign_objective="awareness",
+                campaign_start_date="2025-01-01",
+                campaign_end_date="2025-03-31",
+                campaign_budget=100000,
+                target_audiences=[{"name": "Young Adults", "demo_age_start": 18, "demo_age_end": 34}],
+                kpi_name1="CTR",
+                kpi_value1=2.5,
+                meta_dim_custom1="Region: North America",
+                campaign_dim_custom1="Segment: Digital"
+            )
         """
         # Check workspace status if workspace_manager is provided
         if workspace_manager is not None:
@@ -1112,6 +1177,10 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         This method inspects the actual model field definitions to determine where
         each parameter should go, making it schema-aware and maintainable.
 
+        NEW v3.0: Supports prefixed parameters for disambiguation:
+        - meta_* parameters (e.g., meta_dim_custom1) → Meta fields
+        - campaign_* parameters (e.g., campaign_dim_custom1) → Campaign fields
+
         Args:
             kwargs: All the extra parameters passed to create()
             schema_version: Schema version being used
@@ -1130,13 +1199,22 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         # Special handling for certain fields that might be ambiguous
         # These fields should always go to specific models regardless of field name overlaps
         force_campaign_fields = {
+            # v2.0 campaign fields
             'budget_currency', 'agency_id', 'agency_name', 'advertiser_id', 'advertiser_name',
             'product_id', 'product_name', 'product_description', 'campaign_type_id', 'campaign_type_name',
+            'workflow_status_id', 'workflow_status_name',
+            # v2.0 deprecated audience fields (still supported for backward compatibility)
             'audience_name', 'audience_age_start', 'audience_age_end', 'audience_gender', 'audience_interests',
-            'location_type', 'locations', 'workflow_status_id', 'workflow_status_name'
+            # v2.0 deprecated location fields (still supported for backward compatibility)
+            'location_type', 'locations',
+            # NEW v3.0 campaign fields
+            'target_audiences', 'target_locations',
+            'kpi_name1', 'kpi_value1', 'kpi_name2', 'kpi_value2', 'kpi_name3', 'kpi_value3',
+            'kpi_name4', 'kpi_value4', 'kpi_name5', 'kpi_value5'
         }
 
         force_meta_fields = {
+            # v2.0 meta fields
             'created_by_name', 'created_by_id', 'is_current', 'is_archived', 'parent_id', 'comments'
         }
 
@@ -1150,7 +1228,25 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         mediaplan_fields = {}
 
         for key, value in kwargs.items():
-            if key in force_campaign_fields or key in campaign_field_names:
+            # NEW v3.0: Handle prefixed parameters for disambiguation
+            if key.startswith('meta_'):
+                # Strip prefix and route to meta
+                actual_field_name = key[5:]  # Remove 'meta_' prefix
+                if actual_field_name in meta_field_names:
+                    meta_fields[actual_field_name] = value
+                else:
+                    logger.warning(f"Unknown meta field '{actual_field_name}' from parameter '{key}'")
+                    meta_fields[actual_field_name] = value  # Add anyway for flexibility
+            elif key.startswith('campaign_'):
+                # Strip prefix and route to campaign
+                actual_field_name = key[9:]  # Remove 'campaign_' prefix
+                if actual_field_name in campaign_field_names:
+                    campaign_fields[actual_field_name] = value
+                else:
+                    logger.warning(f"Unknown campaign field '{actual_field_name}' from parameter '{key}'")
+                    campaign_fields[actual_field_name] = value  # Add anyway for flexibility
+            # Standard routing logic (without prefix)
+            elif key in force_campaign_fields or key in campaign_field_names:
                 campaign_fields[key] = value
             elif key in force_meta_fields or key in meta_field_names:
                 meta_fields[key] = value

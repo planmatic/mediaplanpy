@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Set, ClassVar, Union
 from pydantic import Field, field_validator, model_validator
 
 from mediaplanpy.models.base import BaseModel
+from mediaplanpy.models.metric_formula import MetricFormula
 
 
 class LineItem(BaseModel):
@@ -20,10 +21,10 @@ class LineItem(BaseModel):
 
     A line item is the most granular level of a media plan, representing
     a specific placement, ad format, targeting, or other executable unit.
-    Following the Media Plan Open Data Standard v2.0.
+    Following the Media Plan Open Data Standard v3.0.
     """
 
-    # Required fields per v2.0 schema (same as v1.0)
+    # Required fields per v3.0 schema (same as v2.0)
     id: str = Field(..., description="Unique identifier for the line item")
     name: str = Field(..., description="Name of the line item")
     start_date: date = Field(..., description="Start date of the line item")
@@ -129,6 +130,42 @@ class LineItem(BaseModel):
     metric_custom9: Optional[Decimal] = Field(None, description="Custom metric field 9")
     metric_custom10: Optional[Decimal] = Field(None, description="Custom metric field 10")
 
+    # NEW v3.0 FIELDS - All optional for backward compatibility
+
+    # Buy information - how the media is purchased
+    kpi_value: Optional[Decimal] = Field(None, description="Target value for the KPI")
+    buy_type: Optional[str] = Field(None, description="Type of media buy (e.g., Direct, Programmatic, Auction)")
+    buy_commitment: Optional[str] = Field(None, description="Commitment level of the buy (e.g., Guaranteed, Non-Guaranteed)")
+
+    # Aggregation fields
+    is_aggregate: Optional[bool] = Field(None, description="Whether this line item is an aggregate of other line items")
+    aggregation_level: Optional[str] = Field(None, description="Level at which metrics are aggregated (e.g., Campaign, LineItem, Creative)")
+
+    # Multi-currency support
+    cost_currency_exchange_rate: Optional[Decimal] = Field(None, description="Exchange rate if costs are in different currency than campaign budget")
+
+    # Budget constraints
+    cost_minimum: Optional[Decimal] = Field(None, description="Minimum expected cost for this line item")
+    cost_maximum: Optional[Decimal] = Field(None, description="Maximum expected cost for this line item")
+
+    # NEW v3.0 STANDARD METRICS - 10 new metrics
+    metric_view_starts: Optional[Decimal] = Field(None, description="Number of video view starts")
+    metric_view_completions: Optional[Decimal] = Field(None, description="Number of video view completions")
+    metric_reach: Optional[Decimal] = Field(None, description="Total unique users reached")
+    metric_units: Optional[Decimal] = Field(None, description="Number of units (generic counter)")
+    metric_impression_share: Optional[Decimal] = Field(None, description="Impression share (percentage of available impressions)")
+    metric_page_views: Optional[Decimal] = Field(None, description="Number of page views")
+    metric_likes: Optional[Decimal] = Field(None, description="Number of likes")
+    metric_shares: Optional[Decimal] = Field(None, description="Number of shares")
+    metric_comments: Optional[Decimal] = Field(None, description="Number of comments")
+    metric_conversions: Optional[Decimal] = Field(None, description="Number of conversions")
+
+    # Metric formulas - for custom calculated metrics
+    metric_formulas: Optional[Dict[str, MetricFormula]] = Field(None, description="Dictionary mapping metric names to formula configurations")
+
+    # Custom properties as key-value pairs
+    custom_properties: Optional[Dict[str, Any]] = Field(None, description="Additional custom properties as key-value pairs")
+
     # Constants and reference data for validation
     VALID_CHANNELS: ClassVar[Set[str]] = {
         "social", "search", "display", "video", "audio", "tv", "ooh", "print", "other"
@@ -165,7 +202,9 @@ class LineItem(BaseModel):
 
     @field_validator("cost_total", "cost_media", "cost_buying", "cost_platform", "cost_data", "cost_creative",
                     "cost_custom1", "cost_custom2", "cost_custom3", "cost_custom4", "cost_custom5",
-                    "cost_custom6", "cost_custom7", "cost_custom8", "cost_custom9", "cost_custom10")
+                    "cost_custom6", "cost_custom7", "cost_custom8", "cost_custom9", "cost_custom10",
+                    # Add v3.0 cost fields
+                    "cost_minimum", "cost_maximum", "cost_currency_exchange_rate")
     @classmethod
     def _validate_cost_internal(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """
@@ -191,6 +230,12 @@ class LineItem(BaseModel):
                     "metric_add_to_cart", "metric_app_install", "metric_application_start", "metric_application_complete",
                     "metric_contact_us", "metric_download", "metric_signup", "metric_max_daily_spend",
                     "metric_max_daily_impressions", "metric_audience_size",
+                    # Add all the new v3.0 standard metrics
+                    "metric_view_starts", "metric_view_completions", "metric_reach", "metric_units",
+                    "metric_impression_share", "metric_page_views", "metric_likes", "metric_shares",
+                    "metric_comments", "metric_conversions",
+                    # Add v3.0 kpi_value
+                    "kpi_value",
                     # Custom metrics
                     "metric_custom1", "metric_custom2", "metric_custom3", "metric_custom4", "metric_custom5",
                     "metric_custom6", "metric_custom7", "metric_custom8", "metric_custom9", "metric_custom10")

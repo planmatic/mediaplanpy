@@ -343,58 +343,36 @@ class WorkspaceManager:
             raise WorkspaceError(
                 f"Workspace file already exists at {settings_file_path}. Use overwrite=True to replace it.")
 
-        # Create default configuration with both local and S3 storage options - UPDATED FOR S3 SUPPORT
+        # Load workspace template from JSON file
         from mediaplanpy import __schema_version__
-        current_schema_version = __schema_version__  # This will be "2.0"
+        current_schema_version = __schema_version__
 
-        config = {
-            "workspace_id": workspace_id,
-            "workspace_name": workspace_name,
-            "workspace_status": "active",
-            "environment": "development",
-            "storage": {
-                "mode": "local",
-                "local": {
-                    "base_path": storage_path_name,
-                    "create_if_missing": True
-                },
-                "s3": {
-                    "bucket": "", # Fill in your bucket name
-                    "region": "", # Fill in your region name
-                    "prefix": workspace_id,
-                    "profile": "",  # Optional AWS profile
-                    "endpoint_url": "",  # Optional custom endpoint
-                    "use_ssl": True  # Default to secure connections
-                }
-            },
-            "workspace_settings": {
-                "schema_version": current_schema_version,  # Now defaults to "2.0"
-                "last_upgraded": datetime.now().strftime("%Y-%m-%d"),
-                "sdk_version_required": f"{current_schema_version.split('.')[0]}.0.x"  # Now "2.0.x"
-            },
-            "database": {
-                "enabled": False,
-                "host": "localhost",
-                "port": 5432,
-                "database": "mediaplanpy",
-                "schema": "public",
-                "table_name": "media_plans",
-                "username": "postgres",
-                "password_env_var": "MEDIAPLAN_DB_PASSWORD",
-                "ssl": False,
-                "connection_timeout": 30,
-                "auto_create_table": True
-            },
-            "excel": {
-                "enabled": True
-            },
-            "google_sheets": {
-                "enabled": False
-            },
-            "logging": {
-                "level": "INFO"
-            }
-        }
+        # Get path to template file
+        template_path = os.path.join(
+            os.path.dirname(__file__),
+            'schemas',
+            'workspace.template.json'
+        )
+
+        try:
+            with open(template_path, 'r') as f:
+                template_content = f.read()
+        except Exception as e:
+            raise WorkspaceError(f"Failed to load workspace template: {e}")
+
+        # Replace placeholders in template
+        template_content = template_content.replace('{{WORKSPACE_ID}}', workspace_id)
+        template_content = template_content.replace('{{WORKSPACE_NAME}}', workspace_name)
+        template_content = template_content.replace('{{STORAGE_PATH}}', storage_path_name)
+        template_content = template_content.replace('{{SCHEMA_VERSION}}', current_schema_version)
+        template_content = template_content.replace('{{LAST_UPGRADED}}', datetime.now().strftime("%Y-%m-%d"))
+        template_content = template_content.replace('{{SDK_VERSION_REQUIRED}}', f"{current_schema_version.split('.')[0]}.0.x")
+
+        # Parse the template into config dict
+        try:
+            config = json.loads(template_content)
+        except Exception as e:
+            raise WorkspaceError(f"Failed to parse workspace template: {e}")
 
         # Override with any provided config options
         for key, value in kwargs.items():
