@@ -76,8 +76,9 @@ from mediaplanpy.models import (
     BaseModel,
     LineItem,
     Campaign,
-    Budget,
     TargetAudience,
+    TargetLocation,
+    MetricFormula,
     MediaPlan,
     Meta
 )
@@ -153,8 +154,9 @@ __all__ = [
     'BaseModel',
     'LineItem',
     'Campaign',
-    'Budget',
     'TargetAudience',
+    'TargetLocation',
+    'MetricFormula',
     'MediaPlan',
     'Meta',
 

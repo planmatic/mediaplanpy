@@ -15,7 +15,8 @@ from typing import Any, Dict, List, Optional, Set, Union, ClassVar
 from pydantic import Field, field_validator, model_validator
 
 from mediaplanpy.models.base import BaseModel
-from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
+from mediaplanpy.models.campaign import Campaign
+from mediaplanpy.models.target_audience import TargetAudience
 from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.models.dictionary import Dictionary
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError, StorageError
