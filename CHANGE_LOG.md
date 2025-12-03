@@ -1,5 +1,13 @@
 # Changelog
 
+
+## [v3.0.0] - 2025-12-03 (WIP)
+
+### Improved
+- General
+  SDK upgrades to support mediaplanschema v3.0.
+
+
 ## [v2.0.7] - 2025-10-18
 
 ### Fixed
