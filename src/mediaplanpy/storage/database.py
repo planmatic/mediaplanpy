@@ -460,6 +460,151 @@ class PostgreSQLBackend:
         except Exception as e:
             raise DatabaseError(f"Failed to create table: {e}")
 
+    def get_table_version(self) -> Optional[str]:
+        """
+        Detect the current schema version of the database table.
+
+        Checks for version-specific columns to determine which schema the table uses:
+        - v3.0: Has campaign_kpi_name1, lineitem_buy_type columns
+        - v2.0: Has campaign_agency_id, lineitem_metric_engagements but not v3.0 columns
+        - v1.0 or unknown: Missing both v2.0 and v3.0 columns
+
+        Returns:
+            Version string ("3.0", "2.0", "1.0") or None if table doesn't exist
+        """
+        if not self.table_exists():
+            return None
+
+        try:
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    # Query information_schema for column names
+                    cursor.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s AND table_name = %s
+                    """, (self.schema, self.table_name))
+
+                    columns = {row[0] for row in cursor.fetchall()}
+
+                    # Check for v3.0 columns
+                    v3_columns = {
+                        'campaign_kpi_name1',
+                        'campaign_target_audiences',
+                        'lineitem_buy_type',
+                        'lineitem_metric_reach'
+                    }
+
+                    if v3_columns.issubset(columns):
+                        return "3.0"
+
+                    # Check for v2.0 columns
+                    v2_columns = {
+                        'campaign_agency_id',
+                        'campaign_audience_name',
+                        'lineitem_metric_engagements'
+                    }
+
+                    if v2_columns.issubset(columns):
+                        return "2.0"
+
+                    # Older version or unknown
+                    return "1.0"
+
+        except Exception as e:
+            logger.warning(f"Could not determine table version: {e}")
+            return None
+
+    def migrate_schema_v2_to_v3(self) -> Dict[str, Any]:
+        """
+        Migrate database schema from v2.0 to v3.0 using ALTER TABLE.
+
+        Adds new v3.0 columns while keeping deprecated v2.0 columns for backward compatibility.
+        This allows existing BI tools and dashboards to continue working.
+
+        New v3.0 columns added:
+        - Meta: dim_custom1-5, custom_properties (JSONB)
+        - Campaign: target_audiences (JSONB), target_locations (JSONB), kpi_name1-5,
+                   kpi_value1-5, dim_custom1-5, custom_properties (JSONB)
+        - LineItem: buy_type, buy_model, buy_commitment, buy_objective, is_aggregate,
+                   aggregation_level, cost_currency_exchange_rate, cost_minimum, cost_maximum,
+                   kpi_value, new metrics (11 fields), metric_formulas (JSONB),
+                   custom_properties (JSONB)
+
+        Deprecated v2.0 columns kept:
+        - campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end,
+          campaign_audience_gender, campaign_audience_interests
+        - campaign_location_type, campaign_locations
+
+        Returns:
+            Dictionary with migration results including columns_added, errors
+        """
+        result = {
+            "success": False,
+            "columns_added": 0,
+            "columns_skipped": 0,
+            "errors": []
+        }
+
+        try:
+            # Check current version
+            current_version = self.get_table_version()
+
+            if current_version == "3.0":
+                logger.info("Database schema is already v3.0, no migration needed")
+                result["success"] = True
+                return result
+
+            logger.info(f"Migrating database schema from v{current_version} to v3.0")
+
+            # Get v3.0 schema definition from shared schema
+            from mediaplanpy.storage.schema_columns import get_database_schema
+
+            v3_schema = get_database_schema(include_workspace_fields=False)
+
+            # Get existing columns
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s AND table_name = %s
+                    """, (self.schema, self.table_name))
+
+                    existing_columns = {row[0] for row in cursor.fetchall()}
+
+                    # Add missing columns one by one
+                    for col_name, col_type in v3_schema:
+                        if col_name in existing_columns:
+                            result["columns_skipped"] += 1
+                            logger.debug(f"Column {col_name} already exists, skipping")
+                            continue
+
+                        try:
+                            alter_sql = f"ALTER TABLE {self.schema}.{self.table_name} ADD COLUMN {col_name} {col_type}"
+                            cursor.execute(alter_sql)
+                            result["columns_added"] += 1
+                            logger.debug(f"Added column: {col_name} {col_type}")
+
+                        except Exception as e:
+                            error_msg = f"Failed to add column {col_name}: {str(e)}"
+                            result["errors"].append(error_msg)
+                            logger.warning(error_msg)
+                            # Continue with other columns
+
+                    conn.commit()
+
+            result["success"] = True
+            logger.info(f"Database schema migration complete: {result['columns_added']} columns added, "
+                       f"{result['columns_skipped']} already existed")
+
+        except Exception as e:
+            error_msg = f"Database schema migration failed: {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(error_msg)
+
+        return result
+
     def ensure_table_exists(self) -> None:
         """
         Ensure the media plans table exists, creating it if necessary.

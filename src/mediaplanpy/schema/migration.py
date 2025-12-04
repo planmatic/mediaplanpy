@@ -2,8 +2,10 @@
 Schema migration module for mediaplanpy.
 
 This module provides utilities for migrating media plans
-between different schema versions with support for 2-digit versioning.
-Updated for SDK v2.0 with v0.0 support completely removed.
+between different schema versions using 2-digit versioning.
+
+SDK v3.0 supports only v2.0 → v3.0 migration.
+v0.0 and v1.0 support completely removed.
 """
 
 import logging
@@ -41,11 +43,13 @@ logger = logging.getLogger("mediaplanpy.schema.migration")
 
 class SchemaMigrator:
     """
-    Migrator for media plan data between schema versions with 2-digit version support.
+    Migrator for media plan data between schema versions.
 
-    Provides migration paths between different schema versions, supporting both
-    legacy 3-digit format (v1.0.0) and new 2-digit format (1.0) inputs/outputs.
-    IMPORTANT: v0.0 support completely removed in SDK v2.0.
+    Provides migration paths for supported schema versions using 2-digit format.
+    SDK v3.0 supports only v2.0 → v3.0 migration.
+
+    IMPORTANT: v0.0 and v1.0 support completely removed in SDK v3.0.
+    Use SDK v2.x to migrate v1.0 plans to v2.0 first, then upgrade to SDK v3.0.
     """
 
     def __init__(self, registry: Optional[SchemaRegistry] = None):
@@ -62,20 +66,16 @@ class SchemaMigrator:
         self._register_default_migrations()
 
     def _register_default_migrations(self):
-        """Register the default migration paths using supported 2-digit format."""
-        # REMOVED: v0.0 migration paths are no longer supported in SDK v2.0
+        """Register the default migration paths for SDK v3.0."""
+        # REMOVED: v0.0 and v1.0 migration paths are no longer supported in SDK v3.0
 
-        # NEW: Add v1.0 → v2.0 migration path (all format combinations)
-        self.register_migration("1.0", "2.0", self._migrate_10_to_20)
-        self.register_migration("v1.0", "2.0", self._migrate_10_to_20)
-        self.register_migration("v1.0", "v2.0", self._migrate_10_to_20)
-        self.register_migration("1.0", "v2.0", self._migrate_10_to_20)
+        # v2.0 → v3.0 migration path (all format combinations)
+        self.register_migration("2.0", "3.0", self._migrate_20_to_30)
+        self.register_migration("v2.0", "3.0", self._migrate_20_to_30)
+        self.register_migration("v2.0", "v3.0", self._migrate_20_to_30)
+        self.register_migration("2.0", "v3.0", self._migrate_20_to_30)
 
-        # Legacy format support for input (but output to supported format)
-        self.register_migration("v1.0.0", "2.0", self._migrate_v100_to_20)
-        self.register_migration("v1.0.0", "v2.0", self._migrate_v100_to_20)  # ADD THIS LINE
-
-        logger.debug("Registered default migration paths for SDK v2.0 (v0.0 support removed)")
+        logger.debug("Registered default migration paths for SDK v3.0 (only v2.0 → v3.0 supported)")
 
     def register_migration(self, from_version: str, to_version: str,
                           migration_func: Callable[[Dict[str, Any]], Dict[str, Any]]):
@@ -334,78 +334,183 @@ class SchemaMigrator:
         logger.warning(f"No migration path found from {from_version} to {to_version}")
         return []
 
-    # REMOVED METHODS (no longer needed in SDK v2.0):
-    # - _migrate_00_to_10() - v0.0 support completely removed
-    # - _migrate_v000_to_10() - v0.0 support completely removed
-    # - _migrate_v000_to_v100() - v0.0 support completely removed
-    # - _perform_v0_to_v1_migration() - v0.0 support completely removed
+    # REMOVED METHODS (no longer supported in SDK v3.0):
+    # - _migrate_00_to_10() - v0.0 support removed
+    # - _migrate_10_to_20() - v1.0 support removed
+    # - _migrate_v100_to_20() - v1.0.0 support removed
 
-    # NEW MIGRATION METHODS FOR SDK v2.0
+    # MIGRATION METHODS FOR SDK v3.0
 
-    def _migrate_10_to_20(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _migrate_20_to_30(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Migrate a media plan from schema 1.0 to 2.0.
+        Migrate a media plan from schema v2.0 to v3.0.
 
-        Key changes in v2.0:
-        - meta.created_by (optional) → meta.created_by_name (required)
-        - All other v2.0 fields are optional, so no migration needed
+        Performs the following required transformations:
+        1. Update schema version from 2.0 to 3.0
+        2. Migrate campaign audience fields to target_audiences array
+        3. Migrate campaign location fields to target_locations array
+        4. Rename dictionary.custom_dimensions to lineitem_custom_dimensions
+
+        See MIGRATION_V2_TO_V3.md for complete migration logic.
 
         Args:
-            data: Media plan data in 1.0 format.
+            data: Media plan data in v2.0 format
 
         Returns:
-            Media plan data in 2.0 format.
+            Media plan data in v3.0 format
         """
-        logger.debug("Migrating from 1.0 to 2.0")
+        logger.info("Migrating from v2.0 to v3.0")
 
-        # Create a deep copy to avoid modifying the original
+        # Make a deep copy to avoid modifying original
         import copy
         result = copy.deepcopy(data)
 
-        # Update meta section for v2.0 requirements
-        if "meta" in result:
-            meta = result["meta"]
+        # STEP 1: Update schema version
+        if "meta" not in result:
+            result["meta"] = {}
+        result["meta"]["schema_version"] = "3.0"
+        logger.debug("Updated schema version to 3.0")
 
-            # Handle created_by → created_by_name migration
-            if "created_by" in meta and "created_by_name" not in meta:
-                meta["created_by_name"] = meta["created_by"]
-                # Keep the original created_by field for backward compatibility
-                # and add created_by_id as None (user can update later)
-                meta["created_by_id"] = None
-                logger.debug("Migrated created_by to created_by_name")
-            elif "created_by_name" not in meta:
-                # If neither created_by nor created_by_name exists, set a default
-                meta["created_by_name"] = meta.get("created_by", "Unknown User")
-                meta["created_by_id"] = None
-                logger.debug("Set default created_by_name for missing field")
+        # STEP 2: Migrate campaign audience fields to target_audiences array
+        if "campaign" in result:
+            self._migrate_audience_fields_v2_to_v3(result["campaign"])
 
-        # Campaign and LineItem fields: All new v2.0 fields are optional,
-        # so no migration is needed - they'll just be None/empty
+        # STEP 3: Migrate campaign location fields to target_locations array
+        if "campaign" in result:
+            self._migrate_location_fields_v2_to_v3(result["campaign"])
 
-        # Dictionary field: New and optional in v2.0, so no migration needed
+        # STEP 4: Rename dictionary.custom_dimensions to lineitem_custom_dimensions
+        if "dictionary" in result and "custom_dimensions" in result["dictionary"]:
+            result["dictionary"]["lineitem_custom_dimensions"] = result["dictionary"].pop("custom_dimensions")
+            logger.debug("Renamed dictionary.custom_dimensions to lineitem_custom_dimensions")
 
-        # Update schema version to 2.0
-        result["meta"]["schema_version"] = "2.0"
-
-        logger.debug("Completed 1.0 to 2.0 migration")
+        logger.info("Migration from v2.0 to v3.0 complete")
         return result
 
-    def _migrate_v100_to_20(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _migrate_audience_fields_v2_to_v3(self, campaign: Dict[str, Any]) -> None:
         """
-        Migrate a media plan from schema v1.0.0 (legacy format) to 2.0 (new format).
+        Migrate v2.0 audience fields to v3.0 target_audiences array.
+
+        Transformation:
+        - audience_name → target_audiences[0].name
+        - audience_age_start → target_audiences[0].demo_age_start
+        - audience_age_end → target_audiences[0].demo_age_end
+        - audience_gender → target_audiences[0].demo_gender
+        - audience_interests (array) → target_audiences[0].interest_attributes (string)
+
+        Name generation rules (if audience_name is missing):
+        - Use gender + age range (e.g., "Males 35-55")
+        - Fallback to "General Audience"
 
         Args:
-            data: Media plan data in v1.0.0 format.
-
-        Returns:
-            Media plan data in 2.0 format.
+            campaign: Campaign dictionary to modify in-place
         """
-        logger.debug("Migrating from v1.0.0 to 2.0 (legacy to new format)")
-        # Use the same logic as 1.0 to 2.0 since the schema content is the same
-        result = self._migrate_10_to_20(data)
-        # Ensure final version is 2.0
-        result["meta"]["schema_version"] = "2.0"
-        return result
+        # Extract v2.0 audience fields
+        audience_name = campaign.pop("audience_name", None)
+        audience_age_start = campaign.pop("audience_age_start", None)
+        audience_age_end = campaign.pop("audience_age_end", None)
+        audience_gender = campaign.pop("audience_gender", None)
+        audience_interests = campaign.pop("audience_interests", None)
+
+        # Only create target_audiences if ANY audience field has data
+        if not any([audience_name, audience_age_start, audience_age_end, audience_gender, audience_interests]):
+            logger.debug("No audience fields found, skipping target_audiences creation")
+            return
+
+        # Generate name if not provided
+        if audience_name:
+            name = audience_name
+        else:
+            # Generate from available components
+            if audience_gender and audience_gender != "Any":
+                prefix = f"{audience_gender}s"  # "Males" or "Females"
+            else:
+                prefix = "Adults"
+
+            if audience_age_start and audience_age_end:
+                name = f"{prefix} {audience_age_start}-{audience_age_end}"
+            elif audience_age_start:
+                name = f"{prefix} {audience_age_start}+"
+            elif audience_age_end:
+                name = f"{prefix} up to {audience_age_end}"
+            else:
+                name = prefix if prefix != "Adults" else "General Audience"
+
+        # Create target_audiences array with single audience object
+        audience_obj = {"name": name}
+
+        # Add optional demographic fields
+        if audience_age_start is not None:
+            audience_obj["demo_age_start"] = audience_age_start
+        if audience_age_end is not None:
+            audience_obj["demo_age_end"] = audience_age_end
+        if audience_gender:
+            audience_obj["demo_gender"] = audience_gender
+
+        # Convert audience_interests array to comma-separated string
+        if audience_interests:
+            if isinstance(audience_interests, list):
+                audience_obj["interest_attributes"] = ", ".join(audience_interests)
+            else:
+                audience_obj["interest_attributes"] = str(audience_interests)
+
+        campaign["target_audiences"] = [audience_obj]
+        logger.debug(f"Created target_audiences array with name: {name}")
+
+    def _migrate_location_fields_v2_to_v3(self, campaign: Dict[str, Any]) -> None:
+        """
+        Migrate v2.0 location fields to v3.0 target_locations array.
+
+        Transformation:
+        - location_type → target_locations[0].location_type
+        - locations (array) → target_locations[0].location_list (array)
+        - Generate descriptive name from locations
+
+        Name generation rules:
+        - 1 location: use location name
+        - 2 locations: "Location1 and Location2"
+        - 3 locations: "Location1, Location2, and Location3"
+        - 4+ locations: concatenate with commas, truncate at 50 chars
+
+        Args:
+            campaign: Campaign dictionary to modify in-place
+        """
+        # Extract v2.0 location fields
+        location_type = campaign.pop("location_type", None)
+        locations = campaign.pop("locations", None)
+
+        # Only create target_locations if locations array has data
+        if not locations or len(locations) == 0:
+            logger.debug("No locations found, skipping target_locations creation")
+            return
+
+        # Generate name from locations
+        if len(locations) == 1:
+            name = locations[0]
+        elif len(locations) == 2:
+            name = f"{locations[0]} and {locations[1]}"
+        elif len(locations) == 3:
+            name = f"{locations[0]}, {locations[1]}, and {locations[2]}"
+        else:  # 4+ locations
+            # Concatenate all with commas, truncate at 50 chars
+            full_name = ", ".join(locations)
+            if len(full_name) <= 50:
+                name = full_name
+            else:
+                name = full_name[:47] + "..."  # 47 + 3 = 50 chars total
+
+        # Create target_locations array with single location object
+        location_obj = {
+            "name": name,
+            "location_list": locations
+        }
+
+        # Add optional location_type field
+        if location_type:
+            location_obj["location_type"] = location_type
+
+        campaign["target_locations"] = [location_obj]
+        logger.debug(f"Created target_locations array with name: {name}")
 
     # UTILITY METHODS
 
