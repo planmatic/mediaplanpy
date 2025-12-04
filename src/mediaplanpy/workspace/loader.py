@@ -473,7 +473,8 @@ class WorkspaceManager:
 
     def load(self, workspace_path: Optional[str] = None,
              workspace_id: Optional[str] = None,
-             config_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+             config_dict: Optional[Dict[str, Any]] = None,
+             upgrade_mode: bool = False) -> Dict[str, Any]:
         """
         Load a workspace configuration with automatic migration of deprecated fields.
 
@@ -481,6 +482,8 @@ class WorkspaceManager:
             workspace_path: Path to workspace settings file
             workspace_id: Workspace ID to locate settings file
             config_dict: Configuration dictionary to use directly
+            upgrade_mode: If True, skip version compatibility check to allow loading
+                         workspaces with older schema versions for upgrade purposes
 
         Returns:
             The loaded workspace configuration
@@ -594,7 +597,9 @@ class WorkspaceManager:
                 raise WorkspaceValidationError("\n".join(errors))
 
             # NEW v3.0: Validate workspace version compatibility (strict enforcement)
-            self._validate_workspace_version_compatibility()
+            # Skip version check if in upgrade mode (allows loading older workspaces for upgrade)
+            if not upgrade_mode:
+                self._validate_workspace_version_compatibility()
 
             logger.info(f"Loaded workspace '{self.config.get('workspace_name', 'Unnamed')}' from {self.workspace_path}")
 

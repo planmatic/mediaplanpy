@@ -487,12 +487,12 @@ class PostgreSQLBackend:
 
                     columns = {row[0] for row in cursor.fetchall()}
 
-                    # Check for v3.0 columns
+                    # Check for v3.0 signature columns (must be actual DB columns, not arrays)
                     v3_columns = {
-                        'campaign_kpi_name1',
-                        'campaign_target_audiences',
-                        'lineitem_buy_type',
-                        'lineitem_metric_reach'
+                        'campaign_kpi_name1',        # New in v3.0
+                        'campaign_dim_custom1',      # New in v3.0
+                        'lineitem_buy_type',         # New in v3.0
+                        'lineitem_metric_reach'      # New in v3.0
                     }
 
                     if v3_columns.issubset(columns):

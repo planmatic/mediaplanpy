@@ -60,10 +60,9 @@ class WorkspaceUpgrader:
         This method implements the complete workspace upgrade process:
         1. Validate workspace is v2.0 (reject v1.0 and below)
         2. Create timestamped backups (JSON, Parquet, Database)
-        3. Upgrade all JSON files (v2.0 → v3.0 with audience/location migration)
-        4. Regenerate all Parquet files with v3.0 schema
-        5. Upgrade database schema (ALTER TABLE to add v3.0 columns)
-        6. Update workspace settings to v3.0
+        3. Upgrade database schema (ALTER TABLE to add v3.0 columns) - BEFORE data migration
+        4. Migrate JSON files (v2.0 → v3.0) - save() automatically updates Parquet & Database
+        5. Update workspace settings to v3.0
 
         Args:
             target_sdk_version: Target SDK version (defaults to current SDK version)
@@ -156,27 +155,23 @@ class WorkspaceUpgrader:
 
                 logger.info(f"Backups created in: {backup_dir}")
 
-            # STEP 2: Upgrade all JSON media plans (v2.0 → v3.0)
-            json_result = self._upgrade_json_mediaplans(target_schema_version, dry_run)
-            result["json_files_migrated"] = json_result["migrated_count"]
-            result["files_processed"].extend(json_result["processed_files"])
-            result["files_failed"].extend(json_result["failed_files"])
-            result["errors"].extend(json_result["errors"])
-
-            # STEP 3: Regenerate all Parquet files with v3.0 schema
-            parquet_result = self._regenerate_parquet_files(dry_run)
-            result["parquet_files_regenerated"] = parquet_result["regenerated_count"]
-            result["files_processed"].extend(parquet_result["processed_files"])
-            result["files_failed"].extend(parquet_result["failed_files"])
-            result["errors"].extend(parquet_result["errors"])
-
-            # STEP 4: Upgrade database schema if enabled
+            # STEP 2: Upgrade database schema FIRST (before saving v3.0 data)
             if self._should_upgrade_database():
                 db_result = self._upgrade_database_schema(dry_run)
                 result["database_upgraded"] = db_result["upgraded"]
                 result["errors"].extend(db_result["errors"])
 
-            # STEP 5: Update workspace settings for v3.0
+            # STEP 3: Upgrade all JSON media plans (v2.0 → v3.0)
+            # Note: save() will automatically regenerate Parquet AND update database with v3.0 data
+            json_result = self._upgrade_json_mediaplans(target_schema_version, dry_run)
+            result["json_files_migrated"] = json_result["migrated_count"]
+            result["files_processed"].extend(json_result["processed_files"])
+            result["files_failed"].extend(json_result["failed_files"])
+            result["errors"].extend(json_result["errors"])
+            # Parquet files are automatically regenerated during save() above
+            result["parquet_files_regenerated"] = json_result["migrated_count"]
+
+            # STEP 4: Update workspace settings for v3.0
             workspace_result = self._update_workspace_settings(target_sdk_version, target_schema_version, dry_run)
             result["workspace_updated"] = workspace_result["updated"]
             result["errors"].extend(workspace_result["errors"])
@@ -208,17 +203,29 @@ class WorkspaceUpgrader:
 
     def _create_backup_directory(self) -> str:
         """
-        Create timestamped backup directory.
+        Create timestamped backup directory inside the workspace's storage path.
 
         Returns:
             Path to backup directory
         """
-        # Get workspace directory
-        workspace_dir = os.path.dirname(self.workspace_manager.settings_path)
+        # Get workspace storage directory (not settings file directory)
+        storage_config = self.workspace_manager.config.get("storage", {})
+        storage_mode = storage_config.get("mode", "local")
+
+        if storage_mode == "local":
+            # Use the storage base_path from config
+            workspace_dir = storage_config.get("local", {}).get("base_path")
+            if not workspace_dir:
+                raise WorkspaceError("Local storage base_path not configured")
+        else:
+            # For S3 or other storage modes, fall back to settings directory
+            # TODO: Handle S3 backup properly (see TODO_S3_BACKUP_ISSUE)
+            workspace_dir = os.path.dirname(self.workspace_manager.workspace_path)
+            logger.warning(f"Backup for storage mode '{storage_mode}' will be created locally")
 
         # Create timestamped backup directory
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join(workspace_dir, "backups", f"upgrade_v3.0_{timestamp}")
+        backup_dir = os.path.join(workspace_dir, "backups", f"{timestamp}_upgrade_v3.0")
 
         os.makedirs(backup_dir, exist_ok=True)
         logger.info(f"Created backup directory: {backup_dir}")
@@ -328,23 +335,29 @@ class WorkspaceUpgrader:
                 logger.info("Database table does not exist, no backup needed")
                 return result
 
-            # Generate backup table name with timestamp
+            # Check if table is already v3.0 - no backup needed
+            current_version = db_backend.get_table_version()
+            if current_version == "3.0":
+                logger.info("Database table is already v3.0, no backup needed")
+                return result
+
+            # Generate backup table name with timestamp at start
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_table_name = f"{db_backend.table_name}_backup_{timestamp}"
+            backup_table_name = f"{timestamp}_backup_{db_backend.table_name}"
 
             # Create backup table using CREATE TABLE AS SELECT
             try:
-                with db_backend._get_connection() as conn:
+                with db_backend.connect() as conn:
                     with conn.cursor() as cursor:
-                        # Create backup table
+                        # Create backup table (quote table names for PostgreSQL compatibility)
                         backup_sql = f"""
-                            CREATE TABLE {backup_table_name} AS
-                            SELECT * FROM {db_backend.table_name}
+                            CREATE TABLE {db_backend.schema}."{backup_table_name}" AS
+                            SELECT * FROM {db_backend.schema}.{db_backend.table_name}
                         """
                         cursor.execute(backup_sql)
 
                         # Get count of backed up records
-                        count_sql = f"SELECT COUNT(*) FROM {backup_table_name}"
+                        count_sql = f'SELECT COUNT(*) FROM {db_backend.schema}."{backup_table_name}"'
                         cursor.execute(count_sql)
                         result["records_backed_up"] = cursor.fetchone()[0]
 
@@ -497,11 +510,15 @@ class WorkspaceUpgrader:
                 # Try root directory as fallback
                 json_files = storage_backend.list_files("", "*.json")
 
-            logger.info(f"Found {len(json_files)} JSON files to process for v3.0 upgrade")
+            total_files = len(json_files)
+            logger.info(f"Found {total_files} JSON files to process for v3.0 upgrade")
 
-            for file_path in json_files:
+            for index, file_path in enumerate(json_files, start=1):
                 try:
                     result["processed_files"].append(file_path)
+
+                    # Extract plan name from file path for progress message
+                    plan_name = os.path.basename(file_path).replace('.json', '')
 
                     if dry_run:
                         # For dry run, just check what would be migrated
@@ -565,11 +582,23 @@ class WorkspaceUpgrader:
                                     logger.error(error_msg)
                                     continue
 
-                            # Load media plan (will trigger v2.0 → v3.0 migration via schema migrator)
-                            media_plan = MediaPlan.load(self.workspace_manager, path=file_path, validate_version=True, auto_migrate=True)
+                            # Temporarily suppress expected migration warnings during upgrade
+                            import logging
+                            mediaplan_logger = logging.getLogger('mediaplanpy')
+                            old_level = mediaplan_logger.level
+                            mediaplan_logger.setLevel(logging.ERROR)  # Suppress WARNING level during upgrade
 
-                            # Save with v3.0 schema
-                            media_plan.save(self.workspace_manager, path=file_path, overwrite=True, validate_version=True)
+                            try:
+                                # Load media plan (will trigger v2.0 → v3.0 migration via schema migrator)
+                                # Note: validate_version=False suppresses expected v2.0 deprecation warnings during upgrade
+                                media_plan = MediaPlan.load(self.workspace_manager, path=file_path, validate_version=False, auto_migrate=True)
+
+                                # Save with v3.0 schema (will auto-regenerate Parquet and update Database)
+                                # Note: validate_version=False suppresses warnings during upgrade
+                                media_plan.save(self.workspace_manager, path=file_path, overwrite=True, validate_version=False)
+                            finally:
+                                # Restore original log level
+                                mediaplan_logger.setLevel(old_level)
 
                             # Check if migration actually occurred
                             from mediaplanpy.schema.version_utils import normalize_version
@@ -578,10 +607,11 @@ class WorkspaceUpgrader:
 
                             if normalized != target_normalized:
                                 result["migrated_count"] += 1
-                                logger.info(f"Migrated {file_path} from {current_version} to v{target_schema_version}")
+                                # Use print() for user-visible progress (not suppressed by logger)
+                                print(f"✓ Successfully migrated media plan '{plan_name}' ({index}/{total_files})")
                             else:
                                 result["already_current_count"] += 1
-                                logger.debug(f"File {file_path} already at target version")
+                                print(f"✓ Media plan '{plan_name}' already at v{target_schema_version} ({index}/{total_files})")
 
                         except SchemaVersionError as e:
                             result["failed_files"].append(file_path)
@@ -645,15 +675,18 @@ class WorkspaceUpgrader:
 
             for json_path in json_files:
                 try:
-                    result["processed_files"].append(json_path)
+                    # Construct Parquet path from JSON path
+                    parquet_path = json_path.rsplit('.', 1)[0] + '.parquet'
+                    result["processed_files"].append(parquet_path)
 
                     if dry_run:
                         logger.info(f"[DRY RUN] Would regenerate Parquet for {json_path}")
                         result["regenerated_count"] += 1
                     else:
                         try:
-                            # Load media plan from JSON
-                            media_plan = MediaPlan.load(self.workspace_manager, path=json_path, validate_version=True)
+                            # Load media plan from JSON (already migrated to v3.0 in previous step)
+                            # Note: validate_version=False suppresses expected v2.0 deprecation warnings
+                            media_plan = MediaPlan.load(self.workspace_manager, path=json_path, validate_version=False)
 
                             # Save will automatically regenerate Parquet with v3.0 schema
                             media_plan.save(
@@ -669,13 +702,13 @@ class WorkspaceUpgrader:
                             logger.info(f"Regenerated Parquet for {json_path}")
 
                         except Exception as e:
-                            result["failed_files"].append(json_path)
-                            result["errors"].append(f"Failed to regenerate Parquet for {json_path}: {str(e)}")
-                            logger.error(f"Failed to regenerate Parquet for {json_path}: {str(e)}")
+                            result["failed_files"].append(parquet_path)
+                            result["errors"].append(f"Failed to regenerate Parquet for {parquet_path} (from {json_path}): {str(e)}")
+                            logger.error(f"Failed to regenerate Parquet for {parquet_path} (from {json_path}): {str(e)}")
 
                 except Exception as e:
-                    result["failed_files"].append(json_path)
-                    result["errors"].append(f"Error processing {json_path}: {str(e)}")
+                    result["failed_files"].append(parquet_path)
+                    result["errors"].append(f"Error processing Parquet for {parquet_path} (from {json_path}): {str(e)}")
 
             logger.info(f"Parquet regeneration complete: {result['regenerated_count']} files regenerated")
 
@@ -730,8 +763,8 @@ class WorkspaceUpgrader:
             result["schema_version_before"] = current_version
 
             if current_version == "3.0":
-                logger.info("Database schema is already v3.0")
-                result["upgraded"] = True
+                logger.info("Database schema is already v3.0 - no upgrade needed")
+                result["upgraded"] = False  # Already at target version
                 result["schema_version_after"] = "3.0"
                 return result
 
@@ -784,22 +817,30 @@ class WorkspaceUpgrader:
         }
 
         try:
+            # Load current settings to check if already at target version
+            import json
+            with open(self.workspace_manager.workspace_path, 'r') as f:
+                settings = json.load(f)
+
+            # Check if already at target version
+            current_schema = settings.get('workspace_settings', {}).get('schema_version')
+            if current_schema == schema_version:
+                logger.info(f"Workspace settings already at target version {schema_version} - no update needed")
+                result["updated"] = False
+                return result
+
             if dry_run:
-                logger.info(f"[DRY RUN] Would update workspace settings to SDK {sdk_version}, Schema {schema_version}")
+                logger.info(f"[DRY RUN] Would update workspace settings from {current_schema} to SDK {sdk_version}, Schema {schema_version}")
                 result["updated"] = True
                 return result
 
-            # Load current settings
-            import json
-            with open(self.workspace_manager.settings_path, 'r') as f:
-                settings = json.load(f)
+            # Update version information in workspace_settings (settings already loaded above)
+            if 'workspace_settings' not in settings:
+                settings['workspace_settings'] = {}
 
-            # Update version information
-            if 'schema_settings' not in settings:
-                settings['schema_settings'] = {}
-
-            settings['schema_settings']['preferred_version'] = schema_version
-            settings['schema_settings']['sdk_version'] = sdk_version
+            settings['workspace_settings']['schema_version'] = schema_version
+            settings['workspace_settings']['sdk_version_required'] = sdk_version
+            settings['workspace_settings']['last_upgraded'] = datetime.now().strftime('%Y-%m-%d')
 
             # Add upgrade metadata
             if 'upgrade_history' not in settings:
@@ -813,7 +854,7 @@ class WorkspaceUpgrader:
             })
 
             # Write updated settings
-            with open(self.workspace_manager.settings_path, 'w') as f:
+            with open(self.workspace_manager.workspace_path, 'w') as f:
                 json.dump(settings, f, indent=2)
 
             result["updated"] = True
