@@ -24,7 +24,7 @@ from mediaplanpy.exceptions import WorkspaceError
 # CONFIGURATION - Set your workspace path here
 # =============================================================================
 
-WORKSPACE_SETTINGS_PATH = r"C:\mediaplanpy\workspace_0a21ffd4_settings.json"
+WORKSPACE_SETTINGS_PATH = r"C:\mediaplanpy\workspace_35a938d0_settings.json"
 
 # Example paths for common test cases:
 # WORKSPACE_SETTINGS_PATH = "/mnt/c/users/laure/mediaplans/workspace_v2_with_db/.mediaplanpy_workspace_settings.json"
@@ -163,6 +163,24 @@ def display_upgrade_result(result: dict, dry_run: bool = False):
 
     print_subsection("Database")
     print_info("Database Upgraded", result["database_upgraded"])
+
+    # Display database record counts for data integrity verification
+    db_result = result.get("database_result", {})
+    if db_result:
+        records_before = db_result.get("records_before")
+        records_after = db_result.get("records_after")
+
+        if records_before is not None:
+            print_info("Records Before Migration", records_before)
+        if records_after is not None:
+            print_info("Records After Migration", records_after)
+
+        # Data integrity check
+        if records_before is not None and records_after is not None:
+            if records_before == records_after:
+                print("  ✓ Data integrity verified: record count unchanged")
+            else:
+                print(f"  ⚠️  WARNING: Record count changed ({records_before} → {records_after})")
 
     if not dry_run and result.get("backups_created"):
         print_subsection("Backups Created")

@@ -155,11 +155,25 @@ class WorkspaceUpgrader:
 
                 logger.info(f"Backups created in: {backup_dir}")
 
+            # Get initial database record count (before any changes)
+            initial_record_count = None
+            if self._should_upgrade_database():
+                try:
+                    from mediaplanpy.storage.database import PostgreSQLBackend
+                    db_backend = PostgreSQLBackend(self.workspace_manager.get_resolved_config())
+                    if db_backend.table_exists():
+                        initial_record_count = self._get_workspace_record_count(db_backend)
+                        logger.info(f"Database records before upgrade: {initial_record_count}")
+                except Exception as e:
+                    logger.warning(f"Could not get initial record count: {e}")
+
             # STEP 2: Upgrade database schema FIRST (before saving v3.0 data)
             if self._should_upgrade_database():
                 db_result = self._upgrade_database_schema(dry_run)
                 result["database_upgraded"] = db_result["upgraded"]
                 result["errors"].extend(db_result["errors"])
+                # Store database result for record count display
+                result["database_result"] = db_result
 
             # STEP 3: Upgrade all JSON media plans (v2.0 → v3.0)
             # Note: save() will automatically regenerate Parquet AND update database with v3.0 data
@@ -170,6 +184,31 @@ class WorkspaceUpgrader:
             result["errors"].extend(json_result["errors"])
             # Parquet files are automatically regenerated during save() above
             result["parquet_files_regenerated"] = json_result["migrated_count"]
+
+            # Get final database record count (after all changes)
+            if self._should_upgrade_database() and initial_record_count is not None:
+                try:
+                    from mediaplanpy.storage.database import PostgreSQLBackend
+                    db_backend = PostgreSQLBackend(self.workspace_manager.get_resolved_config())
+                    if db_backend.table_exists():
+                        final_record_count = self._get_workspace_record_count(db_backend)
+                        logger.info(f"Database records after upgrade: {final_record_count}")
+
+                        # Add to database_result or create if doesn't exist
+                        if "database_result" not in result:
+                            result["database_result"] = {}
+                        result["database_result"]["records_before"] = initial_record_count
+                        result["database_result"]["records_after"] = final_record_count
+
+                        # Data integrity check
+                        if initial_record_count != final_record_count:
+                            warning_msg = f"⚠️  WARNING: Record count changed during upgrade (before: {initial_record_count}, after: {final_record_count})"
+                            logger.warning(warning_msg)
+                            result["errors"].append(warning_msg)
+                        else:
+                            logger.info(f"✓ Data integrity verified: {final_record_count} records preserved")
+                except Exception as e:
+                    logger.warning(f"Could not get final record count: {e}")
 
             # STEP 4: Update workspace settings for v3.0
             workspace_result = self._update_workspace_settings(target_sdk_version, target_schema_version, dry_run)
@@ -232,16 +271,19 @@ class WorkspaceUpgrader:
 
         elif storage_mode == "s3":
             # For S3, construct backup prefix (virtual directory)
+            # NOTE: Don't include workspace prefix here - storage backend adds it automatically
             s3_config = storage_config.get("s3", {})
             prefix = s3_config.get("prefix", "")
 
-            # Build backup path: prefix/backups/timestamp_upgrade_v3.0/
-            if prefix:
-                backup_dir = f"{prefix}/backups/{backup_folder_name}"
-            else:
-                backup_dir = f"backups/{backup_folder_name}"
+            # Build backup path without prefix (storage backend will add it)
+            backup_dir = f"backups/{backup_folder_name}"
 
-            logger.info(f"S3 backup prefix: s3://{s3_config.get('bucket')}/{backup_dir}")
+            # Log full S3 path for user visibility
+            if prefix:
+                full_path = f"{prefix}/{backup_dir}"
+            else:
+                full_path = backup_dir
+            logger.info(f"S3 backup prefix: s3://{s3_config.get('bucket')}/{full_path}")
 
         else:
             raise WorkspaceError(f"Backup not supported for storage mode: {storage_mode}")
@@ -315,7 +357,8 @@ class WorkspaceUpgrader:
                     elif storage_mode == "s3":
                         # S3: Write using storage backend to backup prefix
                         backup_file_path = f"{backup_dir}/mediaplans/{filename}"
-                        storage_backend.write_file(backup_file_path, content, binary=binary_mode)
+                        # S3 write_file() auto-detects string vs bytes, no binary parameter needed
+                        storage_backend.write_file(backup_file_path, content)
 
                     result["files_backed_up"] += 1
                     logger.debug(f"Backed up {file_path} to {backup_file_path}")
@@ -746,22 +789,49 @@ class WorkspaceUpgrader:
 
         return result
 
+    def _get_workspace_record_count(self, db_backend) -> int:
+        """
+        Get the count of records in the database for this workspace.
+
+        Args:
+            db_backend: PostgreSQL backend instance
+
+        Returns:
+            Number of records for this workspace_id
+        """
+        try:
+            workspace_id = self.workspace_manager.config.get("workspace_id")
+            with db_backend.connect() as conn:
+                with conn.cursor() as cursor:
+                    query = f"""
+                        SELECT COUNT(*)
+                        FROM {db_backend.schema}.{db_backend.table_name}
+                        WHERE workspace_id = %s
+                    """
+                    cursor.execute(query, (workspace_id,))
+                    count = cursor.fetchone()[0]
+                    return count
+        except Exception as e:
+            logger.warning(f"Failed to get record count: {e}")
+            return -1  # Return -1 to indicate count failed
+
     def _upgrade_database_schema(self, dry_run: bool) -> Dict[str, Any]:
         """
         Upgrade database schema from v2.0 to v3.0.
 
         Performs:
         1. Detects current database schema version
-        2. Creates backup table if needed
-        3. Adds v3.0 columns using ALTER TABLE
-        4. Keeps deprecated v2.0 columns for backward compatibility
-        5. Re-inserts all media plans to populate v3.0 columns
+        2. Adds v3.0 columns using ALTER TABLE
+        3. Keeps deprecated v2.0 columns for backward compatibility
+
+        Note: Record count tracking is handled at the upgrade() level to cover
+        the entire upgrade process, not just schema changes.
 
         Args:
             dry_run: If True, don't actually modify database
 
         Returns:
-            Dictionary with upgrade results
+            Dictionary with upgrade results (schema versions, columns added, errors)
         """
         result = {
             "upgraded": False,
