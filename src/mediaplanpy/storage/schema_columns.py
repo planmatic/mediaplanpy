@@ -329,7 +329,7 @@ def get_pyarrow_schema() -> pa.Schema:
         PyArrow schema with all v3.0 fields
     """
     fields = []
-    for col_name, py_type, _ in MEDIAPLAN_SCHEMA_V3_0:
+    for col_name, py_type, _, _ in MEDIAPLAN_SCHEMA_V3_0:  # Unpack all 4 values
         pa_type = python_type_to_pyarrow(py_type)
         fields.append(pa.field(col_name, pa_type))
     return pa.schema(fields)
@@ -355,7 +355,7 @@ def get_database_schema(include_workspace_fields: bool = True) -> List[Tuple[str
         ])
 
     # Add media plan fields
-    for col_name, py_type, _ in MEDIAPLAN_SCHEMA_V3_0:
+    for col_name, py_type, _, _ in MEDIAPLAN_SCHEMA_V3_0:
         # Primary keys get NOT NULL constraint
         is_pk = col_name in ['meta_id', 'campaign_id', 'lineitem_id']
         sql_type = python_type_to_sql(py_type, is_primary_key=is_pk)
@@ -383,7 +383,7 @@ def validate_schema() -> None:
 
     # Check that all types are valid
     valid_types = {str, int, Decimal, datetime, date, bool}
-    for col_name, py_type, _ in MEDIAPLAN_SCHEMA_V3_0:
+    for col_name, py_type, _, _ in MEDIAPLAN_SCHEMA_V3_0:
         if py_type not in valid_types:
             raise ValueError(f"Invalid type {py_type} for column {col_name}")
 

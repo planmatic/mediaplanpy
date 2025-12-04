@@ -991,36 +991,46 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
 
     @classmethod
     def create(cls,
-               created_by: str,
                campaign_name: str,
-               campaign_objective: str,
                campaign_start_date: Union[str, date],
                campaign_end_date: Union[str, date],
-               campaign_budget: Union[str, int, float, Decimal],
-               schema_version: Optional[str] = None,
                workspace_manager: Optional['WorkspaceManager'] = None,
+               schema_version: Optional[str] = None,
+               # Dual parameter support for backwards compatibility
+               campaign_budget: Optional[Union[str, int, float, Decimal]] = None,
+               campaign_budget_total: Optional[Union[str, int, float, Decimal]] = None,
+               created_by: Optional[str] = None,
+               created_by_name: Optional[str] = None,
+               campaign_objective: Optional[str] = None,
                **kwargs) -> "MediaPlan":
         """
-        Create a new media plan with the required fields.
+        Create a new media plan with schema-aligned required fields.
 
         This method dynamically routes parameters to the appropriate model objects
         based on their field definitions, ensuring proper JSON structure.
 
-        NEW v3.0: Supports prefixed parameters for disambiguation of fields that exist
-        at multiple levels (e.g., dim_custom1 exists in Meta, Campaign, and LineItem):
-        - Use meta_* prefix for Meta fields (e.g., meta_dim_custom1, meta_custom_properties)
-        - Use campaign_* prefix for Campaign fields (e.g., campaign_dim_custom1, campaign_custom_properties)
+        NEW v3.0:
+        - Signature aligned with schema v3.0 requirements
+        - Supports dual parameter names for backwards compatibility:
+          * campaign_budget (v2.0) OR campaign_budget_total (v3.0)
+          * created_by (v2.0) OR created_by_name (v3.0)
+        - Supports prefixed parameters for disambiguation of fields that exist
+          at multiple levels (e.g., dim_custom1 exists in Meta, Campaign, and LineItem):
+          * Use meta_* prefix for Meta fields (e.g., meta_dim_custom1, meta_custom_properties)
+          * Use campaign_* prefix for Campaign fields (e.g., campaign_dim_custom1, campaign_custom_properties)
         - Unprefixed fields are routed automatically based on field definitions
 
         Args:
-            created_by: Email or name of the creator
-            campaign_name: Name of the campaign
-            campaign_objective: Objective of the campaign
-            campaign_start_date: Start date (string YYYY-MM-DD or date object)
-            campaign_end_date: End date (string YYYY-MM-DD or date object)
-            campaign_budget: Total budget amount
-            schema_version: Version of the schema to use, defaults to current version (v3.0)
+            campaign_name: Name of the campaign (required by schema)
+            campaign_start_date: Start date (required by schema) - string YYYY-MM-DD or date object
+            campaign_end_date: End date (required by schema) - string YYYY-MM-DD or date object
             workspace_manager: Optional WorkspaceManager for workspace status checking
+            schema_version: Version of the schema to use, defaults to current version (v3.0)
+            campaign_budget: Total budget amount (v2.0 parameter name, prefer campaign_budget_total)
+            campaign_budget_total: Total budget amount (v3.0 parameter name, schema-correct)
+            created_by: Email or name of the creator (v2.0 parameter name, prefer created_by_name)
+            created_by_name: Name of the creator (v3.0 parameter name, schema-correct)
+            campaign_objective: Objective of the campaign (optional)
             **kwargs: Additional fields - automatically routed to Campaign, Meta, or MediaPlan
 
                       Common v3.0 kwargs examples:
@@ -1038,15 +1048,16 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         Raises:
             ValidationError: If the provided parameters fail validation.
             WorkspaceInactiveError: If workspace is inactive.
+            ValueError: If required parameters are missing.
 
         Example:
             plan = MediaPlan.create(
-                created_by="user@example.com",
                 campaign_name="Q1 Campaign",
-                campaign_objective="awareness",
                 campaign_start_date="2025-01-01",
                 campaign_end_date="2025-03-31",
-                campaign_budget=100000,
+                campaign_budget_total=100000,  # or campaign_budget=100000
+                created_by_name="John Doe",    # or created_by="john@example.com"
+                campaign_objective="awareness",
                 target_audiences=[{"name": "Young Adults", "demo_age_start": 18, "demo_age_end": 34}],
                 kpi_name1="CTR",
                 kpi_value1=2.5,
@@ -1054,6 +1065,25 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
                 campaign_dim_custom1="Segment: Digital"
             )
         """
+        # === DUAL PARAMETER NAME HANDLING ===
+        # Handle campaign budget (prefer schema-correct name)
+        if campaign_budget_total is None and campaign_budget is not None:
+            campaign_budget_total = campaign_budget
+        elif campaign_budget_total is None:
+            raise ValueError(
+                "campaign_budget_total is required (or use campaign_budget for backwards compatibility). "
+                "This is required by the v3.0 schema."
+            )
+
+        # Handle creator name (prefer schema-correct name)
+        if created_by_name is None and created_by is not None:
+            created_by_name = created_by
+        elif created_by_name is None:
+            raise ValueError(
+                "created_by_name is required (or use created_by for backwards compatibility). "
+                "This is required by the v3.0 schema."
+            )
+
         # Check workspace status if workspace_manager is provided
         if workspace_manager is not None:
             workspace_manager.check_workspace_active("media plan creation")
@@ -1065,8 +1095,8 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
             campaign_end_date = date.fromisoformat(campaign_end_date)
 
         # Convert budget to Decimal if necessary
-        if isinstance(campaign_budget, (str, int, float)):
-            campaign_budget = Decimal(str(campaign_budget))
+        if isinstance(campaign_budget_total, (str, int, float)):
+            campaign_budget_total = Decimal(str(campaign_budget_total))
 
         # Use current schema version if not specified
         if schema_version is None:
@@ -1086,12 +1116,15 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
         campaign_data = {
             "id": campaign_id,
             "name": campaign_name,
-            "objective": campaign_objective,
             "start_date": campaign_start_date,
             "end_date": campaign_end_date,
-            "budget_total": campaign_budget,
+            "budget_total": campaign_budget_total,
             **campaign_fields  # Dynamic campaign fields from kwargs
         }
+
+        # Add objective if provided (optional in v3.0)
+        if campaign_objective is not None:
+            campaign_data["objective"] = campaign_objective
 
         try:
             campaign = Campaign.from_dict(campaign_data)
@@ -1099,8 +1132,12 @@ class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
             raise ValidationError(f"Failed to create campaign: {str(e)}")
 
         # === META CREATION ===
-        # Handle v2.0 required field mapping
-        created_by_name = meta_fields.pop("created_by_name", created_by)  # Use created_by as fallback
+        # created_by_name already validated and resolved from parameters above
+        # Check if it was also provided in kwargs (allow kwargs to override)
+        if "created_by_name" in meta_fields:
+            created_by_name = meta_fields.pop("created_by_name")
+
+        # Get plan name from kwargs or use campaign name as fallback
         media_plan_name = mediaplan_fields.pop("media_plan_name", campaign_name)  # Use campaign name as fallback
 
         meta_data = {
