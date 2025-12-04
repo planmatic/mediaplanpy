@@ -24,7 +24,7 @@ from mediaplanpy.exceptions import WorkspaceError
 # CONFIGURATION - Set your workspace path here
 # =============================================================================
 
-WORKSPACE_SETTINGS_PATH = r"C:\mediaplanpy\workspace_82715ae1_settings.json"
+WORKSPACE_SETTINGS_PATH = r"C:\mediaplanpy\workspace_0a21ffd4_settings.json"
 
 # Example paths for common test cases:
 # WORKSPACE_SETTINGS_PATH = "/mnt/c/users/laure/mediaplans/workspace_v2_with_db/.mediaplanpy_workspace_settings.json"

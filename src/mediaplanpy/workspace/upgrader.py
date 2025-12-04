@@ -205,30 +205,46 @@ class WorkspaceUpgrader:
         """
         Create timestamped backup directory inside the workspace's storage path.
 
+        For local storage: Creates a physical directory
+        For S3 storage: Returns a backup prefix path
+
         Returns:
-            Path to backup directory
+            Path/prefix for backup directory
         """
-        # Get workspace storage directory (not settings file directory)
+        # Get workspace storage configuration
         storage_config = self.workspace_manager.config.get("storage", {})
         storage_mode = storage_config.get("mode", "local")
+
+        # Generate timestamp for backup
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_folder_name = f"{timestamp}_upgrade_v3.0"
 
         if storage_mode == "local":
             # Use the storage base_path from config
             workspace_dir = storage_config.get("local", {}).get("base_path")
             if not workspace_dir:
                 raise WorkspaceError("Local storage base_path not configured")
+
+            # Create physical directory for local storage
+            backup_dir = os.path.join(workspace_dir, "backups", backup_folder_name)
+            os.makedirs(backup_dir, exist_ok=True)
+            logger.info(f"Created local backup directory: {backup_dir}")
+
+        elif storage_mode == "s3":
+            # For S3, construct backup prefix (virtual directory)
+            s3_config = storage_config.get("s3", {})
+            prefix = s3_config.get("prefix", "")
+
+            # Build backup path: prefix/backups/timestamp_upgrade_v3.0/
+            if prefix:
+                backup_dir = f"{prefix}/backups/{backup_folder_name}"
+            else:
+                backup_dir = f"backups/{backup_folder_name}"
+
+            logger.info(f"S3 backup prefix: s3://{s3_config.get('bucket')}/{backup_dir}")
+
         else:
-            # For S3 or other storage modes, fall back to settings directory
-            # TODO: Handle S3 backup properly (see TODO_S3_BACKUP_ISSUE)
-            workspace_dir = os.path.dirname(self.workspace_manager.workspace_path)
-            logger.warning(f"Backup for storage mode '{storage_mode}' will be created locally")
-
-        # Create timestamped backup directory
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join(workspace_dir, "backups", f"{timestamp}_upgrade_v3.0")
-
-        os.makedirs(backup_dir, exist_ok=True)
-        logger.info(f"Created backup directory: {backup_dir}")
+            raise WorkspaceError(f"Backup not supported for storage mode: {storage_mode}")
 
         return backup_dir
 
@@ -270,24 +286,36 @@ class WorkspaceUpgrader:
                 logger.info(f"No files to backup matching {file_pattern}")
                 return result
 
-            # Create backup directory structure
-            files_backup_dir = os.path.join(backup_dir, "mediaplans")
-            os.makedirs(files_backup_dir, exist_ok=True)
+            # Get storage mode to determine backup method
+            storage_config = self.workspace_manager.config.get("storage", {})
+            storage_mode = storage_config.get("mode", "local")
 
             # Determine if binary mode based on file pattern
             binary_mode = file_pattern.endswith(".parquet")
 
-            # Copy each file
+            # Copy each file using appropriate method
             for file_path in files:
                 try:
-                    # Read file content
+                    # Read file content from source
                     content = storage_backend.read_file(file_path, binary=binary_mode)
 
-                    # Write to backup location
-                    backup_file_path = os.path.join(files_backup_dir, os.path.basename(file_path))
-                    mode = 'wb' if binary_mode else 'w'
-                    with open(backup_file_path, mode) as f:
-                        f.write(content)
+                    # Construct backup file path
+                    filename = os.path.basename(file_path)
+
+                    if storage_mode == "local":
+                        # Local: Write to physical directory
+                        files_backup_dir = os.path.join(backup_dir, "mediaplans")
+                        os.makedirs(files_backup_dir, exist_ok=True)
+                        backup_file_path = os.path.join(files_backup_dir, filename)
+
+                        mode = 'wb' if binary_mode else 'w'
+                        with open(backup_file_path, mode) as f:
+                            f.write(content)
+
+                    elif storage_mode == "s3":
+                        # S3: Write using storage backend to backup prefix
+                        backup_file_path = f"{backup_dir}/mediaplans/{filename}"
+                        storage_backend.write_file(backup_file_path, content, binary=binary_mode)
 
                     result["files_backed_up"] += 1
                     logger.debug(f"Backed up {file_path} to {backup_file_path}")
@@ -297,7 +325,8 @@ class WorkspaceUpgrader:
                     logger.error(f"Failed to backup {file_path}: {str(e)}")
 
             result["backup_created"] = result["files_backed_up"] > 0
-            logger.info(f"File backup complete: {result['files_backed_up']} {file_pattern} files backed up to {files_backup_dir}")
+            backup_location = f"{backup_dir}/mediaplans" if storage_mode == "s3" else os.path.join(backup_dir, "mediaplans")
+            logger.info(f"File backup complete: {result['files_backed_up']} {file_pattern} files backed up to {backup_location}")
 
         except Exception as e:
             result["errors"].append(f"File backup failed: {str(e)}")
