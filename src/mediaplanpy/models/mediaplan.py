@@ -102,12 +102,15 @@ class Meta(BaseModel):
         return errors
 
 
-class MediaPlan(BaseModel, JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin):
+class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
     """
-    Represents a complete media plan following the Media Plan Open Data Standard v2.0.
+    Represents a complete media plan following the Media Plan Open Data Standard v3.0.
 
     A media plan contains metadata, a campaign, line items, and optionally a
     dictionary for custom field configuration.
+
+    Note: BaseModel is placed last in the inheritance order to allow mixin methods
+    (like export_to_json) to take precedence over BaseModel's simple implementations.
     """
 
     # Meta information (updated for v2.0)
