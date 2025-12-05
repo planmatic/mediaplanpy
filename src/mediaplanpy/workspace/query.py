@@ -571,7 +571,7 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
     # Build SQL query - select all columns, filter out placeholders
     query = """
     SELECT * FROM {*}
-    WHERE is_placeholder = FALSE OR is_placeholder IS NULL"""
+    WHERE (is_placeholder = FALSE OR is_placeholder IS NULL)"""
 
     # Add filters if provided
     if filters:
