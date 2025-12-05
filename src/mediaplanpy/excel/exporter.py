@@ -240,62 +240,56 @@ def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
     meta = media_plan.get("meta", {})
 
     # Set column widths
-    sheet.column_dimensions["A"].width = 20
-    sheet.column_dimensions["B"].width = 50
+    sheet.column_dimensions["A"].width = 22  # Field
+    sheet.column_dimensions["B"].width = 40  # Value
+    sheet.column_dimensions["C"].width = 10  # Required
+    sheet.column_dimensions["D"].width = 60  # Comment
 
     # Add title
     sheet['A1'] = "Media Plan Metadata (v3.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:B1')
+    sheet.merge_cells('A1:D1')
 
-    # Add v3.0 metadata fields
+    # Freeze panes after row 1
+    sheet.freeze_panes = 'A2'
+
+    # Define metadata fields with required status and descriptions from schema
+    # Format: (label, field_key, is_required, description)
+    metadata_fields = [
+        ("Schema Version:", "schema_version", True, "Version of the media plan schema used (e.g., '3.0')"),
+        ("Media Plan ID:", "id", True, "Unique identifier for this media plan document"),
+        ("Media Plan Name:", "name", False, "Human-readable name for the media plan"),
+        ("Created By Name:", "created_by_name", True, "Full name of the user who created this media plan"),
+        ("Created By ID:", "created_by_id", False, "Unique identifier of the user who created this media plan"),
+        ("Created At:", "created_at", True, "Timestamp when this media plan was created in ISO 8601 format"),
+        ("Is Current:", "is_current", False, "Whether this is the current/active version of the media plan"),
+        ("Is Archived:", "is_archived", False, "Whether this media plan has been archived"),
+        ("Parent ID:", "parent_id", False, "Identifier of the parent media plan if this is a revision or copy"),
+        ("Comments:", "comments", False, "General comments or notes about this media plan"),
+    ]
+
+    # Add metadata fields
     row = 2
-    sheet[f'A{row}'] = "Schema Version:"
-    sheet[f'B{row}'] = "3.0"
-
-    row += 1
-    sheet[f'A{row}'] = "Media Plan ID:"
-    sheet[f'B{row}'] = meta.get("id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Media Plan Name:"
-    sheet[f'B{row}'] = meta.get("name", "")
-
-    # created_by_name is required
-    row += 1
-    sheet[f'A{row}'] = "Created By Name:"
-    sheet[f'B{row}'] = meta.get("created_by_name", "")
-
-    # created_by_id is optional
-    row += 1
-    sheet[f'A{row}'] = "Created By ID:"
-    sheet[f'B{row}'] = meta.get("created_by_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Created At:"
-    sheet[f'B{row}'] = meta.get("created_at", "")
-
-    # Status fields
-    row += 1
-    sheet[f'A{row}'] = "Is Current:"
-    sheet[f'B{row}'] = meta.get("is_current", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Is Archived:"
-    sheet[f'B{row}'] = meta.get("is_archived", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Parent ID:"
-    sheet[f'B{row}'] = meta.get("parent_id", "")
-
-    # NEW v3.0: Custom dimension fields
-    for i in range(1, 6):
+    for label, field_key, is_required, description in metadata_fields:
+        sheet[f'A{row}'] = label
+        # Special handling for schema_version
+        if field_key == "schema_version":
+            sheet[f'B{row}'] = "3.0"
+        else:
+            sheet[f'B{row}'] = meta.get(field_key, "")
+        sheet[f'C{row}'] = "TRUE" if is_required else ""
+        sheet[f'D{row}'] = description
         row += 1
+
+    # Add custom dimension fields (v3.0)
+    for i in range(1, 6):
         sheet[f'A{row}'] = f"Dim Custom {i}:"
         sheet[f'B{row}'] = meta.get(f"dim_custom{i}", "")
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
+        row += 1
 
-    # NEW v3.0: Custom properties (JSON object)
-    row += 1
+    # Add custom properties field (v3.0)
     sheet[f'A{row}'] = "Custom Properties:"
     custom_props = meta.get("custom_properties")
     if custom_props:
@@ -303,15 +297,15 @@ def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
         sheet[f'B{row}'] = json.dumps(custom_props)
     else:
         sheet[f'B{row}'] = ""
-
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
     row += 1
+
+    # Add export date (not a schema field)
     sheet[f'A{row}'] = "Export Date:"
     sheet[f'B{row}'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    if "comments" in meta:
-        row += 1
-        sheet[f'A{row}'] = "Comments:"
-        sheet[f'B{row}'] = meta.get("comments", "")
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Timestamp when this Excel file was exported"
 
 
 def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
@@ -325,124 +319,85 @@ def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     import json
 
     # Set column widths
-    sheet.column_dimensions["A"].width = 25
-    sheet.column_dimensions["B"].width = 50
+    sheet.column_dimensions["A"].width = 25  # Field
+    sheet.column_dimensions["B"].width = 40  # Value
+    sheet.column_dimensions["C"].width = 10  # Required
+    sheet.column_dimensions["D"].width = 60  # Comment
 
     # Add title
     sheet['A1'] = "Campaign Information (v3.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:B1')
+    sheet.merge_cells('A1:D1')
+
+    # Freeze panes after row 1
+    sheet.freeze_panes = 'A2'
+
+    # Define campaign fields with required status and descriptions from schema
+    # Format: (label, field_key, is_required, description, apply_style)
+    campaign_fields = [
+        ("Campaign ID:", "id", True, "Unique identifier for the campaign", None),
+        ("Campaign Name:", "name", True, "Human-readable name for the campaign", None),
+        ("Objective:", "objective", False, "Primary marketing objective for the campaign (e.g., awareness, conversion, engagement)", None),
+        ("Start Date:", "start_date", True, "Campaign start date in YYYY-MM-DD format", "date_style"),
+        ("End Date:", "end_date", True, "Campaign end date in YYYY-MM-DD format", "date_style"),
+        ("Budget Total:", "budget_total", True, "Total budget allocated for the campaign in the base currency", "currency_style"),
+        ("Budget Currency:", "budget_currency", False, "Currency in which the budget of this campaign is expressed", None),
+        ("Agency ID:", "agency_id", False, "Unique identifier for the agency managing the campaign", None),
+        ("Agency Name:", "agency_name", False, "Name of the agency managing the campaign", None),
+        ("Advertiser ID:", "advertiser_id", False, "Unique identifier for the advertiser/client", None),
+        ("Advertiser Name:", "advertiser_name", False, "Name of the advertiser/client organization", None),
+        ("Product ID:", "product_id", False, "Unique identifier for the product being advertised", None),
+        ("Product Name:", "product_name", False, "Name of the product being advertised", None),
+        ("Product Description:", "product_description", False, "Detailed description of the product being advertised", None),
+        ("Campaign Type ID:", "campaign_type_id", False, "Unique identifier for the campaign type classification", None),
+        ("Campaign Type Name:", "campaign_type_name", False, "Name of the campaign type (e.g., Brand Awareness, Performance, Retargeting)", None),
+        ("Workflow Status ID:", "workflow_status_id", False, "Unique identifier for the workflow status", None),
+        ("Workflow Status Name:", "workflow_status_name", False, "Name of the current workflow status", None),
+    ]
 
     # Add campaign fields
     row = 2
-    sheet[f'A{row}'] = "Campaign ID:"
-    sheet[f'B{row}'] = campaign.get("id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Campaign Name:"
-    sheet[f'B{row}'] = campaign.get("name", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Objective:"
-    sheet[f'B{row}'] = campaign.get("objective", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Start Date:"
-    sheet[f'B{row}'] = campaign.get("start_date", "")
-    sheet[f'B{row}'].style = "date_style"
-
-    row += 1
-    sheet[f'A{row}'] = "End Date:"
-    sheet[f'B{row}'] = campaign.get("end_date", "")
-    sheet[f'B{row}'].style = "date_style"
-
-    row += 1
-    sheet[f'A{row}'] = "Budget Total:"
-    sheet[f'B{row}'] = campaign.get("budget_total", 0)
-    sheet[f'B{row}'].style = "currency_style"
-
-    # Budget currency
-    row += 1
-    sheet[f'A{row}'] = "Budget Currency:"
-    sheet[f'B{row}'] = campaign.get("budget_currency", "")
-
-    # Agency fields
-    row += 1
-    sheet[f'A{row}'] = "Agency ID:"
-    sheet[f'B{row}'] = campaign.get("agency_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Agency Name:"
-    sheet[f'B{row}'] = campaign.get("agency_name", "")
-
-    # Advertiser fields
-    row += 1
-    sheet[f'A{row}'] = "Advertiser ID:"
-    sheet[f'B{row}'] = campaign.get("advertiser_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Advertiser Name:"
-    sheet[f'B{row}'] = campaign.get("advertiser_name", "")
-
-    # Product fields
-    row += 1
-    sheet[f'A{row}'] = "Product ID:"
-    sheet[f'B{row}'] = campaign.get("product_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Product Name:"
-    sheet[f'B{row}'] = campaign.get("product_name", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Product Description:"
-    sheet[f'B{row}'] = campaign.get("product_description", "")
-
-    # Campaign type fields
-    row += 1
-    sheet[f'A{row}'] = "Campaign Type ID:"
-    sheet[f'B{row}'] = campaign.get("campaign_type_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Campaign Type Name:"
-    sheet[f'B{row}'] = campaign.get("campaign_type_name", "")
-
-    # Workflow status fields
-    row += 1
-    sheet[f'A{row}'] = "Workflow Status ID:"
-    sheet[f'B{row}'] = campaign.get("workflow_status_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Workflow Status Name:"
-    sheet[f'B{row}'] = campaign.get("workflow_status_name", "")
-
-    # NOTE: Audience and location fields REMOVED in v3.0
-    # They are now in separate "Target Audiences" and "Target Locations" worksheets
-
-    # NEW v3.0: KPI fields (alternating name/value pairs)
-    for i in range(1, 6):
+    for label, field_key, is_required, description, style in campaign_fields:
+        sheet[f'A{row}'] = label
+        sheet[f'B{row}'] = campaign.get(field_key, "")
+        if style:
+            sheet[f'B{row}'].style = style
+        sheet[f'C{row}'] = "TRUE" if is_required else ""
+        sheet[f'D{row}'] = description
         row += 1
+
+    # Add KPI fields (v3.0) - alternating name/value pairs
+    for i in range(1, 6):
         sheet[f'A{row}'] = f"KPI Name {i}:"
         sheet[f'B{row}'] = campaign.get(f"kpi_name{i}", "")
-
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Name of key performance indicator {i}"
         row += 1
+
         sheet[f'A{row}'] = f"KPI Value {i}:"
         kpi_value = campaign.get(f"kpi_value{i}")
         sheet[f'B{row}'] = kpi_value if kpi_value is not None else ""
-
-    # NEW v3.0: Custom dimension fields (5 fields)
-    for i in range(1, 6):
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Target value or goal for key performance indicator {i}"
         row += 1
+
+    # Add custom dimension fields (v3.0)
+    for i in range(1, 6):
         sheet[f'A{row}'] = f"Dim Custom {i}:"
         sheet[f'B{row}'] = campaign.get(f"dim_custom{i}", "")
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
+        row += 1
 
-    # NEW v3.0: Custom properties (JSON object)
-    row += 1
+    # Add custom properties field (v3.0)
     sheet[f'A{row}'] = "Custom Properties:"
     custom_props = campaign.get("custom_properties")
     if custom_props:
         sheet[f'B{row}'] = json.dumps(custom_props)
     else:
         sheet[f'B{row}'] = ""
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
 
 
 def _populate_v3_target_audiences_sheet(sheet, campaign: Dict[str, Any]) -> None:
@@ -470,6 +425,9 @@ def _populate_v3_target_audiences_sheet(sheet, campaign: Dict[str, Any]) -> None
     sheet.column_dimensions["K"].width = 25  # exclusion_list
     sheet.column_dimensions["L"].width = 20  # extension_approach
     sheet.column_dimensions["M"].width = 15  # population_size
+
+    # Freeze panes at C2 (freeze first two columns)
+    sheet.freeze_panes = 'C2'
 
     # Add headers
     headers = [
@@ -523,6 +481,9 @@ def _populate_v3_target_locations_sheet(sheet, campaign: Dict[str, Any]) -> None
     sheet.column_dimensions["E"].width = 15  # exclusion_type
     sheet.column_dimensions["F"].width = 40  # exclusion_list
     sheet.column_dimensions["G"].width = 20  # population_percent
+
+    # Freeze panes at C2 (freeze first two columns)
+    sheet.freeze_panes = 'C2'
 
     # Add headers
     headers = [
@@ -754,7 +715,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
     # Set column widths based on field type
     for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         width = 15
-        if field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
+        if field_name == "cost_total":
+            width = 22.5  # 50% wider than default for Cost Total column
+        elif field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
             width = 25
         elif field_name in ["partner", "partner_custom", "vehicle", "vehicle_custom"]:
             width = 20
@@ -768,6 +731,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
     for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         cell = sheet.cell(row=1, column=col_idx, value=header_name)
         cell.style = "header_style"
+
+    # Freeze panes at C2 (freeze first two columns: ID and Name)
+    sheet.freeze_panes = 'C2'
 
     # Add line item data with calculated values and formulas
     for row_idx, line_item in enumerate(line_items, 2):
@@ -791,6 +757,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                     cell = sheet.cell(row=row_idx, column=col_idx, value=value)
                     if field_name.startswith("cost"):
                         cell.style = "currency_style"
+                    elif field_name.startswith("metric"):
+                        # Add thousand comma separator for all metrics
+                        cell.number_format = '#,##0'
                 else:
                     sheet.cell(row=row_idx, column=col_idx, value=value)
 
@@ -866,8 +835,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                             formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref})"
 
                         cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
-                        # Apply grey font formatting for formula columns
+                        # Apply grey font formatting and comma separator for formula columns
                         cell.font = Font(color="808080")  # Grey color
+                        cell.number_format = "#,##0"  # Thousand comma separator, no decimals
 
             elif field_type == "json":
                 # NEW v3.0: Handle JSON fields (metric_formulas, custom_properties)
@@ -923,11 +893,15 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
         sheet[f'{col}{row}'].style = "dict_header_style"
 
+    # Freeze panes at row 3 (after header rows)
+    sheet.freeze_panes = 'A3'
+
     # Add all fields with their current configuration
     row = 3
 
     # Section 1: Meta custom dimensions (5 fields)
     meta_custom_dimensions = dictionary.get("meta_custom_dimensions", {})
+    grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
     for i in range(1, 6):
         field_name = f"dim_custom{i}"
         config = meta_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
@@ -940,6 +914,9 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         sheet[f'E{row}'] = config.get("status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
     # Section 2: Campaign custom dimensions (5 fields)
@@ -956,6 +933,9 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         sheet[f'E{row}'] = config.get("status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
     # Section 3: LineItem custom dimensions (10 fields)
@@ -972,6 +952,9 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         sheet[f'E{row}'] = config.get("status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
     # Section 4: Standard metrics (25 fields) - NEW in v3.0
@@ -1014,6 +997,9 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         sheet[f'E{row}'] = ""  # No status for standard metrics
         sheet[f'F{row}'] = config.get("formula_type", "")
         sheet[f'G{row}'] = config.get("base_metric", "")
+        # Grey out Caption and Status columns for standard metrics
+        sheet[f'D{row}'].fill = grey_fill
+        sheet[f'E{row}'].fill = grey_fill
         row += 1
 
     # Section 5: Custom metrics (10 fields) - Updated in v3.0 to include formula support
@@ -1046,6 +1032,9 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         sheet[f'E{row}'] = config.get("status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for costs
         sheet[f'G{row}'] = ""  # No base metric for costs
+        # Grey out formula columns for costs
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
     # Add instructions
@@ -1082,7 +1071,7 @@ def _populate_v3_documentation_sheet(sheet) -> None:
     sheet.column_dimensions["A"].width = 25  # Column Name
     sheet.column_dimensions["B"].width = 20  # Field Name (NEW)
     sheet.column_dimensions["C"].width = 15  # Data Type
-    sheet.column_dimensions["D"].width = 45  # Description (slightly reduced to fit)
+    sheet.column_dimensions["D"].width = 67.5  # Description (increased by 50% from 45)
     sheet.column_dimensions["E"].width = 12  # Required
 
     # Add title
@@ -1151,185 +1140,185 @@ def _populate_v3_documentation_sheet(sheet) -> None:
     # Comprehensive field documentation in schema order with field names
     all_fields_documentation = [
         # Required fields (in schema order)
-        ("ID", "id", "Text", "Unique identifier for the line item", "Yes"),
-        ("Name", "name", "Text", "Human-readable name for the line item", "Yes"),
-        ("Start Date", "start_date", "Date", "Line item start date in YYYY-MM-DD format", "Yes"),
-        ("End Date", "end_date", "Date", "Line item end date in YYYY-MM-DD format", "Yes"),
-        ("Cost Total", "cost_total", "Number", "Total cost for the line item including all cost components", "Yes"),
+        ("ID", "id", "Text", "Unique identifier for the line item", "TRUE"),
+        ("Name", "name", "Text", "Human-readable name for the line item", "TRUE"),
+        ("Start Date", "start_date", "Date", "Line item start date in YYYY-MM-DD format", "TRUE"),
+        ("End Date", "end_date", "Date", "Line item end date in YYYY-MM-DD format", "TRUE"),
+        ("Cost Total", "cost_total", "Number", "Total cost for the line item including all cost components", "TRUE"),
 
         # Channel-related fields (in schema order)
-        ("Channel", "channel", "Text", "Media channel for the line item (e.g., Digital, TV, Radio, Print)", "No"),
+        ("Channel", "channel", "Text", "Media channel for the line item (e.g., Digital, TV, Radio, Print)", ""),
         ("Channel Custom", "channel_custom", "Text",
-         "Custom channel specification when standard channel options don't apply", "No"),
-        ("Vehicle", "vehicle", "Text", "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)", "No"),
+         "Custom channel specification when standard channel options don't apply", ""),
+        ("Vehicle", "vehicle", "Text", "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)", ""),
         ("Vehicle Custom", "vehicle_custom", "Text",
-         "Custom vehicle specification when standard vehicle options don't apply", "No"),
-        ("Partner", "partner", "Text", "Media partner or vendor handling the placement", "No"),
+         "Custom vehicle specification when standard vehicle options don't apply", ""),
+        ("Partner", "partner", "Text", "Media partner or vendor handling the placement", ""),
         ("Partner Custom", "partner_custom", "Text",
-         "Custom partner specification when standard partner options don't apply", "No"),
-        ("Media Product", "media_product", "Text", "Specific media product or ad unit being purchased", "No"),
+         "Custom partner specification when standard partner options don't apply", ""),
+        ("Media Product", "media_product", "Text", "Specific media product or ad unit being purchased", ""),
         ("Media Product Custom", "media_product_custom", "Text",
-         "Custom media product specification when standard options don't apply", "No"),
+         "Custom media product specification when standard options don't apply", ""),
 
         # Location fields (line-item-level targeting, in schema order)
         ("Location Type", "location_type", "Text",
-         "Geographic scope type for the line item targeting (Country or State)", "No"),
-        ("Location Name", "location_name", "Text", "Name of the geographic location being targeted", "No"),
+         "Geographic scope type for the line item targeting (Country or State)", ""),
+        ("Location Name", "location_name", "Text", "Name of the geographic location being targeted", ""),
 
         # Target/format fields (in schema order)
-        ("Target Audience", "target_audience", "Text", "Description of the target audience for this line item", "No"),
-        ("Ad Format", "adformat", "Text", "Creative format or ad type (e.g., Banner, Video, Native)", "No"),
+        ("Target Audience", "target_audience", "Text", "Description of the target audience for this line item", ""),
+        ("Ad Format", "adformat", "Text", "Creative format or ad type (e.g., Banner, Video, Native)", ""),
         ("Ad Format Custom", "adformat_custom", "Text",
-         "Custom ad format specification when standard formats don't apply", "No"),
-        ("KPI", "kpi", "Text", "Primary key performance indicator for the line item", "No"),
-        ("KPI Custom", "kpi_custom", "Text", "Custom KPI specification when standard KPIs don't apply", "No"),
-        ("KPI Value", "kpi_value", "Number", "Target value or goal for the primary key performance indicator", "No"),
+         "Custom ad format specification when standard formats don't apply", ""),
+        ("KPI", "kpi", "Text", "Primary key performance indicator for the line item", ""),
+        ("KPI Custom", "kpi_custom", "Text", "Custom KPI specification when standard KPIs don't apply", ""),
+        ("KPI Value", "kpi_value", "Number", "Target value or goal for the primary key performance indicator", ""),
 
         # Dayparts and inventory fields (in schema order)
         ("Dayparts", "dayparts", "Text", "Time periods when the ad should run (e.g., Primetime, Morning, All Day)",
-         "No"),
+         ""),
         (
         "Dayparts Custom", "dayparts_custom", "Text", "Custom daypart specification when standard dayparts don't apply",
-        "No"),
-        ("Inventory", "inventory", "Text", "Type of inventory or placement being purchased", "No"),
+        ""),
+        ("Inventory", "inventory", "Text", "Type of inventory or placement being purchased", ""),
         ("Inventory Custom", "inventory_custom", "Text",
-         "Custom inventory specification when standard inventory types don't apply", "No"),
+         "Custom inventory specification when standard inventory types don't apply", ""),
 
         # Buy fields (NEW in v3.0, in schema order)
         ("Buy Type", "buy_type", "Text",
-         "Type of media buying arrangement (e.g., Auction, Programmatic Guaranteed, Upfront, Scatter)", "No"),
+         "Type of media buying arrangement (e.g., Auction, Programmatic Guaranteed, Upfront, Scatter)", ""),
         ("Buy Commitment", "buy_commitment", "Text",
-         "Commitment level for the media purchase (e.g., Cancellable, Committed, Non-Cancellable)", "No"),
+         "Commitment level for the media purchase (e.g., Cancellable, Committed, Non-Cancellable)", ""),
 
         # Custom dimension fields (dim_custom1-10, in schema order)
         ("Dim Custom 1", "dim_custom1", "Text", "Custom dimension field 1 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 2", "dim_custom2", "Text", "Custom dimension field 2 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 3", "dim_custom3", "Text", "Custom dimension field 3 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 4", "dim_custom4", "Text", "Custom dimension field 4 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 5", "dim_custom5", "Text", "Custom dimension field 5 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 6", "dim_custom6", "Text", "Custom dimension field 6 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 7", "dim_custom7", "Text", "Custom dimension field 7 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 8", "dim_custom8", "Text", "Custom dimension field 8 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 9", "dim_custom9", "Text", "Custom dimension field 9 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 10", "dim_custom10", "Text",
-         "Custom dimension field 10 - configuration defined in dictionary schema", "No"),
+         "Custom dimension field 10 - configuration defined in dictionary schema", ""),
 
         # Aggregation fields (NEW in v3.0, in schema order)
         ("Is Aggregate", "is_aggregate", "Boolean",
-         "Whether this line item contains aggregated values (useful for storing channel-level budgets or campaign-level reach estimates)", "No"),
+         "Whether this line item contains aggregated values (useful for storing channel-level budgets or campaign-level reach estimates)", ""),
         ("Aggregation Level", "aggregation_level", "Text",
-         "Level at which the aggregate is stored (e.g., channel, campaign, vehicle) when is_aggregate is true", "No"),
+         "Level at which the aggregate is stored (e.g., channel, campaign, vehicle) when is_aggregate is true", ""),
 
         # Cost fields (in schema order)
         ("Cost Currency", "cost_currency", "Text",
-         "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)", "No"),
+         "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)", ""),
         ("Cost Currency Exchange Rate", "cost_currency_exchange_rate", "Number",
-         "Exchange rate to convert from line item currency to campaign-level currency (useful when line items use different currencies)", "No"),
-        ("Cost Media", "cost_media", "Number", "Media cost component (working media spend)", "No"),
-        ("Cost Buying", "cost_buying", "Number", "Media buying/trading cost component", "No"),
-        ("Cost Platform", "cost_platform", "Number", "Platform or technology cost component", "No"),
-        ("Cost Data", "cost_data", "Number", "Data cost component (audience data, targeting data, etc.)", "No"),
-        ("Cost Creative", "cost_creative", "Number", "Creative production and development cost component", "No"),
+         "Exchange rate to convert from line item currency to campaign-level currency (useful when line items use different currencies)", ""),
+        ("Cost Media", "cost_media", "Number", "Media cost component (working media spend)", ""),
+        ("Cost Buying", "cost_buying", "Number", "Media buying/trading cost component", ""),
+        ("Cost Platform", "cost_platform", "Number", "Platform or technology cost component", ""),
+        ("Cost Data", "cost_data", "Number", "Data cost component (audience data, targeting data, etc.)", ""),
+        ("Cost Creative", "cost_creative", "Number", "Creative production and development cost component", ""),
 
         # Custom cost fields (cost_custom1-10, in schema order)
         ("Cost Custom 1", "cost_custom1", "Number", "Custom cost field 1 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 2", "cost_custom2", "Number", "Custom cost field 2 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 3", "cost_custom3", "Number", "Custom cost field 3 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 4", "cost_custom4", "Number", "Custom cost field 4 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 5", "cost_custom5", "Number", "Custom cost field 5 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 6", "cost_custom6", "Number", "Custom cost field 6 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 7", "cost_custom7", "Number", "Custom cost field 7 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 8", "cost_custom8", "Number", "Custom cost field 8 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 9", "cost_custom9", "Number", "Custom cost field 9 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 10", "cost_custom10", "Number",
-         "Custom cost field 10 - configuration defined in dictionary schema", "No"),
+         "Custom cost field 10 - configuration defined in dictionary schema", ""),
 
         # Cost constraints (NEW in v3.0, in schema order)
         ("Cost Minimum", "cost_minimum", "Number",
-         "Minimum budget constraint for the line item (user-defined lower bound)", "No"),
+         "Minimum budget constraint for the line item (user-defined lower bound)", ""),
         ("Cost Maximum", "cost_maximum", "Number",
-         "Maximum budget constraint for the line item (user-defined upper bound)", "No"),
+         "Maximum budget constraint for the line item (user-defined upper bound)", ""),
 
         # Standard metric fields (in v3.0 schema order)
-        ("Impressions", "metric_impressions", "Number", "Number of ad impressions delivered or planned", "No"),
-        ("Clicks", "metric_clicks", "Number", "Number of clicks on the ad", "No"),
-        ("Views", "metric_views", "Number", "Number of video views or content views", "No"),
-        ("View Starts", "metric_view_starts", "Number", "Number of video view starts", "No"),
-        ("View Completions", "metric_view_completions", "Number", "Number of video view completions", "No"),
-        ("Reach", "metric_reach", "Number", "Number of unique users reached", "No"),
-        ("Units", "metric_units", "Number", "Number of units delivered (e.g., TV spots, radio ads, print insertions)", "No"),
-        ("Impression Share", "metric_impression_share", "Number", "Percentage of total available impressions captured", "No"),
+        ("Impressions", "metric_impressions", "Number", "Number of ad impressions delivered or planned", ""),
+        ("Clicks", "metric_clicks", "Number", "Number of clicks on the ad", ""),
+        ("Views", "metric_views", "Number", "Number of video views or content views", ""),
+        ("View Starts", "metric_view_starts", "Number", "Number of video view starts", ""),
+        ("View Completions", "metric_view_completions", "Number", "Number of video view completions", ""),
+        ("Reach", "metric_reach", "Number", "Number of unique users reached", ""),
+        ("Units", "metric_units", "Number", "Number of units delivered (e.g., TV spots, radio ads, print insertions)", ""),
+        ("Impression Share", "metric_impression_share", "Number", "Percentage of total available impressions captured", ""),
         ("Engagements", "metric_engagements", "Number", "Number of user engagements (likes, shares, comments, etc.)",
-         "No"),
-        ("Followers", "metric_followers", "Number", "Number of new followers gained", "No"),
-        ("Visits", "metric_visits", "Number", "Number of website visits or page visits", "No"),
-        ("Leads", "metric_leads", "Number", "Number of leads generated", "No"),
-        ("Sales", "metric_sales", "Number", "Number of sales or purchases", "No"),
-        ("Add to Cart", "metric_add_to_cart", "Number", "Number of add-to-cart actions", "No"),
-        ("App Install", "metric_app_install", "Number", "Number of app installations", "No"),
-        ("Application Start", "metric_application_start", "Number", "Number of application forms started", "No"),
+         ""),
+        ("Followers", "metric_followers", "Number", "Number of new followers gained", ""),
+        ("Visits", "metric_visits", "Number", "Number of website visits or page visits", ""),
+        ("Leads", "metric_leads", "Number", "Number of leads generated", ""),
+        ("Sales", "metric_sales", "Number", "Number of sales or purchases", ""),
+        ("Add to Cart", "metric_add_to_cart", "Number", "Number of add-to-cart actions", ""),
+        ("App Install", "metric_app_install", "Number", "Number of app installations", ""),
+        ("Application Start", "metric_application_start", "Number", "Number of application forms started", ""),
         (
-        "Application Complete", "metric_application_complete", "Number", "Number of application forms completed", "No"),
-        ("Contact Us", "metric_contact_us", "Number", "Number of contact form submissions or contact actions", "No"),
-        ("Download", "metric_download", "Number", "Number of downloads (files, apps, content)", "No"),
-        ("Signup", "metric_signup", "Number", "Number of signups or registrations", "No"),
-        ("Page Views", "metric_page_views", "Number", "Number of page views", "No"),
-        ("Likes", "metric_likes", "Number", "Number of likes or reactions", "No"),
-        ("Shares", "metric_shares", "Number", "Number of shares or reposts", "No"),
-        ("Comments", "metric_comments", "Number", "Number of comments", "No"),
-        ("Conversions", "metric_conversions", "Number", "Number of conversions or goal completions", "No"),
-        ("Max Daily Spend", "metric_max_daily_spend", "Number", "Maximum daily spend limit for the line item", "No"),
+        "Application Complete", "metric_application_complete", "Number", "Number of application forms completed", ""),
+        ("Contact Us", "metric_contact_us", "Number", "Number of contact form submissions or contact actions", ""),
+        ("Download", "metric_download", "Number", "Number of downloads (files, apps, content)", ""),
+        ("Signup", "metric_signup", "Number", "Number of signups or registrations", ""),
+        ("Page Views", "metric_page_views", "Number", "Number of page views", ""),
+        ("Likes", "metric_likes", "Number", "Number of likes or reactions", ""),
+        ("Shares", "metric_shares", "Number", "Number of shares or reposts", ""),
+        ("Comments", "metric_comments", "Number", "Number of comments", ""),
+        ("Conversions", "metric_conversions", "Number", "Number of conversions or goal completions", ""),
+        ("Max Daily Spend", "metric_max_daily_spend", "Number", "Maximum daily spend limit for the line item", ""),
         ("Max Daily Impressions", "metric_max_daily_impressions", "Number",
-         "Maximum daily impressions limit for the line item", "No"),
-        ("Audience Size", "metric_audience_size", "Number", "Size of the targetable audience for this line item", "No"),
+         "Maximum daily impressions limit for the line item", ""),
+        ("Audience Size", "metric_audience_size", "Number", "Size of the targetable audience for this line item", ""),
 
         # Custom metric fields (metric_custom1-10, in schema order)
         ("Metric Custom 1", "metric_custom1", "Number",
-         "Custom metric field 1 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 1 - configuration defined in dictionary schema", ""),
         ("Metric Custom 2", "metric_custom2", "Number",
-         "Custom metric field 2 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 2 - configuration defined in dictionary schema", ""),
         ("Metric Custom 3", "metric_custom3", "Number",
-         "Custom metric field 3 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 3 - configuration defined in dictionary schema", ""),
         ("Metric Custom 4", "metric_custom4", "Number",
-         "Custom metric field 4 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 4 - configuration defined in dictionary schema", ""),
         ("Metric Custom 5", "metric_custom5", "Number",
-         "Custom metric field 5 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 5 - configuration defined in dictionary schema", ""),
         ("Metric Custom 6", "metric_custom6", "Number",
-         "Custom metric field 6 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 6 - configuration defined in dictionary schema", ""),
         ("Metric Custom 7", "metric_custom7", "Number",
-         "Custom metric field 7 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 7 - configuration defined in dictionary schema", ""),
         ("Metric Custom 8", "metric_custom8", "Number",
-         "Custom metric field 8 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 8 - configuration defined in dictionary schema", ""),
         ("Metric Custom 9", "metric_custom9", "Number",
-         "Custom metric field 9 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 9 - configuration defined in dictionary schema", ""),
         ("Metric Custom 10", "metric_custom10", "Number",
-         "Custom metric field 10 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 10 - configuration defined in dictionary schema", ""),
 
         # Metric formulas (NEW in v3.0, in schema order)
         ("Metric Formulas (JSON)", "metric_formulas", "JSON",
-         "Formula configurations for metrics that use custom calculation formulas. Each metric's formula type and base metric are defined in the dictionary schema.", "No"),
+         "Formula configurations for metrics that use custom calculation formulas. Each metric's formula type and base metric are defined in the dictionary schema.", ""),
 
         # Custom properties (NEW in v3.0, in schema order)
         ("Custom Properties (JSON)", "custom_properties", "JSON",
-         "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema", "No"),
+         "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema", ""),
     ]
 
     # Populate the comprehensive field documentation
