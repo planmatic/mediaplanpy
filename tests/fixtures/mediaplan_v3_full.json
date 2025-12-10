@@ -1,0 +1,127 @@
+{
+  "meta": {
+    "id": "MP_FULL_001",
+    "schema_version": "v3.0",
+    "name": "Complete v3.0 Media Plan",
+    "created_by_name": "Test User",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_current": true,
+    "is_archived": false,
+    "dim_custom1": "Project: Q1 Launch",
+    "dim_custom2": "Market: US"
+  },
+  "campaign": {
+    "id": "CAM_FULL_001",
+    "name": "Complete Campaign with v3.0 Features",
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "budget_total": 500000,
+    "budget_currency": "USD",
+    "advertiser_id": "ADV001",
+    "advertiser_name": "Acme Corporation",
+    "agency_id": "AG001",
+    "agency_name": "Media Agency LLC",
+    "product_name": "Product X",
+    "product_description": "Premium product offering",
+    "target_audiences": [
+      {
+        "name": "Adults 25-54",
+        "description": "Core adult demographic",
+        "demo_age_start": 25,
+        "demo_age_end": 54,
+        "demo_gender": "Any",
+        "demo_attributes": "HHI $75k+",
+        "interest_attributes": "Technology, Travel, Entertainment"
+      },
+      {
+        "name": "Millennials 25-34",
+        "description": "Young adult segment",
+        "demo_age_start": 25,
+        "demo_age_end": 34,
+        "demo_gender": "Any",
+        "interest_attributes": "Social Media, Gaming"
+      }
+    ],
+    "target_locations": [
+      {
+        "name": "California",
+        "description": "California state targeting",
+        "location_type": "State",
+        "location_list": ["California"],
+        "population_percent": 0.12
+      },
+      {
+        "name": "Northeast US",
+        "description": "Northeast region",
+        "location_type": "State",
+        "location_list": ["New York", "New Jersey", "Massachusetts"],
+        "population_percent": 0.18
+      }
+    ],
+    "kpi_name1": "CPM",
+    "kpi_value1": 15.0,
+    "kpi_name2": "CTR",
+    "kpi_value2": 2.5,
+    "kpi_name3": "CPA",
+    "kpi_value3": 50.0,
+    "dim_custom1": "Vertical: Technology",
+    "dim_custom2": "Region: West Coast"
+  },
+  "lineitems": [
+    {
+      "id": "LI_FULL_001",
+      "name": "Programmatic Display - Q1",
+      "start_date": "2025-01-01",
+      "end_date": "2025-03-31",
+      "cost_total": 50000,
+      "cost_currency": "USD",
+      "channel": "display",
+      "vehicle": "Programmatic",
+      "partner": "DSP Partner",
+      "kpi": "cpm",
+      "kpi_value": 16.67,
+      "buy_type": "Programmatic",
+      "buy_commitment": "Non-Guaranteed",
+      "aggregation_level": "LineItem",
+      "cost_currency_exchange_rate": 1.0,
+      "cost_minimum": 45000,
+      "cost_maximum": 55000,
+      "metric_impressions": 3000000,
+      "metric_clicks": 75000,
+      "metric_views": 50000,
+      "metric_view_starts": 60000,
+      "metric_view_completions": 50000,
+      "metric_reach": 500000,
+      "metric_conversions": 1500,
+      "metric_likes": 5000,
+      "metric_shares": 1200,
+      "metric_comments": 800,
+      "metric_formulas": {
+        "cpm": {
+          "formula_type": "cost_per_unit",
+          "base_metric": "cost_total",
+          "coefficient": 1000.0,
+          "comments": "CPM = (cost_total / impressions) * 1000"
+        }
+      },
+      "custom_properties": {
+        "campaign_type": "awareness",
+        "creative_rotation": "optimized"
+      }
+    }
+  ],
+  "dictionary": {
+    "lineitem_custom_dimensions": {
+      "dim_custom1": {"status": "enabled", "caption": "Placement Type"},
+      "dim_custom2": {"status": "enabled", "caption": "Creative Format"}
+    },
+    "campaign_custom_dimensions": {
+      "dim_custom1": {"status": "enabled", "caption": "Business Vertical"},
+      "dim_custom2": {"status": "enabled", "caption": "Geographic Region"}
+    },
+    "meta_custom_dimensions": {
+      "dim_custom1": {"status": "enabled", "caption": "Project Code"},
+      "dim_custom2": {"status": "enabled", "caption": "Market"}
+    }
+  }
+}
