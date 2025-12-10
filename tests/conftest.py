@@ -275,6 +275,7 @@ def mediaplan_v2_dict():
         "campaign": {
             "id": "CAM003",
             "name": "v2.0 Campaign",
+            "objective": "awareness",
             "start_date": "2025-01-01",
             "end_date": "2025-12-31",
             "budget_total": 100000,
