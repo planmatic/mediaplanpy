@@ -1384,43 +1384,6 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
             logger.warning(f"Could not load meta fields from schema {schema_version}: {e}")
             return set()
 
-    @classmethod
-    def from_v0_mediaplan(cls, v0_mediaplan: Dict[str, Any]) -> "MediaPlan":
-        """
-        Convert a v0.0 media plan dictionary to a v2.0 MediaPlan model.
-
-        Args:
-            v0_mediaplan: Dictionary containing v0.0 media plan data.
-
-        Returns:
-            A new MediaPlan instance with v2.0 structure.
-        """
-        # Extract metadata
-        v0_meta = v0_mediaplan.get("meta", {})
-        meta_data = {
-            "id": v0_meta.get("id", f"mediaplan_{uuid.uuid4().hex[:8]}"),  # Generate ID if not present
-            "schema_version": "v2.0",  # Set to the new version
-            "created_by_name": v0_meta.get("created_by", "Unknown"),  # Map to required field
-            "created_at": v0_meta.get("created_at", datetime.now().isoformat()),
-            "comments": v0_meta.get("comments")
-        }
-
-        # Handle campaign
-        v0_campaign = v0_mediaplan.get("campaign", {})
-        campaign = Campaign.from_v0_campaign(v0_campaign)
-
-        # Handle line items
-        lineitems = []
-        for v0_lineitem in v0_mediaplan.get("lineitems", []):
-            lineitems.append(LineItem.from_v0_lineitem(v0_lineitem))
-
-        # Create new media plan (no dictionary in v0.0)
-        return cls(
-            meta=Meta(**meta_data),
-            campaign=campaign,
-            lineitems=lineitems,
-            dictionary=None  # v0.0 didn't have dictionary
-        )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan":

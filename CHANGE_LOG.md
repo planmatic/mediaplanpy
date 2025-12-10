@@ -1,11 +1,41 @@
 # Changelog
 
 
-## [v3.0.0] - 2025-12-03 (WIP)
+## [v3.0.0] - 2025-12-10
+
+### Added
+- **Schema v3.0 Support**
+  - Target audiences and locations now support arrays with 13+ attributes each
+  - Metric formulas for calculated metrics (power functions, conversion rates, cost-per-unit)
+  - 42+ new fields across Meta, Campaign, and LineItem schemas
+  - Campaign KPI tracking fields (kpi_name1-5, kpi_value1-5)
+  - Custom dimension fields at Meta and Campaign levels (dim_custom1-5)
+  - Custom properties objects for extensibility at all levels
+  - 11 new metrics (video completions, reach, units, page views, likes, shares, comments, conversions, etc.)
+  - Buy information fields (buy_type, buy_commitment)
+  - Multi-currency support (cost_currency_exchange_rate)
+  - Budget constraints (cost_minimum, cost_maximum)
+
+### Changed
+- **Migration System**
+  - v2.0 → v3.0 migration with automatic audience/location name generation
+  - Removed v0.0 and v1.0 support (breaking change)
+  - Dictionary field renamed: custom_dimensions → lineitem_custom_dimensions
+  - Workspace upgrade requires explicit user action (strict version enforcement)
 
 ### Improved
-- General
-  SDK upgrades to support mediaplanschema v3.0.
+- **Database & Storage**
+  - Database schema migration with ALTER TABLE support for existing v2.0 tables
+  - Automatic backups created before workspace upgrades
+  - Excel export with separate Target Audiences and Target Locations worksheets
+  - Comprehensive validation for new array structures
+
+### Breaking Changes
+- SDK v3.0 only loads v3.0 workspaces (v2.0 workspaces must be explicitly upgraded)
+- Schema v0.0 and v1.0 no longer supported (removed from codebase)
+- Campaign audience/location fields restructured to arrays (migration handles this automatically)
+- Excel format changed with new worksheets for audiences/locations
+- Removed deprecated from_v0_* conversion methods from model classes
 
 
 ## [v2.0.7] - 2025-10-18

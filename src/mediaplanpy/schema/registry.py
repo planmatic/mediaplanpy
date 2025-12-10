@@ -67,9 +67,9 @@ class SchemaRegistry:
             logger.error(f"Error loading version info: {e}")
             # Fallback to default
             return {
-                "current": "2.0",
-                "supported": ["0.0", "1.0", "2.0"],
-                "deprecated": ["0.0"],
+                "current": "3.0",
+                "supported": ["2.0", "3.0"],
+                "deprecated": ["0.0", "1.0"],
                 "description": "Default schema version configuration (2-digit format)"
             }
 
@@ -108,7 +108,7 @@ class SchemaRegistry:
         Get the current (latest) schema version in 2-digit format.
 
         Returns:
-            The current schema version string (e.g., "2.0").
+            The current schema version string (e.g., "3.0").
         """
         versions_info = self.load_versions_info()
         return versions_info.get("current", "2.0")
@@ -118,7 +118,7 @@ class SchemaRegistry:
         Get a list of supported schema versions in 2-digit format.
 
         Returns:
-            List of supported schema version strings (e.g., ["0.0", "1.0", "2.0"]).
+            List of supported schema version strings (e.g., ["2.0", "3.0"]).
         """
         return self._schema_manager.get_supported_versions()
 

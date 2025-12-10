@@ -712,4 +712,4 @@ The SDK uses custom exception hierarchy:
 
 ---
 
-*This API reference covers MediaPlanPy SDK v2.0.3. For the latest updates, see the project's CHANGE_LOG.md.*
+*This API reference covers MediaPlanPy SDK v3.0.0. For the latest updates, see the project's CHANGE_LOG.md and the migration guide at docs/migration_guide_v2_to_v3.md.*

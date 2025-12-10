@@ -30,11 +30,11 @@ MediaPlanPy handles schema validation, versioning, and migration to ensure full 
 
 MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic/mediaplanschema) standard:
 
-- **Schema v2.0** - Full support for current specification
-- **Schema v1.0** - Legacy support with automatic migration
+- **Schema v3.0** - Full support for current specification with target audiences/locations arrays, metric formulas, and 42+ new fields
+- **Schema v2.0** - Migration support with automatic upgrade capability
 - **Validation** - Comprehensive schema validation
-- **Migration** - Automatic version upgrades
-- **Extensibility** - Support for custom fields and dimensions
+- **Migration** - Automatic v2.0 → v3.0 upgrades
+- **Extensibility** - Support for custom fields, dimensions, and properties
 
 ## Requirements
 
@@ -50,9 +50,9 @@ MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic
 
 ## Roadmap
 
-- **Cloud Storage Backends** - AWS S3 and Google Drive integration
 - **Google Sheets** - Ability to Export to / Import from Google Sheets
-- **Schema v3.0** - Next generation schema support
+- **Enhanced Analytics** - Advanced querying and reporting capabilities
+- **Performance Optimizations** - Continued improvements for large-scale workspaces
 
 ## License
 
@@ -66,6 +66,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🏷️ Version Information
 
-- **SDK Version**: 2.0.0
-- **Schema Version**: 2.0 (backwards compatible with 1.0)
-- **Python Support**: 3.7, 3.8, 3.9, 3.10, 3.11, 3.12
+- **SDK Version**: 3.0.0
+- **Schema Version**: 3.0 (v2.0 migration support included)
+- **Python Support**: 3.8, 3.9, 3.10, 3.11, 3.12

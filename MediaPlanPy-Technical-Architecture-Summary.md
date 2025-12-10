@@ -25,13 +25,13 @@ MediaPlanPy is an open source Python SDK that provides foundational tools for bu
 
 ### Key Features
 - **Multi-Format Support**: JSON, Excel, and Parquet files
-- **Schema Versioning**: Automatic version detection and migration (v1.0 ↔ v2.0)
+- **Schema Versioning**: Automatic version detection and migration (v2.0 → v3.0)
 - **Flexible Storage**: Local filesystem, S3, Google Drive, and PostgreSQL backends
 - **Workspace Management**: Multi-environment support with isolated configurations
 - **CLI Interface**: Comprehensive command-line tools
 - **Validation Framework**: Schema-based validation with detailed error reporting
 - **Analytics Ready**: Built-in Parquet generation and SQL query capabilities
-- **Database Integration**: Automatic PostgreSQL synchronization
+- **Database Integration**: Automatic PostgreSQL synchronization with ALTER TABLE migration support
 
 ### Technology Stack
 - **Core Language**: Python 3.8+
@@ -68,8 +68,8 @@ src/mediaplanpy/
 ├── schema/                     # Schema management and validation
 │   ├── __init__.py
 │   ├── definitions/            # JSON schema files
-│   │   ├── 1.0/               # v1.0 schema definitions
-│   │   └── 2.0/               # v2.0 schema definitions
+│   │   ├── 2.0/               # v2.0 schema definitions (migration support)
+│   │   └── 3.0/               # v3.0 schema definitions (current)
 │   ├── manager.py              # High-level schema operations
 │   ├── migration.py            # Schema migration logic
 │   ├── registry.py             # Schema registry and loading
