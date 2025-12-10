@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 try:
-    from mediaplanpy.storage import is_database_available
+    from mediaplanpy import is_database_available
     DATABASE_AVAILABLE = is_database_available()
 except ImportError:
     DATABASE_AVAILABLE = False
@@ -119,6 +119,6 @@ class TestDatabasePlaceholder:
 
     def test_database_availability_check(self):
         """Test database availability check function."""
-        from mediaplanpy.storage import is_database_available
+        from mediaplanpy import is_database_available
         result = is_database_available()
         assert isinstance(result, bool)

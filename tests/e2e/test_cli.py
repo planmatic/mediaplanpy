@@ -163,13 +163,16 @@ class TestCLIWorkspaceCommands:
 
         # Run validate command (cwd=temp_dir so CLI can find workspace file)
         # Note: Using subprocess.PIPE explicitly instead of capture_output=True
+        # Set PYTHONIOENCODING to handle Unicode characters (emojis) on Windows
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
         result = subprocess.run(
             ["mediaplanpy", "workspace", "validate", "--workspace_id", workspace_id],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             cwd=temp_dir,
-            env=os.environ.copy()  # Ensure environment is passed
+            env=env
         )
 
         # Should succeed (return code 0 means validation passed)
@@ -243,11 +246,14 @@ class TestCLIWorkspaceCommands:
         os.rename(workspace_path, expected_path)
 
         # Run version command (cwd=temp_dir so CLI can find workspace file)
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
         result = subprocess.run(
             ["mediaplanpy", "workspace", "version", "--workspace_id", workspace_id],
             capture_output=True,
             text=True,
-            cwd=temp_dir
+            cwd=temp_dir,
+            env=env
         )
 
         # Should succeed
@@ -475,11 +481,14 @@ class TestCLIWithData:
         workspace_dir = os.path.dirname(config_path)
 
         # Run list campaigns (cwd=workspace_dir so CLI can find workspace file)
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
         result = subprocess.run(
             ["mediaplanpy", "list", "campaigns", "--workspace_id", workspace_id],
             capture_output=True,
             text=True,
-            cwd=workspace_dir
+            cwd=workspace_dir,
+            env=env
         )
 
         # Should succeed and show data
@@ -493,11 +502,14 @@ class TestCLIWithData:
         workspace_dir = os.path.dirname(config_path)
 
         # Run list mediaplans (cwd=workspace_dir so CLI can find workspace file)
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
         result = subprocess.run(
             ["mediaplanpy", "list", "mediaplans", "--workspace_id", workspace_id],
             capture_output=True,
             text=True,
-            cwd=workspace_dir
+            cwd=workspace_dir,
+            env=env
         )
 
         # Should succeed and show data
@@ -511,6 +523,8 @@ class TestCLIWithData:
         workspace_dir = os.path.dirname(config_path)
 
         # Run with limit (cwd=workspace_dir so CLI can find workspace file)
+        env = os.environ.copy()
+        env['PYTHONIOENCODING'] = 'utf-8'
         result = subprocess.run(
             [
                 "mediaplanpy", "list", "campaigns",
@@ -520,7 +534,8 @@ class TestCLIWithData:
             ],
             capture_output=True,
             text=True,
-            cwd=workspace_dir
+            cwd=workspace_dir,
+            env=env
         )
 
         # Should succeed
