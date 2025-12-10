@@ -800,42 +800,566 @@ def handle_workspace_upgrade(args) -> int:
 
 def handle_workspace_statistics(args) -> int:
     """Handle the 'workspace statistics' command."""
-    print_error(
-        "Not implemented",
-        "The workspace statistics command is not yet implemented.",
-        "This command will be implemented in Phase 2"
-    )
-    return 1
+    try:
+        # Load workspace using workspace_id
+        manager = WorkspaceManager()
+        config = manager.load(workspace_id=args.workspace_id)
+
+        workspace_name = config.get('workspace_name', 'Unknown')
+        workspace_settings = config.get('workspace_settings', {})
+        schema_version = workspace_settings.get('schema_version', 'Unknown')
+
+        print("Workspace Statistics\n")
+        print(f"Workspace: {workspace_name} ({args.workspace_id})")
+        print(f"Schema version: v{schema_version}\n")
+
+        # Get storage backend
+        storage_backend = manager.get_storage_backend()
+
+        # Content Summary - count media plans, campaigns, line items
+        print("Content Summary:")
+
+        # Try to get counts from database if enabled
+        db_config = config.get('database', {})
+        db_enabled = db_config.get('enabled', False)
+
+        if db_enabled:
+            try:
+                from mediaplanpy.storage.database import PostgreSQLBackend
+                db_backend = PostgreSQLBackend(manager.get_resolved_config())
+
+                if db_backend.test_connection():
+                    # Count media plans
+                    mediaplan_count = db_backend.count_records()
+                    print(f"   Media plans: {mediaplan_count}")
+
+                    # Count campaigns and line items
+                    try:
+                        campaign_count = db_backend.count_campaigns()
+                        lineitem_count = db_backend.count_lineitems()
+                        print(f"   Campaigns: {campaign_count}")
+                        print(f"   Line items: {lineitem_count:,}")
+                    except AttributeError:
+                        # Methods might not exist, skip
+                        pass
+                else:
+                    print("   Could not connect to database for counts")
+            except Exception as e:
+                print(f"   Database query failed: {str(e)}")
+        else:
+            print("   Database not enabled (counts unavailable)")
+
+        # Storage information
+        print(f"\nStorage:")
+
+        storage_config = config.get('storage', {})
+        storage_mode = storage_config.get('mode', 'local')
+
+        if storage_mode == 'local':
+            resolved_config = manager.get_resolved_config()
+            base_path = resolved_config['storage']['local']['base_path']
+
+            if Path(base_path).exists():
+                # Count JSON files
+                json_files = list(Path(base_path).glob('*.json'))
+                json_count = len(json_files)
+                json_size = sum(f.stat().st_size for f in json_files if f.is_file()) / (1024 * 1024)
+
+                # Count Parquet files
+                parquet_files = list(Path(base_path).glob('*.parquet'))
+                parquet_count = len(parquet_files)
+                parquet_size = sum(f.stat().st_size for f in parquet_files if f.is_file()) / (1024 * 1024)
+
+                total_size = json_size + parquet_size
+
+                print(f"   JSON files: {json_count} files ({json_size:.1f} MB)")
+                print(f"   Parquet files: {parquet_count} files ({parquet_size:.1f} MB)")
+                print(f"   Total size: {total_size:.1f} MB")
+            else:
+                print(f"   Storage folder does not exist: {base_path}")
+        elif storage_mode == 's3':
+            s3_config = storage_config.get('s3', {})
+            bucket = s3_config.get('bucket', 'Unknown')
+            print(f"   S3 bucket: {bucket}")
+            print(f"   File counts not available for S3 storage")
+
+        # Database information
+        print(f"\nDatabase:")
+
+        if db_enabled:
+            print(f"   Enabled: Yes")
+
+            try:
+                from mediaplanpy.storage.database import PostgreSQLBackend
+                db_backend = PostgreSQLBackend(manager.get_resolved_config())
+
+                if db_backend.test_connection():
+                    # Get table size
+                    try:
+                        table_size = db_backend.get_table_size()
+                        record_count = db_backend.count_records()
+                        print(f"   Records: {record_count:,}")
+                        if table_size:
+                            print(f"   Table size: {table_size}")
+                    except AttributeError:
+                        print(f"   Table information unavailable")
+                else:
+                    print(f"   Database connection failed")
+            except Exception as e:
+                print(f"   Error: {str(e)}")
+        else:
+            print(f"   Enabled: No")
+
+        # Last activity
+        print(f"\nLast Activity:")
+        if storage_mode == 'local' and Path(base_path).exists():
+            # Find most recent file modification
+            all_files = list(Path(base_path).glob('*'))
+            if all_files:
+                most_recent = max(all_files, key=lambda f: f.stat().st_mtime if f.is_file() else 0)
+                from datetime import datetime
+                last_modified = datetime.fromtimestamp(most_recent.stat().st_mtime)
+                print(f"   Last modified: {last_modified.strftime('%Y-%m-%d %H:%M:%S')}")
+            else:
+                print(f"   No files found")
+
+        # Schema status
+        print(f"\nSchema:")
+        print(f"   Version: v{schema_version}")
+
+        # Check if upgrade available
+        from mediaplanpy import __schema_version__
+        current_schema = __schema_version__
+        if schema_version != current_schema:
+            print(f"   Upgrade available: Yes (to v{current_schema})")
+        else:
+            print(f"   Upgrade available: No")
+
+        return 0
+
+    except WorkspaceNotFoundError as e:
+        print_error(
+            "Workspace not found",
+            str(e),
+            "Create a new workspace: mediaplanpy workspace create\n" +
+            "   Or verify workspace_id is correct"
+        )
+        return 3
+    except WorkspaceError as e:
+        print_error("Workspace error", str(e))
+        return 1
+    except Exception as e:
+        print_error("Unexpected error", str(e))
+        return 1
 
 
 def handle_workspace_version(args) -> int:
     """Handle the 'workspace version' command."""
-    print_error(
-        "Not implemented",
-        "The workspace version command is not yet implemented.",
-        "This command will be implemented in Phase 3"
-    )
-    return 1
+    try:
+        # Load workspace using workspace_id
+        manager = WorkspaceManager()
+        config = manager.load(workspace_id=args.workspace_id)
+
+        workspace_name = config.get('workspace_name', 'Unknown')
+        workspace_settings = config.get('workspace_settings', {})
+
+        print("Schema Version Information\n")
+        print(f"Workspace: {workspace_name} ({args.workspace_id})\n")
+
+        # SDK Information
+        from mediaplanpy import __version__, __schema_version__
+        print("SDK Information:")
+        print(f"   SDK version: {__version__}")
+        print(f"   Current schema: v{__schema_version__}")
+        print(f"   Supported schemas: v2.0 (deprecated), v3.0 (current)")
+
+        # Workspace Configuration
+        workspace_schema = workspace_settings.get('schema_version', 'Unknown')
+        last_upgraded = workspace_settings.get('last_upgraded', 'Unknown')
+        sdk_required = workspace_settings.get('sdk_version_required', 'Unknown')
+
+        print(f"\nWorkspace Configuration:")
+        print(f"   Workspace schema version: v{workspace_schema}")
+        print(f"   Last upgraded: {last_upgraded}")
+        print(f"   SDK version required: {sdk_required}")
+
+        # Check compatibility
+        sdk_major = int(__schema_version__.split('.')[0])
+        workspace_major = int(workspace_schema.split('.')[0]) if '.' in str(workspace_schema) else 0
+
+        if sdk_major == workspace_major:
+            print(f"   Status: Compatible")
+        else:
+            print(f"   Status: Incompatible - Upgrade required")
+
+        # JSON Files scan
+        print(f"\nJSON Files:")
+
+        storage_config = config.get('storage', {})
+        storage_mode = storage_config.get('mode', 'local')
+
+        if storage_mode == 'local':
+            resolved_config = manager.get_resolved_config()
+            base_path = Path(resolved_config['storage']['local']['base_path'])
+
+            if base_path.exists():
+                json_files = list(base_path.glob('*.json'))
+                total_files = len(json_files)
+
+                print(f"   Total files: {total_files}")
+
+                if total_files > 0:
+                    # Count by schema version
+                    version_counts = {}
+                    for json_file in json_files:
+                        try:
+                            with open(json_file, 'r') as f:
+                                data = json.load(f)
+                                version = data.get('meta', {}).get('schema_version', 'unknown')
+                                version_counts[version] = version_counts.get(version, 0) + 1
+                        except Exception:
+                            version_counts['error'] = version_counts.get('error', 0) + 1
+
+                    print(f"\n   By schema version:")
+                    for version in sorted(version_counts.keys(), reverse=True):
+                        count = version_counts[version]
+                        pct = (count / total_files * 100) if total_files > 0 else 0
+                        print(f"   v{version}: {count} files ({pct:.0f}%)")
+
+                    # Status
+                    if len(version_counts) == 1 and __schema_version__ in version_counts:
+                        print(f"\n   Status: ✅ All files current")
+                    elif len(version_counts) > 1:
+                        print(f"\n   Status: ⚠️  WARNING - Mixed versions detected")
+                    else:
+                        print(f"\n   Status: ⚠️  WARNING - Files need migration")
+                else:
+                    print(f"\n   Status: No JSON files found")
+            else:
+                print(f"   Storage folder does not exist: {base_path}")
+        else:
+            print(f"   S3 storage - file scanning not available")
+
+        # Database Schema
+        print(f"\nDatabase Schema:")
+
+        db_config = config.get('database', {})
+        db_enabled = db_config.get('enabled', False)
+
+        if db_enabled:
+            try:
+                from mediaplanpy.storage.database import PostgreSQLBackend
+                db_backend = PostgreSQLBackend(manager.get_resolved_config())
+
+                if db_backend.test_connection():
+                    print(f"   Enabled: Yes")
+                    table_name = db_config.get('table', 'mediaplans')
+                    print(f"   Table name: {table_name}")
+
+                    # Get database schema version
+                    try:
+                        db_schema_version = db_backend.get_table_version()
+                        print(f"   Schema version: v{db_schema_version}")
+
+                        if db_schema_version == __schema_version__:
+                            print(f"   Status: ✅ Current")
+                        else:
+                            print(f"   Status: ⚠️  Needs upgrade")
+                    except AttributeError:
+                        print(f"   Schema version: Unable to determine")
+
+                    # Count records by schema version
+                    try:
+                        # Query records grouped by schema version
+                        query = f"""
+                            SELECT "meta.schema_version", COUNT(*) as count
+                            FROM {table_name}
+                            GROUP BY "meta.schema_version"
+                            ORDER BY "meta.schema_version" DESC
+                        """
+                        result = db_backend.execute_query(query)
+
+                        if result:
+                            total_records = sum(row[1] for row in result)
+                            print(f"\n   Records by schema version:")
+                            for version, count in result:
+                                pct = (count / total_records * 100) if total_records > 0 else 0
+                                print(f"   v{version}: {count:,} records ({pct:.0f}%)")
+
+                            # Status
+                            if len(result) == 1 and result[0][0] == __schema_version__:
+                                print(f"\n   Status: ✅ All records migrated")
+                            elif len(result) > 1:
+                                print(f"\n   Status: ⚠️  WARNING - Some records not migrated")
+                            else:
+                                print(f"\n   Status: ⚠️  WARNING - Records need migration")
+                    except Exception as e:
+                        print(f"\n   Could not query record versions: {str(e)}")
+                else:
+                    print(f"   Enabled: Yes")
+                    print(f"   Status: ❌ Connection failed")
+            except Exception as e:
+                print(f"   Enabled: Yes")
+                print(f"   Error: {str(e)}")
+        else:
+            print(f"   Enabled: No")
+
+        # Overall Status
+        print(f"\nOverall Status: ", end="")
+
+        # Determine overall status
+        all_current = True
+
+        # Check workspace config
+        if workspace_schema != __schema_version__:
+            all_current = False
+
+        # Check JSON files (if we scanned them)
+        if storage_mode == 'local' and base_path.exists() and total_files > 0:
+            if len(version_counts) > 1 or __schema_version__ not in version_counts:
+                all_current = False
+
+        # Check database (if enabled and connected)
+        if db_enabled:
+            try:
+                if db_schema_version != __schema_version__:
+                    all_current = False
+            except:
+                pass
+
+        if all_current:
+            print(f"✅ Workspace fully upgraded to v{__schema_version__}")
+        else:
+            print(f"⚠️  WARNING - Workspace partially upgraded")
+            print(f"\nRecommendation:")
+            print(f"   Run workspace upgrade to migrate remaining files:")
+            print(f"   mediaplanpy workspace upgrade --workspace_id {args.workspace_id}")
+
+        # Documentation link
+        print(f"\nDocumentation: https://github.com/media-plan-schema/mediaplanschema/tree/main/schemas/{__schema_version__}/documentation")
+
+        return 0
+
+    except WorkspaceNotFoundError as e:
+        print_error(
+            "Workspace not found",
+            str(e),
+            "Create a new workspace: mediaplanpy workspace create\n" +
+            "   Or verify workspace_id is correct"
+        )
+        return 3
+    except WorkspaceError as e:
+        print_error("Workspace error", str(e))
+        return 1
+    except Exception as e:
+        print_error("Unexpected error", str(e))
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def handle_list_campaigns(args) -> int:
     """Handle the 'list campaigns' command."""
-    print_error(
-        "Not implemented",
-        "The list campaigns command is not yet implemented.",
-        "This command will be implemented in Phase 2"
-    )
-    return 1
+    try:
+        # Load workspace using workspace_id
+        manager = WorkspaceManager()
+        config = manager.load(workspace_id=args.workspace_id)
+
+        workspace_name = config.get('workspace_name', 'Unknown')
+
+        # Check if database is enabled
+        db_config = config.get('database', {})
+        if not db_config.get('enabled', False):
+            print_error(
+                "Database not enabled",
+                "The list campaigns command requires database to be enabled.",
+                "Enable database in workspace settings to use this command"
+            )
+            return 1
+
+        # Query campaigns using workspace query module
+        from mediaplanpy.workspace.query import list_campaigns
+
+        campaigns_df = list_campaigns(
+            manager,
+            limit=args.limit,
+            offset=args.offset
+        )
+
+        if campaigns_df.empty:
+            print("No campaigns found")
+            return 0
+
+        # Format output
+        if args.format == "json":
+            # JSON output
+            output = {
+                "workspace_id": args.workspace_id,
+                "workspace_name": workspace_name,
+                "total_count": len(campaigns_df),
+                "limit": args.limit,
+                "offset": args.offset,
+                "campaigns": campaigns_df.to_dict('records')
+            }
+            print(json.dumps(output, indent=2, default=str))
+        else:
+            # Table output
+            print(f"Campaigns in workspace '{workspace_name}'\n")
+
+            # Prepare table data
+            headers = ["Campaign ID", "Campaign Name", "Budget", "Currency", "Start Date", "End Date", "# Plans"]
+            rows = []
+
+            for _, row in campaigns_df.iterrows():
+                campaign_id = row.get('campaign_id', 'N/A')
+                campaign_name = row.get('campaign_name', 'N/A')
+                budget = row.get('budget_total', 0)
+                currency = row.get('budget_currency', 'USD')
+                start_date = row.get('start_date', 'N/A')
+                end_date = row.get('end_date', 'N/A')
+                plan_count = row.get('mediaplan_count', 0)
+
+                # Format budget
+                budget_str = format_currency(budget, currency)
+
+                # Format dates
+                start_str = str(start_date)[:10] if start_date != 'N/A' else 'N/A'
+                end_str = str(end_date)[:10] if end_date != 'N/A' else 'N/A'
+
+                rows.append([
+                    campaign_id,
+                    campaign_name,
+                    budget_str,
+                    currency,
+                    start_str,
+                    end_str,
+                    plan_count
+                ])
+
+            # Print table
+            alignments = ['left', 'left', 'right', 'left', 'left', 'left', 'right']
+            table = format_table(headers, rows, alignments)
+            print(table)
+            print(f"\nTotal: {len(campaigns_df)} campaigns")
+
+        return 0
+
+    except WorkspaceNotFoundError as e:
+        print_error(
+            "Workspace not found",
+            str(e),
+            "Create a new workspace: mediaplanpy workspace create\n" +
+            "   Or verify workspace_id is correct"
+        )
+        return 3
+    except Exception as e:
+        print_error("Query error", str(e))
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 def handle_list_mediaplans(args) -> int:
     """Handle the 'list mediaplans' command."""
-    print_error(
-        "Not implemented",
-        "The list mediaplans command is not yet implemented.",
-        "This command will be implemented in Phase 2"
-    )
-    return 1
+    try:
+        # Load workspace using workspace_id
+        manager = WorkspaceManager()
+        config = manager.load(workspace_id=args.workspace_id)
+
+        workspace_name = config.get('workspace_name', 'Unknown')
+
+        # Check if database is enabled
+        db_config = config.get('database', {})
+        if not db_config.get('enabled', False):
+            print_error(
+                "Database not enabled",
+                "The list mediaplans command requires database to be enabled.",
+                "Enable database in workspace settings to use this command"
+            )
+            return 1
+
+        # Query mediaplans using workspace query module
+        from mediaplanpy.workspace.query import list_mediaplans
+
+        mediaplans_df = list_mediaplans(
+            manager,
+            campaign_id=args.campaign_id,
+            limit=args.limit,
+            offset=args.offset
+        )
+
+        if mediaplans_df.empty:
+            if args.campaign_id:
+                print(f"No media plans found for campaign: {args.campaign_id}")
+            else:
+                print("No media plans found")
+            return 0
+
+        # Format output
+        if args.format == "json":
+            # JSON output
+            output = {
+                "workspace_id": args.workspace_id,
+                "workspace_name": workspace_name,
+                "campaign_id": args.campaign_id,
+                "total_count": len(mediaplans_df),
+                "limit": args.limit,
+                "offset": args.offset,
+                "mediaplans": mediaplans_df.to_dict('records')
+            }
+            print(json.dumps(output, indent=2, default=str))
+        else:
+            # Table output
+            if args.campaign_id:
+                print(f"Media Plans in workspace '{workspace_name}' (Campaign: {args.campaign_id})\n")
+            else:
+                print(f"Media Plans in workspace '{workspace_name}'\n")
+
+            # Prepare table data
+            headers = ["Media Plan ID", "Created By", "Created At", "Campaign Name", "Schema Version", "# Line Items"]
+            rows = []
+
+            for _, row in mediaplans_df.iterrows():
+                mediaplan_id = row.get('mediaplan_id', 'N/A')
+                created_by = row.get('created_by_name', 'N/A')
+                created_at = row.get('created_at', 'N/A')
+                campaign_name = row.get('campaign_name', 'N/A')
+                schema_version = row.get('schema_version', 'N/A')
+                lineitem_count = row.get('lineitem_count', 0)
+
+                # Format created_at
+                created_str = str(created_at)[:19] if created_at != 'N/A' else 'N/A'
+
+                rows.append([
+                    mediaplan_id,
+                    created_by,
+                    created_str,
+                    campaign_name,
+                    f"v{schema_version}" if schema_version != 'N/A' else 'N/A',
+                    lineitem_count
+                ])
+
+            # Print table
+            alignments = ['left', 'left', 'left', 'left', 'left', 'right']
+            table = format_table(headers, rows, alignments)
+            print(table)
+            print(f"\nTotal: {len(mediaplans_df)} media plans")
+
+        return 0
+
+    except WorkspaceNotFoundError as e:
+        print_error(
+            "Workspace not found",
+            str(e),
+            "Create a new workspace: mediaplanpy workspace create\n" +
+            "   Or verify workspace_id is correct"
+        )
+        return 3
+    except Exception as e:
+        print_error("Query error", str(e))
+        import traceback
+        traceback.print_exc()
+        return 1
 
 
 # =============================================================================
