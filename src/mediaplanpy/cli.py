@@ -1167,24 +1167,18 @@ def handle_list_campaigns(args) -> int:
 
         workspace_name = config.get('workspace_name', 'Unknown')
 
-        # Check if database is enabled
-        db_config = config.get('database', {})
-        if not db_config.get('enabled', False):
-            print_error(
-                "Database not enabled",
-                "The list campaigns command requires database to be enabled.",
-                "Enable database in workspace settings to use this command"
-            )
-            return 1
-
         # Query campaigns using workspace query module
-        from mediaplanpy.workspace.query import list_campaigns
-
-        campaigns_df = list_campaigns(
-            manager,
-            limit=args.limit,
-            offset=args.offset
+        # Note: sql_query intelligently routes to database (if enabled) or DuckDB+Parquet
+        campaigns_df = manager.list_campaigns(
+            return_dataframe=True
         )
+
+        # Apply limit and offset manually
+        if not campaigns_df.empty:
+            total_count = len(campaigns_df)
+            campaigns_df = campaigns_df.iloc[args.offset:args.offset + args.limit]
+        else:
+            total_count = 0
 
         if campaigns_df.empty:
             print("No campaigns found")
@@ -1196,7 +1190,8 @@ def handle_list_campaigns(args) -> int:
             output = {
                 "workspace_id": args.workspace_id,
                 "workspace_name": workspace_name,
-                "total_count": len(campaigns_df),
+                "total_count": total_count,
+                "returned_count": len(campaigns_df),
                 "limit": args.limit,
                 "offset": args.offset,
                 "campaigns": campaigns_df.to_dict('records')
@@ -1240,7 +1235,10 @@ def handle_list_campaigns(args) -> int:
             alignments = ['left', 'left', 'right', 'left', 'left', 'left', 'right']
             table = format_table(headers, rows, alignments)
             print(table)
-            print(f"\nTotal: {len(campaigns_df)} campaigns")
+            if total_count > len(campaigns_df):
+                print(f"\nShowing {len(campaigns_df)} of {total_count} campaigns (use --offset and --limit for pagination)")
+            else:
+                print(f"\nTotal: {total_count} campaigns")
 
         return 0
 
@@ -1268,25 +1266,25 @@ def handle_list_mediaplans(args) -> int:
 
         workspace_name = config.get('workspace_name', 'Unknown')
 
-        # Check if database is enabled
-        db_config = config.get('database', {})
-        if not db_config.get('enabled', False):
-            print_error(
-                "Database not enabled",
-                "The list mediaplans command requires database to be enabled.",
-                "Enable database in workspace settings to use this command"
-            )
-            return 1
-
         # Query mediaplans using workspace query module
-        from mediaplanpy.workspace.query import list_mediaplans
+        # Note: sql_query intelligently routes to database (if enabled) or DuckDB+Parquet
 
-        mediaplans_df = list_mediaplans(
-            manager,
-            campaign_id=args.campaign_id,
-            limit=args.limit,
-            offset=args.offset
+        # Apply campaign_id filter if specified
+        filters = {}
+        if args.campaign_id:
+            filters['campaign_id'] = args.campaign_id
+
+        mediaplans_df = manager.list_mediaplans(
+            filters=filters if filters else None,
+            return_dataframe=True
         )
+
+        # Apply limit and offset manually
+        if not mediaplans_df.empty:
+            total_count = len(mediaplans_df)
+            mediaplans_df = mediaplans_df.iloc[args.offset:args.offset + args.limit]
+        else:
+            total_count = 0
 
         if mediaplans_df.empty:
             if args.campaign_id:
@@ -1302,7 +1300,8 @@ def handle_list_mediaplans(args) -> int:
                 "workspace_id": args.workspace_id,
                 "workspace_name": workspace_name,
                 "campaign_id": args.campaign_id,
-                "total_count": len(mediaplans_df),
+                "total_count": total_count,
+                "returned_count": len(mediaplans_df),
                 "limit": args.limit,
                 "offset": args.offset,
                 "mediaplans": mediaplans_df.to_dict('records')
@@ -1343,7 +1342,10 @@ def handle_list_mediaplans(args) -> int:
             alignments = ['left', 'left', 'left', 'left', 'left', 'right']
             table = format_table(headers, rows, alignments)
             print(table)
-            print(f"\nTotal: {len(mediaplans_df)} media plans")
+            if total_count > len(mediaplans_df):
+                print(f"\nShowing {len(mediaplans_df)} of {total_count} media plans (use --offset and --limit for pagination)")
+            else:
+                print(f"\nTotal: {total_count} media plans")
 
         return 0
 

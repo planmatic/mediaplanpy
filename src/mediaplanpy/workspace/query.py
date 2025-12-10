@@ -931,7 +931,18 @@ def _sql_query_duckdb(self, query: str, return_dataframe: bool = True,
         )
 
     # Resolve file patterns in the query (handles S3 URLs)
-    resolved_query = _resolve_sql_file_patterns(self, query)
+    try:
+        resolved_query = _resolve_sql_file_patterns(self, query)
+    except SQLQueryError as e:
+        # If no parquet files found (empty workspace), return empty results gracefully
+        if "No parquet files found" in str(e):
+            logger.debug(f"No parquet files found for query - returning empty result: {e}")
+            if return_dataframe:
+                return pd.DataFrame()
+            else:
+                return []
+        # Re-raise other SQLQueryErrors
+        raise
 
     # Apply limit if specified
     if limit is not None and limit > 0:
