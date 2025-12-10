@@ -2,7 +2,7 @@
 Schema validation module for mediaplanpy.
 
 This module provides utilities for validating media plans
-against the appropriate schema with enhanced v2.0 support.
+against the appropriate schema with support for v2.0 and v3.0.
 """
 
 import json
@@ -22,10 +22,13 @@ logger = logging.getLogger("mediaplanpy.schema.validator")
 
 class SchemaValidator:
     """
-    Validator for media plan data with enhanced v2.0 schema support.
+    Validator for media plan data with support for v2.0 and v3.0 schemas.
 
     Validates media plans against the appropriate schema version and includes
-    custom business logic validation for v2.0 features like dictionary configuration.
+    custom business logic validation for version-specific features including:
+    - v2.0: Dictionary configuration and field consistency
+    - v3.0: Array structures (target_audiences, target_locations, metric_formulas)
+      and deprecated field detection
     """
 
     def __init__(self, registry: Optional[SchemaRegistry] = None):
@@ -39,7 +42,7 @@ class SchemaValidator:
 
     def validate(self, media_plan: Dict[str, Any], version: Optional[str] = None) -> List[str]:
         """
-        Validate a media plan against a schema with enhanced v2.0 support.
+        Validate a media plan against a schema (supports v2.0 and v3.0).
 
         Args:
             media_plan: The media plan data to validate.
@@ -173,6 +176,17 @@ class SchemaValidator:
         elif any(field in error.message for field in ["budget_currency", "agency_id", "workflow_status"]):
             base_message += " (Note: This is a new optional field in schema v2.0)"
 
+        # Add specific guidance for common v3.0 validation issues
+        if version.startswith("3."):
+            if "target_audiences" in path or "target_audiences" in error.message:
+                base_message += " (Note: Schema v3.0 uses target_audiences array instead of audience_* fields)"
+            elif "target_locations" in path or "target_locations" in error.message:
+                base_message += " (Note: Schema v3.0 uses target_locations array instead of location_* fields)"
+            elif "metric_formulas" in path or "metric_formulas" in error.message:
+                base_message += " (Note: Schema v3.0 supports metric_formulas as a dictionary of formula objects)"
+            elif "lineitem_custom_dimensions" in path or "lineitem_custom_dimensions" in error.message:
+                base_message += " (Note: Schema v3.0 renamed 'custom_dimensions' to 'lineitem_custom_dimensions' in dictionary)"
+
         return base_message
 
     def _validate_business_logic(self, media_plan: Dict[str, Any], version: str) -> List[str]:
@@ -188,13 +202,18 @@ class SchemaValidator:
         """
         errors = []
 
-        # Existing business logic validation that should work for both v1.0 and v2.0
+        # Existing business logic validation that should work for all versions
         errors.extend(self._validate_date_consistency(media_plan))
 
         # v2.0-specific business logic validation
         if version.startswith("2."):
             errors.extend(self._validate_dictionary_configuration(media_plan))
             errors.extend(self._validate_v2_field_consistency(media_plan))
+
+        # v3.0-specific business logic validation
+        if version.startswith("3."):
+            errors.extend(self._validate_v3_field_consistency(media_plan))
+            errors.extend(self._validate_v3_array_structures(media_plan))
 
         return errors
 
@@ -588,6 +607,144 @@ class SchemaValidator:
 
         return errors
 
+    def _validate_v3_field_consistency(self, media_plan: Dict[str, Any]) -> List[str]:
+        """
+        Validate consistency of v3.0 fields and detect usage of deprecated fields.
+
+        Args:
+            media_plan: The media plan data to validate.
+
+        Returns:
+            List of v3.0 field consistency validation errors and warnings.
+        """
+        errors = []
+
+        # Check campaign for deprecated field usage
+        campaign = media_plan.get("campaign", {})
+        deprecated_audience_fields = {
+            "audience_name", "audience_age_start", "audience_age_end",
+            "audience_gender", "audience_interests"
+        }
+        deprecated_location_fields = {"location_type", "locations"}
+
+        # Warn if deprecated audience fields are used
+        used_deprecated_audience = [f for f in deprecated_audience_fields if campaign.get(f) is not None]
+        if used_deprecated_audience:
+            errors.append(
+                f"Warning: Deprecated audience fields used in campaign: {', '.join(used_deprecated_audience)}. "
+                "Consider migrating to target_audiences array in schema v3.0"
+            )
+
+        # Warn if deprecated location fields are used
+        used_deprecated_location = [f for f in deprecated_location_fields if campaign.get(f) is not None]
+        if used_deprecated_location:
+            errors.append(
+                f"Warning: Deprecated location fields used in campaign: {', '.join(used_deprecated_location)}. "
+                "Consider migrating to target_locations array in schema v3.0"
+            )
+
+        # Validate dictionary field structure (lineitem_custom_dimensions vs custom_dimensions)
+        dictionary = media_plan.get("dictionary", {})
+        if dictionary:
+            # Check if old field name is used
+            if "custom_dimensions" in dictionary and "lineitem_custom_dimensions" not in dictionary:
+                errors.append(
+                    "Warning: Dictionary uses 'custom_dimensions' field. "
+                    "In schema v3.0, this should be 'lineitem_custom_dimensions'"
+                )
+
+        return errors
+
+    def _validate_v3_array_structures(self, media_plan: Dict[str, Any]) -> List[str]:
+        """
+        Validate v3.0 array structures (target_audiences, target_locations, metric_formulas).
+
+        Args:
+            media_plan: The media plan data to validate.
+
+        Returns:
+            List of array structure validation errors.
+        """
+        errors = []
+
+        campaign = media_plan.get("campaign", {})
+
+        # Validate target_audiences array
+        target_audiences = campaign.get("target_audiences", [])
+        if target_audiences:
+            if not isinstance(target_audiences, list):
+                errors.append("campaign.target_audiences must be an array")
+            else:
+                for i, audience in enumerate(target_audiences):
+                    if not isinstance(audience, dict):
+                        errors.append(f"campaign.target_audiences[{i}] must be an object")
+                        continue
+
+                    # Check required field
+                    if not audience.get("name"):
+                        errors.append(f"campaign.target_audiences[{i}] missing required field 'name'")
+
+                    # Validate age range if both are present
+                    age_start = audience.get("demo_age_start")
+                    age_end = audience.get("demo_age_end")
+                    if age_start is not None and age_end is not None and age_start > age_end:
+                        errors.append(
+                            f"campaign.target_audiences[{i}]: demo_age_start ({age_start}) "
+                            f"must be <= demo_age_end ({age_end})"
+                        )
+
+        # Validate target_locations array
+        target_locations = campaign.get("target_locations", [])
+        if target_locations:
+            if not isinstance(target_locations, list):
+                errors.append("campaign.target_locations must be an array")
+            else:
+                for i, location in enumerate(target_locations):
+                    if not isinstance(location, dict):
+                        errors.append(f"campaign.target_locations[{i}] must be an object")
+                        continue
+
+                    # Check required field
+                    if not location.get("name"):
+                        errors.append(f"campaign.target_locations[{i}] missing required field 'name'")
+
+                    # Validate population_percent if present
+                    pop_percent = location.get("population_percent")
+                    if pop_percent is not None:
+                        if not isinstance(pop_percent, (int, float)):
+                            errors.append(
+                                f"campaign.target_locations[{i}]: population_percent must be a number"
+                            )
+                        elif pop_percent < 0 or pop_percent > 1:
+                            errors.append(
+                                f"campaign.target_locations[{i}]: population_percent must be between 0 and 1, "
+                                f"got: {pop_percent}"
+                            )
+
+        # Validate metric_formulas in line items
+        lineitems = media_plan.get("lineitems", [])
+        for lineitem_idx, lineitem in enumerate(lineitems):
+            metric_formulas = lineitem.get("metric_formulas", {})
+            if metric_formulas:
+                if not isinstance(metric_formulas, dict):
+                    errors.append(f"lineitems[{lineitem_idx}].metric_formulas must be an object")
+                else:
+                    for metric_name, formula in metric_formulas.items():
+                        if not isinstance(formula, dict):
+                            errors.append(
+                                f"lineitems[{lineitem_idx}].metric_formulas[{metric_name}] must be an object"
+                            )
+                            continue
+
+                        # Check required field
+                        if not formula.get("formula_type"):
+                            errors.append(
+                                f"lineitems[{lineitem_idx}].metric_formulas[{metric_name}] "
+                                "missing required field 'formula_type'"
+                            )
+
+        return errors
+
     def validate_file(self, file_path: str, version: Optional[str] = None) -> List[str]:
         """
         Validate a media plan JSON file against a schema with version handling.
@@ -666,7 +823,26 @@ class SchemaValidator:
                 result['info'].append("Found v2.0 dictionary configuration")
 
             if normalized_version.startswith("1."):
-                result['warnings'].append("Using legacy v1.0 schema - consider upgrading to v2.0")
+                result['warnings'].append("Using legacy v1.0 schema - consider upgrading to v3.0")
+
+            if normalized_version.startswith("3."):
+                campaign = media_plan.get("campaign", {})
+                if "target_audiences" in campaign:
+                    result['info'].append(
+                        f"Found v3.0 target_audiences array with {len(campaign['target_audiences'])} audience(s)"
+                    )
+                if "target_locations" in campaign:
+                    result['info'].append(
+                        f"Found v3.0 target_locations array with {len(campaign['target_locations'])} location(s)"
+                    )
+
+                # Check for metric_formulas in line items
+                lineitems = media_plan.get("lineitems", [])
+                lineitem_with_formulas = sum(1 for li in lineitems if li.get("metric_formulas"))
+                if lineitem_with_formulas > 0:
+                    result['info'].append(
+                        f"Found v3.0 metric_formulas in {lineitem_with_formulas} line item(s)"
+                    )
 
         except Exception as e:
             result['errors'].append(f"Validation failed: {str(e)}")
