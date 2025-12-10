@@ -243,6 +243,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM001",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -258,6 +259,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM002",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -273,6 +275,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM003",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -294,6 +297,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM004",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -309,6 +313,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM005",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -328,6 +333,7 @@ class TestCampaignV3:
         campaign = Campaign(
             id="CAM006",
             name="Test Campaign",
+            objective="awareness",
             start_date=date(2025, 1, 1),
             end_date=date(2025, 12, 31),
             budget_total=Decimal("100000"),
@@ -449,7 +455,7 @@ class TestDictionaryV3:
         )
 
         assert "dim_custom1" in dictionary.lineitem_custom_dimensions
-        assert dictionary.lineitem_custom_dimensions["dim_custom1"]["status"] == "enabled"
+        assert dictionary.lineitem_custom_dimensions["dim_custom1"].status == "enabled"
 
     def test_campaign_custom_dimensions(self):
         """Test v3.0 new field: campaign_custom_dimensions."""
@@ -460,7 +466,7 @@ class TestDictionaryV3:
         )
 
         assert "dim_custom1" in dictionary.campaign_custom_dimensions
-        assert dictionary.campaign_custom_dimensions["dim_custom1"]["caption"] == "Business Unit"
+        assert dictionary.campaign_custom_dimensions["dim_custom1"].caption == "Business Unit"
 
     def test_meta_custom_dimensions(self):
         """Test v3.0 new field: meta_custom_dimensions."""
@@ -471,7 +477,7 @@ class TestDictionaryV3:
         )
 
         assert "dim_custom1" in dictionary.meta_custom_dimensions
-        assert dictionary.meta_custom_dimensions["dim_custom1"]["caption"] == "Project Code"
+        assert dictionary.meta_custom_dimensions["dim_custom1"].caption == "Project Code"
 
 
 class TestMetaV3:

@@ -108,6 +108,7 @@ def campaign_v3_minimal():
     return Campaign(
         id="CAM001",
         name="Test Campaign",
+        objective="awareness",
         start_date=date(2025, 1, 1),
         end_date=date(2025, 12, 31),
         budget_total=Decimal("100000")
@@ -120,6 +121,7 @@ def campaign_v3_full(target_audience_adults, target_location_california):
     return Campaign(
         id="CAM002",
         name="Complete Campaign",
+        objective="awareness",
         start_date=date(2025, 1, 1),
         end_date=date(2025, 12, 31),
         budget_total=Decimal("500000"),
