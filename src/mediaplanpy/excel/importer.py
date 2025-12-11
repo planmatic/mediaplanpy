@@ -1035,7 +1035,7 @@ def _import_v3_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
                 # Handle different field types
                 if field_name in ["id", "name"] and not cleaned_value:
                     if field_name == "id":
-                        line_item[field_name] = f"li_{uuid.uuid4().hex[:8]}"
+                        line_item[field_name] = f"pli_{uuid.uuid4().hex[:8]}"
                     continue
 
                 elif field_name in ["start_date", "end_date"]:
@@ -1088,7 +1088,7 @@ def _import_v3_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
 
         # Ensure required fields have defaults
         if "id" not in line_item:
-            line_item["id"] = f"li_{uuid.uuid4().hex[:8]}"
+            line_item["id"] = f"pli_{uuid.uuid4().hex[:8]}"
         if "name" not in line_item:
             line_item["name"] = line_item.get("id", "")
         if "start_date" not in line_item:

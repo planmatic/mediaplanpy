@@ -232,30 +232,25 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
 
         # Validate line items
         if self.lineitems:
-            # Check that line item dates are within campaign dates
+            # INFORMATIONAL: Check that line item dates are within campaign dates
+            # Log warnings but don't block creation
             for i, line_item in enumerate(self.lineitems):
                 if line_item.start_date < self.campaign.start_date:
-                    errors.append(
+                    logger.warning(
                         f"Line item {i} ({line_item.id}) starts before campaign: "
                         f"{line_item.start_date} < {self.campaign.start_date}"
                     )
 
                 if line_item.end_date > self.campaign.end_date:
-                    errors.append(
+                    logger.warning(
                         f"Line item {i} ({line_item.id}) ends after campaign: "
                         f"{line_item.end_date} > {self.campaign.end_date}"
                     )
 
-            # Check if total cost of line items matches campaign budget_total
-            total_cost = sum(item.cost_total for item in self.lineitems)
-            # Allow a small difference for rounding errors (0.01)
-            if abs(total_cost - self.campaign.budget_total) > Decimal('0.01'):
-                errors.append(
-                    f"Sum of line item costs ({total_cost}) does not match "
-                    f"campaign budget_total ({self.campaign.budget_total})"
-                )
+            # Budget matching validation removed - it's valid to have unallocated/over-allocated budget
 
-        # NEW v2.0 VALIDATION: Dictionary consistency
+        # INFORMATIONAL: Dictionary consistency check
+        # Log warnings but don't block creation
         if self.dictionary:
             # Validate that enabled custom fields in dictionary have corresponding data in line items
             enabled_fields = self.dictionary.get_enabled_fields()
@@ -270,10 +265,10 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
                         if field_value is not None and str(field_value).strip():
                             unused_fields.discard(field_name)
 
-                # Issue warnings for enabled fields that aren't used
+                # Log informational warnings for enabled fields that aren't used
                 for unused_field in unused_fields:
-                    errors.append(
-                        f"Warning: Custom field '{unused_field}' is enabled in dictionary "
+                    logger.info(
+                        f"Custom field '{unused_field}' is enabled in dictionary "
                         f"but not used in any line items"
                     )
 
@@ -359,7 +354,7 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
 
                     # Generate ID if not provided
                     if 'id' not in line_item_data or not line_item_data['id']:
-                        line_item_data['id'] = f"li_{uuid.uuid4().hex[:8]}"
+                        line_item_data['id'] = f"pli_{uuid.uuid4().hex[:8]}"
 
                     # Inherit start date from campaign if not provided
                     if 'start_date' not in line_item_data or not line_item_data['start_date']:
@@ -395,7 +390,7 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
 
                     # Generate ID if missing
                     if not processed_item.id:
-                        processed_item.id = f"li_{uuid.uuid4().hex[:8]}"
+                        processed_item.id = f"pli_{uuid.uuid4().hex[:8]}"
 
                 # Validate the individual item if requested
                 if validate:
@@ -1166,6 +1161,20 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
                     # For v1.0 compatibility, ensure budget is renamed to cost_total
                     if "budget" in item_data and "cost_total" not in item_data:
                         item_data["cost_total"] = item_data.pop("budget")
+
+                    # Auto-generate ID if not provided (consistent with create_lineitem())
+                    if 'id' not in item_data or not item_data['id']:
+                        item_data['id'] = f"pli_{uuid.uuid4().hex[:8]}"
+
+                    # Inherit dates from campaign if not provided (consistent with create_lineitem())
+                    if 'start_date' not in item_data or not item_data['start_date']:
+                        item_data['start_date'] = campaign_start_date
+                    if 'end_date' not in item_data or not item_data['end_date']:
+                        item_data['end_date'] = campaign_end_date
+
+                    # Set default cost_total if not provided (consistent with create_lineitem())
+                    if 'cost_total' not in item_data or item_data['cost_total'] is None:
+                        item_data['cost_total'] = Decimal('0')
 
                     # Ensure line item has a name
                     if "name" not in item_data:

@@ -110,7 +110,7 @@ def create_minimal_hello_world_plan():
         - Schema version 3.0 enforcement
         - Required meta fields (id, name, created_by)
         - Required campaign fields (name, budget)
-        - Required lineitem fields (name, channel, placement)
+        - Required lineitem fields (name, channel, adformat)
         - Basic save operation
 
     Returns:
@@ -159,8 +159,6 @@ def create_minimal_hello_world_plan():
         lineitems=[
             {
                 "name": "Line Item 1",
-                "channel": "Digital",
-                "placement": "Banner Ad",
                 "cost_total": Decimal("5000.00")
             }
         ]
@@ -172,17 +170,30 @@ def create_minimal_hello_world_plan():
     print(f"  - Name: {plan.meta.name}")
     print(f"  - Schema version: {plan.meta.schema_version}")
     print(f"  - Campaign: {plan.campaign.name}")
-    print(f"  - Budget: ${plan.campaign.budget:,.2f}")
+    print(f"  - Budget: ${plan.campaign.budget_total:,.2f}")
     print(f"  - Line items: {len(plan.lineitems)}")
 
     # Save the media plan
     print(f"\nSaving media plan to workspace...")
-    plan.save(manager)
+    saved_path = plan.save(manager)
 
     print(f"\n✓ Media plan saved successfully")
     print(f"\nSaved to:")
+    print(f"  - Primary file (JSON): {saved_path}")
+    print(f"  - Analytics file (Parquet): {saved_path.replace('.json', '.parquet')}")
+
+    # Check if database is enabled
+    db_enabled = manager.config.get('database', {}).get('enabled', False)
+    if db_enabled:
+        db_table = manager.config['database'].get('table_name', 'media_plans')
+        print(f"  - Database: Inserted into table '{db_table}'")
+    else:
+        print(f"  - Database: Not configured (file-based storage only)")
+
+    print(f"\nStorage Details:")
     print(f"  - Workspace: {workspace_id}")
     print(f"  - Media plan ID: {plan.meta.id}")
+    print(f"  - Format: JSON (human-readable) + Parquet (analytics-optimized)")
 
     print(f"\nNext Steps:")
     print(f"  1. Run examples_load_mediaplan.py to load this plan")
@@ -199,11 +210,11 @@ def create_complex_plan_with_loops():
     Use Case:
         Demonstrates how to efficiently create media plans with many line items
         using loops and list comprehensions.Useful for large campaigns with
-        repeated structures (e.g., multiple placements across channels).
+        repeated structures (e.g., multiple ad formats across channels).
 
     v3.0 Features:
         - Programmatic line item generation
-        - Multiple channels and placements
+        - Multiple channels and ad formats
         - Date ranges and budget allocation
         - Cost calculations across line items
 
@@ -237,28 +248,28 @@ def create_complex_plan_with_loops():
     print(f"✓ Workspace loaded")
     print(f"\nCreating complex media plan with multiple line items...")
 
-    # Define channels and placements to generate line items for
-    channels_placements = [
-        {"channel": "Digital", "placements": ["Banner", "Video", "Native"]},
-        {"channel": "Social", "placements": ["Feed", "Stories", "Reels"]},
-        {"channel": "Search", "placements": ["Brand", "Generic", "Product"]},
-        {"channel": "Display", "placements": ["Programmatic", "Direct", "Retargeting"]}
+    # Define channels and ad formats to generate line items for
+    channels_adformats = [
+        {"channel": "Digital", "adformats": ["Banner", "Video", "Native"]},
+        {"channel": "Social", "adformats": ["Feed", "Stories", "Reels"]},
+        {"channel": "Search", "adformats": ["Brand", "Generic", "Product"]},
+        {"channel": "Display", "adformats": ["Programmatic", "Direct", "Retargeting"]}
     ]
 
     # Generate line items programmatically
     lineitems = []
     total_budget = Decimal("100000.00")
-    num_items = sum(len(cp["placements"]) for cp in channels_placements)
+    num_items = sum(len(cp["adformats"]) for cp in channels_adformats)
     budget_per_item = total_budget / num_items
 
     item_counter = 1
-    for channel_config in channels_placements:
+    for channel_config in channels_adformats:
         channel = channel_config["channel"]
-        for placement in channel_config["placements"]:
+        for adformat in channel_config["adformats"]:
             lineitems.append({
-                "name": f"{channel} - {placement}",
+                "name": f"{channel} - {adformat}",
                 "channel": channel,
-                "placement": placement,
+                "adformat": adformat,
                 "cost_total": budget_per_item,
                 "metric_impressions": 100000 * item_counter,
                 "metric_clicks": 2000 * item_counter,
@@ -295,7 +306,7 @@ def create_complex_plan_with_loops():
 
     # Show line item breakdown by channel
     print(f"\nLine Items by Channel:")
-    for channel_config in channels_placements:
+    for channel_config in channels_adformats:
         channel = channel_config["channel"]
         channel_items = [li for li in plan.lineitems if li.channel == channel]
         channel_cost = sum(li.cost_total for li in channel_items)
@@ -303,9 +314,19 @@ def create_complex_plan_with_loops():
 
     # Save the media plan
     print(f"\nSaving media plan to workspace...")
-    plan.save(manager)
+    saved_path = plan.save(manager)
 
     print(f"\n✓ Media plan saved successfully")
+    print(f"\nSaved to:")
+    print(f"  - Primary file (JSON): {saved_path}")
+    print(f"  - Analytics file (Parquet): {saved_path.replace('.json', '.parquet')}")
+
+    # Check if database is enabled
+    db_enabled = manager.config.get('database', {}).get('enabled', False)
+    if db_enabled:
+        db_table = manager.config['database'].get('table_name', 'media_plans')
+        print(f"  - Database: Inserted into table '{db_table}'")
+
     print(f"\nNext Steps:")
     print(f"  1. Run examples_list_objects.py to query line items")
     print(f"  2. Run examples_sql_queries.py for channel analysis")
@@ -376,9 +397,6 @@ def create_advanced_plan_with_v3_features():
             "demo_gender": "Any",
             "demo_attributes": "Income: $75k+, Education: College+, Urban",
             "interest_attributes": "Technology, Innovation, Startups, AI, Cloud Computing",
-            "intent_attributes": "High purchase intent for tech products",
-            "purchase_attributes": "Previous purchases in electronics category",
-            "content_attributes": "Engages with tech news, podcasts, and reviews",
             "extension_approach": "lookalike",
             "population_size": 2500000
         },
@@ -389,10 +407,6 @@ def create_advanced_plan_with_v3_features():
             "demo_age_end": 65,
             "demo_gender": "Any",
             "demo_attributes": "Income: $150k+, Job Title: C-Level, VP, Director",
-            "interest_attributes": "Business Strategy, Leadership, Finance, Management",
-            "intent_attributes": "B2B software and services purchase intent",
-            "purchase_attributes": "Enterprise software buyers",
-            "content_attributes": "Reads business publications, attends conferences",
             "population_size": 800000
         }
     ]
@@ -401,7 +415,7 @@ def create_advanced_plan_with_v3_features():
     target_locations = [
         {
             "name": "Major US Metro Areas",
-            "description": "Top 10 US metropolitan markets",
+            "description": "Top 5 US metropolitan markets",
             "location_type": "DMA",
             "location_list": ["New York", "Los Angeles", "Chicago", "San Francisco", "Boston"],
             "population_percent": 0.35  # 35% of total audience
@@ -409,7 +423,7 @@ def create_advanced_plan_with_v3_features():
         {
             "name": "Tech Hub Cities",
             "description": "Cities with high concentration of tech companies",
-            "location_type": "City",
+            "location_type": "DMA",
             "location_list": ["Seattle", "Austin", "Denver", "Portland"],
             "exclusion_list": ["Rural areas"],
             "population_percent": 0.15  # 15% of total audience
@@ -421,7 +435,7 @@ def create_advanced_plan_with_v3_features():
             "location_list": ["United States"],
             "exclusion_type": "State",
             "exclusion_list": ["Alaska", "Hawaii"],  # Example exclusions
-            "population_percent": 0.50  # 50% of total audience
+            "population_percent": 0.95  # 50% of total audience
         }
     ]
 
@@ -430,7 +444,7 @@ def create_advanced_plan_with_v3_features():
         {
             "name": "Digital Display - Programmatic",
             "channel": "Digital",
-            "placement": "Programmatic Display",
+            "adformat": "Programmatic Display",
             "start_date": "2025-01-01",
             "end_date": "2025-03-31",
 
@@ -441,7 +455,6 @@ def create_advanced_plan_with_v3_features():
             "cost_currency": "USD",
             "cost_currency_exchange_rate": Decimal("1.0"),
             "cost_custom1": Decimal("2500.00"),  # Example: Agency fees
-            "cost_custom2": Decimal("1000.00"),  # Example: Creative costs
 
             # Metrics (v3.0 enhancements)
             "metric_impressions": 5000000,
@@ -449,9 +462,8 @@ def create_advanced_plan_with_v3_features():
             "metric_reach": 2000000,
             "metric_view_starts": 3000000,
             "metric_view_completions": 2400000,
-            "metric_engagement": 150000,
+            "metric_engagements": 150000,
             "metric_custom1": 85000,  # Example: Video views at 50%
-            "metric_custom2": 65000,  # Example: Video views at 75%
 
             # Buy information (v3.0)
             "buy_type": "Programmatic",
@@ -459,30 +471,13 @@ def create_advanced_plan_with_v3_features():
 
             # Custom dimensions (v3.0)
             "dim_custom1": "Audience: Tech Millennials",
-            "dim_custom2": "Format: Rich Media",
-            "dim_custom3": "Device: Desktop + Mobile",
 
             # Metric formulas (v3.0) - will be added after line item creation
             "metric_formulas": {
-                "cpm": {
-                    "formula_type": "cost_per_unit",
+                "metric_clicks": {
+                    "formula_type": "conversion_rate",
                     "base_metric": "metric_impressions",
-                    "coefficient": 1000.0,
-                    "comments": "Cost per thousand impressions"
-                },
-                "ctr": {
-                    "formula_type": "rate",
-                    "base_metric": "metric_clicks",
-                    "parameter1": "metric_impressions",
-                    "coefficient": 100.0,
-                    "comments": "Click-through rate as percentage"
-                },
-                "vcr": {
-                    "formula_type": "rate",
-                    "base_metric": "metric_view_completions",
-                    "parameter1": "metric_view_starts",
-                    "coefficient": 100.0,
-                    "comments": "Video completion rate"
+                    "coefficient": 0.01
                 }
             },
 
@@ -497,7 +492,7 @@ def create_advanced_plan_with_v3_features():
         {
             "name": "Social Media - Feed Ads",
             "channel": "Social",
-            "placement": "Feed Ads",
+            "adformat": "Feed Ads",
             "start_date": "2025-01-01",
             "end_date": "2025-03-31",
 
@@ -510,7 +505,7 @@ def create_advanced_plan_with_v3_features():
             "metric_impressions": 8000000,
             "metric_clicks": 160000,
             "metric_reach": 3000000,
-            "metric_engagement": 400000,
+            "metric_engagements": 400000,
 
             # Buy information
             "buy_type": "Direct",
@@ -518,21 +513,13 @@ def create_advanced_plan_with_v3_features():
 
             # Custom dimensions
             "dim_custom1": "Audience: Business Leaders",
-            "dim_custom2": "Format: Single Image",
 
             # Metric formulas
             "metric_formulas": {
-                "cpm": {
-                    "formula_type": "cost_per_unit",
+                "metric_clicks": {
+                    "formula_type": "conversion_rate",
                     "base_metric": "metric_impressions",
-                    "coefficient": 1000.0
-                },
-                "engagement_rate": {
-                    "formula_type": "rate",
-                    "base_metric": "metric_engagement",
-                    "parameter1": "metric_impressions",
-                    "coefficient": 100.0,
-                    "comments": "Engagement rate as percentage"
+                    "coefficient": 0.01
                 }
             },
 
@@ -547,36 +534,49 @@ def create_advanced_plan_with_v3_features():
 
     # === DICTIONARY (v3.0 Configuration Feature) ===
     dictionary = {
-        # Custom dimension captions
+        # Custom dimension configurations (must include status and caption)
         "lineitem_custom_dimensions": {
-            "dim_custom1": "Audience Segment",
-            "dim_custom2": "Creative Format",
-            "dim_custom3": "Device Targeting"
+            "dim_custom1": {
+                "status": "enabled",
+                "caption": "Audience Segment"
+            }
         },
         "campaign_custom_dimensions": {
-            "dim_custom1": "Campaign Type",
-            "dim_custom2": "Region Focus",
-            "dim_custom3": "Strategic Priority"
+            "dim_custom1": {
+                "status": "enabled",
+                "caption": "Campaign Type"
+            }
         },
         "meta_custom_dimensions": {
-            "dim_custom1": "Business Unit",
-            "dim_custom2": "Product Line",
-            "dim_custom3": "Market Segment"
+            "dim_custom1": {
+                "status": "enabled",
+                "caption": "Business Unit"
+            }
         },
 
-        # Custom cost captions
-        "lineitem_custom_costs": {
-            "cost_custom1": "Agency Fees",
-            "cost_custom2": "Creative Production",
-            "cost_custom3": "Third-party Verification",
-            "cost_custom4": "Data Costs"
+        # Custom cost configurations (must include status and caption)
+        "custom_costs": {
+            "cost_custom1": {
+                "status": "enabled",
+                "caption": "Agency Fees"
+            }
         },
 
-        # Custom metric captions
-        "lineitem_custom_metrics": {
-            "metric_custom1": "Video 50% Views",
-            "metric_custom2": "Video 75% Views",
-            "metric_custom3": "Scroll Depth"
+        # Custom metric configurations (must include status and caption)
+        "custom_metrics": {
+            "metric_custom1": {
+                "status": "enabled",
+                "caption": "Video 50% Views"
+            }
+        },
+
+        # Standard metrics with formulas
+        # Define which standard metrics use formulas and their calculation method
+        "standard_metrics": {
+            "metric_clicks": {
+                "formula_type": "conversion_rate",
+                "base_metric": "metric_impressions"
+            }
         }
     }
 
@@ -606,24 +606,11 @@ def create_advanced_plan_with_v3_features():
         # v3.0 KPIs (Campaign level)
         kpi_name1="CTR",
         kpi_value1=Decimal("2.5"),
-        kpi_name2="Reach",
-        kpi_value2=Decimal("5000000"),
-        kpi_name3="Engagement Rate",
-        kpi_value3=Decimal("5.0"),
-        kpi_name4="Video Completion Rate",
-        kpi_value4=Decimal("80.0"),
-        kpi_name5="Cost per Engagement",
-        kpi_value5=Decimal("0.15"),
 
         # v3.0 CUSTOM DIMENSIONS (use prefixes for disambiguation)
         meta_dim_custom1="Business Unit: Enterprise Sales",
-        meta_dim_custom2="Product Line: Cloud Platform",
-        meta_dim_custom3="Market Segment: Technology",
-        meta_dim_custom4="Fiscal Quarter: Q1 2025",
 
         campaign_dim_custom1="Campaign Type: Brand Awareness + Lead Gen",
-        campaign_dim_custom2="Region Focus: North America",
-        campaign_dim_custom3="Strategic Priority: Product Launch",
 
         # v3.0 CUSTOM PROPERTIES (use prefixes)
         meta_custom_properties={
@@ -662,14 +649,11 @@ def create_advanced_plan_with_v3_features():
     for loc in plan.campaign.target_locations:
         print(f"    * {loc.name} ({loc.location_type}, {loc.population_percent*100:.0f}% of audience)")
 
-    print(f"  - KPIs Defined: 5")
+    print(f"  - KPIs Defined:")
     print(f"    * {plan.campaign.kpi_name1}: {plan.campaign.kpi_value1}")
-    print(f"    * {plan.campaign.kpi_name2}: {plan.campaign.kpi_value2:,}")
-    print(f"    * {plan.campaign.kpi_name3}: {plan.campaign.kpi_value3}")
 
     print(f"  - Custom Dimensions (Meta): {len([d for d in [plan.meta.dim_custom1, plan.meta.dim_custom2, plan.meta.dim_custom3, plan.meta.dim_custom4] if d])}")
     print(f"    * {plan.meta.dim_custom1}")
-    print(f"    * {plan.meta.dim_custom2}")
 
     print(f"  - Custom Dimensions (Campaign): {len([d for d in [plan.campaign.dim_custom1, plan.campaign.dim_custom2, plan.campaign.dim_custom3] if d])}")
     print(f"    * {plan.campaign.dim_custom1}")
@@ -683,9 +667,20 @@ def create_advanced_plan_with_v3_features():
 
     # Save the media plan
     print(f"\nSaving media plan to workspace...")
-    plan.save(manager)
+    saved_path = plan.save(manager)
 
     print(f"\n✓ Media plan saved successfully")
+    print(f"\nSaved to:")
+    print(f"  - Primary file (JSON): {saved_path}")
+    print(f"  - Analytics file (Parquet): {saved_path.replace('.json', '.parquet')}")
+
+    # Check if database is enabled in workspace configuration
+    db_enabled = manager.config.get('database', {}).get('enabled', False)
+    if db_enabled:
+        db_table = manager.config['database'].get('table_name', 'media_plans')
+        print(f"  - Database: Inserted into table '{db_table}'")
+    else:
+        print(f"  - Database: Not configured (file-based storage only)")
     print(f"\nNext Steps:")
     print(f"  1. Run examples_load_mediaplan.py to inspect all v3.0 fields")
     print(f"  2. Run examples_edit_mediaplan.py to modify arrays and objects")
