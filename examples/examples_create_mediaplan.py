@@ -82,23 +82,48 @@ def get_configuration_value(config_name, prompt_message, example_value):
     print(f"Example: {example_value}")
     print(f"\nOptions:")
     print(f"  1. Enter the value now (paste from examples_create_workspace.py output)")
-    print(f"  2. Type 'skip' to skip this example")
+    print(f"  2. Type 'skip' to skip all examples")
     print(f"  3. Update the constant at the top of this file and re-run")
 
     user_input = input(f"\n{prompt_message}: ").strip()
 
     if user_input.lower() == 'skip':
-        print("Skipping this example.")
+        print("Skipping all examples.")
         return None
 
     if user_input:
         return user_input
     else:
-        print("No value provided. Skipping this example.")
+        print("No value provided. Skipping all examples.")
         return None
 
 
-def create_minimal_hello_world_plan():
+def load_workspace():
+    """
+    Load workspace once for use across all examples.
+
+    Returns:
+        WorkspaceManager instance or None if user skips
+    """
+    # Get workspace ID (prompt once)
+    workspace_id = get_configuration_value(
+        'WORKSPACE_ID',
+        'Enter workspace ID',
+        'workspace_abc12345'
+    )
+
+    if workspace_id is None:
+        return None
+
+    print(f"\nLoading workspace: {workspace_id}")
+    manager = WorkspaceManager()
+    manager.load(workspace_id=workspace_id)
+    print(f"✓ Workspace loaded successfully")
+
+    return manager
+
+
+def create_minimal_hello_world_plan(manager):
     """
     Create the simplest possible v3.0 media plan with only required fields.
 
@@ -113,8 +138,11 @@ def create_minimal_hello_world_plan():
         - Required lineitem fields (name, channel, adformat)
         - Basic save operation
 
+    Args:
+        manager: Loaded WorkspaceManager instance
+
     Returns:
-        MediaPlan object or None if workspace not configured
+        MediaPlan object
 
     Next Steps:
         - Load the created plan (examples_load_mediaplan.py)
@@ -124,23 +152,6 @@ def create_minimal_hello_world_plan():
     print("\n" + "="*60)
     print("Creating Minimal Hello World Media Plan")
     print("="*60)
-
-    # Get workspace configuration
-    workspace_id = get_configuration_value(
-        'WORKSPACE_ID',
-        'Enter workspace ID',
-        'workspace_abc12345'
-    )
-
-    if workspace_id is None:
-        return None
-
-    # Load workspace
-    print(f"\nLoading workspace: {workspace_id}")
-    manager = WorkspaceManager()
-    manager.load(workspace_id=workspace_id)
-
-    print(f"✓ Workspace loaded")
     print(f"\nCreating minimal media plan...")
 
     # Create the simplest possible media plan
@@ -191,7 +202,7 @@ def create_minimal_hello_world_plan():
         print(f"  - Database: Not configured (file-based storage only)")
 
     print(f"\nStorage Details:")
-    print(f"  - Workspace: {workspace_id}")
+    print(f"  - Workspace: {manager.config.get('workspace_id', 'N/A')}")
     print(f"  - Media plan ID: {plan.meta.id}")
     print(f"  - Format: JSON (human-readable) + Parquet (analytics-optimized)")
 
@@ -203,7 +214,7 @@ def create_minimal_hello_world_plan():
     return plan
 
 
-def create_complex_plan_with_loops():
+def create_complex_plan_with_loops(manager):
     """
     Create a complex media plan with multiple line items generated programmatically.
 
@@ -218,8 +229,11 @@ def create_complex_plan_with_loops():
         - Date ranges and budget allocation
         - Cost calculations across line items
 
+    Args:
+        manager: Loaded WorkspaceManager instance
+
     Returns:
-        MediaPlan object or None if workspace not configured
+        MediaPlan object
 
     Next Steps:
         - Query line items by channel (examples_list_objects.py)
@@ -229,23 +243,6 @@ def create_complex_plan_with_loops():
     print("\n" + "="*60)
     print("Creating Complex Media Plan with Loops")
     print("="*60)
-
-    # Get workspace configuration
-    workspace_id = get_configuration_value(
-        'WORKSPACE_ID',
-        'Enter workspace ID',
-        'workspace_abc12345'
-    )
-
-    if workspace_id is None:
-        return None
-
-    # Load workspace
-    print(f"\nLoading workspace: {workspace_id}")
-    manager = WorkspaceManager()
-    manager.load(workspace_id=workspace_id)
-
-    print(f"✓ Workspace loaded")
     print(f"\nCreating complex media plan with multiple line items...")
 
     # Define channels and ad formats to generate line items for
@@ -335,7 +332,7 @@ def create_complex_plan_with_loops():
     return plan
 
 
-def create_advanced_plan_with_v3_features():
+def create_advanced_plan_with_v3_features(manager):
     """
     Create an advanced media plan showcasing ALL v3.0 features.
 
@@ -357,8 +354,11 @@ def create_advanced_plan_with_v3_features():
         - Custom costs (cost_custom1-10) and custom metrics (metric_custom1-10)
         - Buy information (buy_type, buy_commitment)
 
+    Args:
+        manager: Loaded WorkspaceManager instance
+
     Returns:
-        MediaPlan object or None if workspace not configured
+        MediaPlan object
 
     Next Steps:
         - Inspect all v3.0 fields (examples_load_mediaplan.py)
@@ -368,23 +368,6 @@ def create_advanced_plan_with_v3_features():
     print("\n" + "="*60)
     print("Creating Advanced Media Plan with ALL v3.0 Features")
     print("="*60)
-
-    # Get workspace configuration
-    workspace_id = get_configuration_value(
-        'WORKSPACE_ID',
-        'Enter workspace ID',
-        'workspace_abc12345'
-    )
-
-    if workspace_id is None:
-        return None
-
-    # Load workspace
-    print(f"\nLoading workspace: {workspace_id}")
-    manager = WorkspaceManager()
-    manager.load(workspace_id=workspace_id)
-
-    print(f"✓ Workspace loaded")
     print(f"\nCreating advanced media plan with all v3.0 features...")
 
     # === TARGET AUDIENCES (v3.0 Array Feature) ===
@@ -695,35 +678,37 @@ if __name__ == "__main__":
     print("MediaPlanPy v3.0 - Media Plan Creation Examples")
     print("="*60)
 
+    # Load workspace once for all examples
+    manager = load_workspace()
+
+    if manager is None:
+        print("\nNo workspace loaded. Exiting.")
+        exit(0)
+
     print("\n=== Example 1: Create Minimal Hello World Plan ===")
-    plan1 = create_minimal_hello_world_plan()
+    plan1 = create_minimal_hello_world_plan(manager)
 
     print("\n=== Example 2: Create Complex Plan with Loops ===")
-    plan2 = create_complex_plan_with_loops()
+    plan2 = create_complex_plan_with_loops(manager)
 
     print("\n=== Example 3: Create Advanced Plan with ALL v3.0 Features ===")
-    plan3 = create_advanced_plan_with_v3_features()
+    plan3 = create_advanced_plan_with_v3_features(manager)
 
     print("\n" + "="*60)
     print("Media Plan Creation Examples Completed!")
     print("="*60)
 
-    created_plans = []
-    if plan1:
-        created_plans.append(f"1. Minimal: {plan1.meta.name} ({plan1.meta.id}) - {len(plan1.lineitems)} line items")
-    if plan2:
-        created_plans.append(f"2. Complex: {plan2.meta.name} ({plan2.meta.id}) - {len(plan2.lineitems)} line items")
-    if plan3:
-        created_plans.append(f"3. Advanced: {plan3.meta.name} ({plan3.meta.id}) - Full v3.0 features")
+    created_plans = [
+        f"1. Minimal: {plan1.meta.name} ({plan1.meta.id}) - {len(plan1.lineitems)} line items",
+        f"2. Complex: {plan2.meta.name} ({plan2.meta.id}) - {len(plan2.lineitems)} line items",
+        f"3. Advanced: {plan3.meta.name} ({plan3.meta.id}) - Full v3.0 features"
+    ]
 
-    if created_plans:
-        print(f"\nCreated media plans:")
-        for plan_info in created_plans:
-            print(f"  {plan_info}")
-        print(f"\nTotal plans created: {len(created_plans)}")
-    else:
-        print(f"\nNo plans created - configuration required")
-        print(f"Update WORKSPACE_ID at top of file or provide when prompted")
+    print(f"\nCreated media plans:")
+    for plan_info in created_plans:
+        print(f"  {plan_info}")
+
+    print(f"\nTotal plans created: {len(created_plans)}")
 
     print(f"\nNext Steps:")
     print(f"  - Run examples_load_mediaplan.py to load and inspect these plans")
