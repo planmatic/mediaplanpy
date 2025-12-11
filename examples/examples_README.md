@@ -10,7 +10,7 @@ Welcome to the MediaPlanPy v3.0 examples! These scripts demonstrate how to use t
 For installation instructions, please refer to **GET_STARTED.md** in the root directory.
 
 ### Optional for Specific Examples
-- **AWS credentials:** For S3 storage backend examples (examples_create_workspace.py)
+- **AWS credentials:** For S3 storage backend examples (examples_01_create_workspace.py)
 - **PostgreSQL:** For database integration (optional - database features are transparent to SDK usage)
 
 ---
@@ -21,13 +21,13 @@ Get started with MediaPlanPy in 3 simple steps:
 
 ### 1. Create a Workspace
 ```bash
-python examples_create_workspace.py
+python examples_01_create_workspace.py
 ```
 Creates a workspace configuration for storing media plans.
 
 ### 2. Create Your First Media Plan
 ```bash
-python examples_create_mediaplan.py
+python examples_03_create_mediaplan.py
 ```
 Demonstrates creating media plans from minimal to advanced with all v3.0 features.
 
@@ -42,16 +42,16 @@ All examples are located in the `/examples` directory. Run them in any order bas
 
 | # | File | Purpose | Key v3.0 Features |
 |---|------|---------|-------------------|
-| 1 | `examples_create_workspace.py` | Create workspace configurations | Workspace versioning, local & S3 storage, schema v3.0 enforcement |
-| 2 | `examples_load_workspace.py` | Load workspaces three ways | Load by ID, by path, by dictionary; version validation |
-| 3 | `examples_create_mediaplan.py` | Create media plans (minimal → advanced) | target_audiences, target_locations, metric_formulas, KPIs, custom dimensions, Dictionary |
-| 4 | `examples_load_mediaplan.py` | Load and inspect media plans | Access nested arrays, MetricFormula objects, all v3.0 fields |
-| 5 | `examples_edit_mediaplan.py` | Edit media plans and manage versions | Array modifications, save options (overwrite, set_as_current), version management |
-| 6 | `examples_export_mediaplan.py` | Export to JSON and Excel | v3.0 structure serialization, arrays & nested objects |
-| 7 | `examples_import_mediaplan.py` | Import from JSON and Excel | Automatic schema detection, object reconstruction, data integrity checks |
-| 8 | `examples_list_objects.py` | Query workspace contents | List campaigns/plans/lineitems, DataFrame output, filters on v3.0 fields |
-| 9 | `examples_sql_queries.py` | Run SQL queries on media plans | DuckDB queries, v3.0 columns, multi-dimensional analysis |
-| 10 | `examples_manage_mediaplan.py` | Lifecycle management | Delete (with dry_run), archive, restore, version management, parent_id tracking |
+| 1 | `examples_01_create_workspace.py` | Create workspace configurations | Workspace versioning, local & S3 storage, schema v3.0 enforcement |
+| 2 | `examples_02_load_workspace.py` | Load workspaces three ways | Load by ID, by path, by dictionary; version validation |
+| 3 | `examples_03_create_mediaplan.py` | Create media plans (minimal → advanced) | target_audiences, target_locations, metric_formulas, KPIs, custom dimensions, Dictionary |
+| 4 | `examples_04_load_mediaplan.py` | Load and inspect media plans | Access nested arrays, MetricFormula objects, all v3.0 fields |
+| 5 | `examples_05_edit_mediaplan.py` | Edit media plans and manage versions | Array modifications, save options (overwrite, set_as_current), version management |
+| 6 | `examples_06_export_mediaplan.py` | Export to JSON and Excel | v3.0 structure serialization, arrays & nested objects |
+| 7 | `examples_07_import_mediaplan.py` | Import from JSON and Excel | Automatic schema detection, object reconstruction, data integrity checks |
+| 8 | `examples_08_list_objects.py` | Query workspace contents | List campaigns/plans/lineitems, DataFrame output, filters on v3.0 fields |
+| 9 | `examples_09_sql_queries.py` | Run SQL queries on media plans | DuckDB queries, v3.0 columns, multi-dimensional analysis |
+| 10 | `examples_10_manage_mediaplan.py` | Lifecycle management | Delete (with dry_run), archive, restore, version management, parent_id tracking |
 
 ---
 
@@ -113,7 +113,7 @@ metric_formulas = {
 
 **Example - Running a single function:**
 ```python
-# In examples_create_mediaplan.py
+# In examples_03_create_mediaplan.py
 if __name__ == "__main__":
     # Run just the minimal example
     plan = create_minimal_hello_world_plan()
@@ -126,12 +126,12 @@ if __name__ == "__main__":
 cd /path/to/mediaplanpy
 
 # Run any example
-python examples/examples_create_workspace.py
-python examples/examples_create_mediaplan.py
-python examples/examples_list_objects.py
+python examples/examples_01_create_workspace.py
+python examples/examples_03_create_mediaplan.py
+python examples/examples_08_list_objects.py
 
 # Run with specific Python version
-python3.10 examples/examples_create_mediaplan.py
+python3.10 examples/examples_03_create_mediaplan.py
 ```
 
 ### Expected Output
@@ -225,34 +225,34 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 
 ### For Beginners - Start Here
 
-1. **examples_create_workspace.py** - Understand workspace setup
-2. **examples_create_mediaplan.py** - Focus on `create_minimal_hello_world_plan()`
-3. **examples_load_mediaplan.py** - Learn to inspect media plans
-4. **examples_export_mediaplan.py** - Export to JSON
-5. **examples_list_objects.py** - Query your workspace
+1. **examples_01_create_workspace.py** - Understand workspace setup
+2. **examples_03_create_mediaplan.py** - Focus on `create_minimal_hello_world_plan()`
+3. **examples_04_load_mediaplan.py** - Learn to inspect media plans
+4. **examples_06_export_mediaplan.py** - Export to JSON
+5. **examples_08_list_objects.py** - Query your workspace
 
 ### For Advanced Users
 
-1. **examples_create_mediaplan.py** - Run `create_advanced_plan_with_v3_features()`
-2. **examples_edit_mediaplan.py** - Master version management with `save_with_versioning_options()`
-3. **examples_sql_queries.py** - Run complex analytics queries
-4. **examples_manage_mediaplan.py** - Lifecycle management
+1. **examples_03_create_mediaplan.py** - Run `create_advanced_plan_with_v3_features()`
+2. **examples_05_edit_mediaplan.py** - Master version management with `save_with_versioning_options()`
+3. **examples_09_sql_queries.py** - Run complex analytics queries
+4. **examples_10_manage_mediaplan.py** - Lifecycle management
 
 ### For Specific Use Cases
 
 **Working with Excel:**
-- `examples_export_mediaplan.py` → `export_to_excel()`
-- `examples_import_mediaplan.py` → `import_from_excel()`
+- `examples_06_export_mediaplan.py` → `export_to_excel()`
+- `examples_07_import_mediaplan.py` → `import_from_excel()`
 
 **S3 Integration:**
-- `examples_create_workspace.py` → `create_custom_workspace_with_s3()`
+- `examples_01_create_workspace.py` → `create_custom_workspace_with_s3()`
 
 **Advanced Queries:**
-- `examples_sql_queries.py` → `complex_sql_query_with_aggregations()`
+- `examples_09_sql_queries.py` → `complex_sql_query_with_aggregations()`
 
 **Version Management:**
-- `examples_edit_mediaplan.py` → `save_with_versioning_options()`
-- `examples_manage_mediaplan.py` → `manage_plan_versions()`
+- `examples_05_edit_mediaplan.py` → `save_with_versioning_options()`
+- `examples_10_manage_mediaplan.py` → `manage_plan_versions()`
 
 ---
 
