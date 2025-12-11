@@ -24,13 +24,15 @@ class Campaign(BaseModel):
     audience, or theme, following the Media Plan Open Data Standard v3.0.
     """
 
-    # Required fields per v3.0 schema (same as v2.0)
+    # Required fields per v3.0 schema
     id: str = Field(..., description="Unique identifier for the campaign")
     name: str = Field(..., description="Name of the campaign")
-    objective: str = Field(..., description="Objective of the campaign")
     start_date: date = Field(..., description="Start date of the campaign")
     end_date: date = Field(..., description="End date of the campaign")
     budget_total: Decimal = Field(..., description="Total budget amount for the campaign")
+
+    # Optional field (not required per v3.0 schema)
+    objective: Optional[str] = Field(None, description="Objective of the campaign")
 
     # Optional fields from v1.0 schema (maintained for backward compatibility)
     product_name: Optional[str] = Field(None, description="Name of the product being advertised")

@@ -36,6 +36,67 @@ from mediaplanpy.workspace import WorkspaceManager
 from mediaplanpy import __schema_version__
 
 
+# ============================================================================
+# USER CONFIGURATION
+# Update these values after running examples_create_workspace.py
+# ============================================================================
+
+# Example 1: Load by Path
+# Copy the "Settings file" path from examples_create_workspace.py output
+WORKSPACE_SETTINGS_PATH = "C:/mediaplanpy/workspace_xxxxxxxx_settings.json"
+
+# Example 2: Load by Workspace ID
+# Copy the "Workspace ID" from examples_create_workspace.py output
+WORKSPACE_ID = "workspace_xxxxxxxx"
+
+# ============================================================================
+
+
+def get_configuration_value(config_name, prompt_message, example_value):
+    """
+    Get configuration value - either from constant or interactive user input.
+
+    Args:
+        config_name: Name of the configuration constant (e.g., 'WORKSPACE_SETTINGS_PATH')
+        prompt_message: Message to show when prompting user
+        example_value: Example value to show user
+
+    Returns:
+        Configuration value or None if user chooses to skip
+    """
+    # Get the current value from constants
+    if config_name == 'WORKSPACE_SETTINGS_PATH':
+        current_value = WORKSPACE_SETTINGS_PATH
+    elif config_name == 'WORKSPACE_ID':
+        current_value = WORKSPACE_ID
+    else:
+        return None
+
+    # If already configured (not a placeholder), return it
+    if "xxxxxxxx" not in current_value:
+        return current_value
+
+    # Prompt user for input
+    print(f"\nConfiguration needed: {config_name}")
+    print(f"Example: {example_value}")
+    print(f"\nOptions:")
+    print(f"  1. Enter the value now (paste from examples_create_workspace.py output)")
+    print(f"  2. Type 'skip' to skip this example")
+    print(f"  3. Update the constant at the top of this file and re-run")
+
+    user_input = input(f"\n{prompt_message}: ").strip()
+
+    if user_input.lower() == 'skip':
+        print("Skipping this example.")
+        return None
+
+    if user_input:
+        return user_input
+    else:
+        print("No value provided. Skipping this example.")
+        return None
+
+
 def load_by_path():
     """
     Load workspace by direct file path.
@@ -51,30 +112,31 @@ def load_by_path():
         - Workspace status check with warning if inactive
 
     Returns:
-        Loaded workspace configuration dictionary
-
-    Next Steps:
-        - Manager is ready for media plan operations
-        - Check manager.is_loaded to verify
-        - Access storage backend via manager.get_storage_backend()
+        Loaded workspace configuration dictionary or None if config not provided
 
     Prerequisites:
         - Run examples_create_workspace.py first to create workspaces
-        - This example assumes workspaces exist in examples/output/workspace_examples/
+        - Either update WORKSPACE_SETTINGS_PATH at top of file, or provide value when prompted
     """
-    # For this example, we'll reference the workspace created in examples_create_workspace.py
-    # In a real scenario, you would have the actual path to your workspace settings file
-    output_dir = Path(__file__).parent / "output" / "workspace_examples"
-    settings_path = output_dir / "production_workspace_settings.json"
-
     print("\n" + "="*60)
     print("Loading Workspace by Path")
     print("="*60)
-    print(f"Settings file: {settings_path}")
 
-    # Now load by direct path - this is the simplest method
+    # Get configuration value (from constant or user input)
+    settings_path = get_configuration_value(
+        'WORKSPACE_SETTINGS_PATH',
+        'Enter workspace settings file path',
+        'C:/mediaplanpy/workspace_abc123_settings.json'
+    )
+
+    if settings_path is None:
+        return None
+
+    print(f"\nAttempting to load: {settings_path}")
+
+    # Load by direct path - this is the simplest method
     manager = WorkspaceManager()
-    config = manager.load(workspace_path=str(settings_path))
+    config = manager.load(workspace_path=settings_path)
 
     print(f"\n✓ Successfully loaded workspace by path")
     print(f"\nWorkspace Details:")
@@ -115,17 +177,11 @@ def load_by_workspace_id():
         - Error with helpful search paths if not found
 
     Returns:
-        Loaded workspace configuration dictionary
-
-    Next Steps:
-        - Use loaded manager to create/load media plans
-        - The manager now knows where to store files
-        - Access configuration via manager.config
+        Loaded workspace configuration dictionary or None if config not provided
 
     Prerequisites:
-        - Run examples_create_workspace.py first to create workspaces in default location
-        - Note the workspace_id printed at the end of that script
-        - Update the workspace_id variable below with your actual workspace ID
+        - Run examples_create_workspace.py first to create workspaces
+        - Either update WORKSPACE_ID at top of file, or provide value when prompted
 
     Note:
         The workspace_id search looks in these locations (in order):
@@ -135,48 +191,41 @@ def load_by_workspace_id():
 
         File names checked: {workspace_id}_settings.json or {workspace_id}.json
     """
-    # UPDATE THIS: Replace with actual workspace_id from examples_create_workspace.py
-    # After running examples_create_workspace.py, copy the workspace_id printed at the end
-    workspace_id = "workspace_xxxxxxxx"  # Replace with actual ID
-
     print("\n" + "="*60)
     print("Loading Workspace by ID")
     print("="*60)
-    print(f"Attempting to load workspace_id: {workspace_id}")
+
+    # Get configuration value (from constant or user input)
+    workspace_id = get_configuration_value(
+        'WORKSPACE_ID',
+        'Enter workspace ID',
+        'workspace_abc12345'
+    )
+
+    if workspace_id is None:
+        return None
+
+    print(f"\nAttempting to load workspace_id: {workspace_id}")
     print(f"Searching in standard locations...")
 
     # Load by workspace_id - this will search in standard locations
     manager = WorkspaceManager()
+    config = manager.load(workspace_id=workspace_id)
 
-    try:
-        config = manager.load(workspace_id=workspace_id)
+    print(f"\n✓ Successfully loaded workspace by ID")
+    print(f"\nWorkspace Details:")
+    print(f"  - Workspace ID: {config['workspace_id']}")
+    print(f"  - Workspace name: {config['workspace_name']}")
+    print(f"  - Schema version: {config['workspace_settings']['schema_version']}")
+    print(f"  - Storage mode: {config['storage']['mode']}")
+    print(f"  - Status: {config['workspace_status']}")
 
-        print(f"\n✓ Successfully loaded workspace by ID")
-        print(f"\nWorkspace Details:")
-        print(f"  - Workspace ID: {config['workspace_id']}")
-        print(f"  - Workspace name: {config['workspace_name']}")
-        print(f"  - Schema version: {config['workspace_settings']['schema_version']}")
-        print(f"  - Storage mode: {config['storage']['mode']}")
-        print(f"  - Status: {config['workspace_status']}")
+    print(f"\nSearch Locations Checked:")
+    print(f"  1. Default directory: C:/mediaplanpy/{workspace_id}_settings.json")
+    print(f"  2. Current directory: ./{workspace_id}_settings.json")
+    print(f"  3. User directories: ~/.mediaplanpy/{workspace_id}_settings.json")
 
-        print(f"\nSearch Locations Checked:")
-        print(f"  1. Default directory: C:/mediaplanpy/{workspace_id}_settings.json")
-        print(f"  2. Current directory: ./{workspace_id}_settings.json")
-        print(f"  3. User directories: ~/.mediaplanpy/{workspace_id}_settings.json")
-
-        return config
-
-    except FileNotFoundError as e:
-        print(f"\n✗ Workspace not found")
-        print(f"\nTo fix this:")
-        print(f"  1. Run examples_create_workspace.py first")
-        print(f"  2. Copy the workspace_id from the output")
-        print(f"  3. Update the workspace_id variable in this function")
-        print(f"\nSearch locations checked:")
-        print(f"  1. C:/mediaplanpy/{workspace_id}_settings.json")
-        print(f"  2. ./{workspace_id}_settings.json")
-        print(f"  3. ~/.mediaplanpy/{workspace_id}_settings.json")
-        raise
+    return config
 
 
 def load_by_dict():
@@ -316,12 +365,7 @@ if __name__ == "__main__":
     config1 = load_by_path()
 
     print("\n=== Example 2: Load by Workspace ID ===")
-    # Note: This will fail unless you update the workspace_id in the function
-    try:
-        config2 = load_by_workspace_id()
-    except FileNotFoundError:
-        print("\nSkipping Example 2 - Update workspace_id in function first")
-        config2 = None
+    config2 = load_by_workspace_id()
 
     print("\n=== Example 3: Load by Dictionary ===")
     config3 = load_by_dict()
@@ -330,11 +374,14 @@ if __name__ == "__main__":
     print("Workspace Loading Examples Completed!")
     print("="*60)
     print(f"\nLoaded workspaces using different methods:")
-    print(f"  1. By path: {config1['workspace_name']}")
+    if config1:
+        print(f"  1. By path: {config1['workspace_name']}")
+    else:
+        print(f"  1. By path: (skipped - configuration required)")
     if config2:
         print(f"  2. By ID: {config2['workspace_name']}")
     else:
-        print(f"  2. By ID: (skipped - needs workspace_id update)")
+        print(f"  2. By ID: (skipped - configuration required)")
     print(f"  3. By dict: {config3['workspace_name']}")
     print(f"\nNext Steps:")
     print(f"  - Run examples_create_mediaplan.py to create media plans")
