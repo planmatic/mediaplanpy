@@ -132,19 +132,19 @@ def create_test_plan(manager):
     print("\nCreating test media plan...")
 
     plan = MediaPlan.create(
-        workspace_manager=manager,
         campaign_name="Management Test Campaign",
         campaign_objective="Test management operations",
         campaign_budget_total=10000.00,
         campaign_start_date="2025-01-01",
-        campaign_end_date="2025-03-31"
+        campaign_end_date="2025-03-31",
+        created_by_name="examples_user"
     )
 
     # Add a line item
-    plan.create_lineitem(
-        channel="Digital",
-        cost_total=10000.00
-    )
+    plan.create_lineitem({
+        "name": "Test Line Item",
+        "cost_total": 10000.00
+    })
 
     # Save the plan
     plan.save(manager)
@@ -427,18 +427,19 @@ def manage_plan_versions(manager):
     print(f"\nCreating initial media plan version...")
 
     plan_v1 = MediaPlan.create(
-        workspace_manager=manager,
         campaign_name="Version Control Campaign",
         campaign_objective="Demonstrate version management",
         campaign_budget_total=50000.00,
         campaign_start_date="2025-01-01",
-        campaign_end_date="2025-06-30"
+        campaign_end_date="2025-06-30",
+        created_by_name="examples_user",
+        media_plan_name="plan_v1"
     )
 
-    plan_v1.create_lineitem(
-        channel="Social Media",
-        cost_total=20000.00
-    )
+    plan_v1.create_lineitem({
+        "name": "Social Media Line Item",
+        "cost_total": 20000.00
+    })
 
     # Save as current version
     plan_v1.save(manager, set_as_current=True)
@@ -459,11 +460,12 @@ def manage_plan_versions(manager):
     print(f"\nModifying plan and saving as new version...")
 
     # Modify the plan
+    plan_v1.meta.name = "plan_v2"
     plan_v1.campaign.budget_total = 60000.00
-    plan_v1.create_lineitem(
-        channel="Search",
-        cost_total=25000.00
-    )
+    plan_v1.create_lineitem({
+        "name": "Search Line Item",
+        "cost_total": 25000.00
+    })
 
     # Save as new version (overwrite=False creates new ID, parent_id links to v1)
     plan_v1.save(manager, overwrite=False, set_as_current=True)
@@ -473,6 +475,7 @@ def manage_plan_versions(manager):
 
     print(f"\n✓ Created Version 2")
     print(f"  - ID: {plan_v2_id}")
+    print(f"  - Name: {plan_v1.meta.name}")
     print(f"  - parent_id: {parent_id} (links to Version 1)")
     print(f"  - is_current: {plan_v1.meta.is_current}")
     print(f"  - Budget: ${plan_v1.campaign.budget_total:,.2f}")
@@ -488,11 +491,12 @@ def manage_plan_versions(manager):
     print(f"\nModifying plan and saving as another new version...")
 
     # Modify the plan
+    plan_v1.meta.name = "plan_v3"
     plan_v1.campaign.budget_total = 75000.00
-    plan_v1.create_lineitem(
-        channel="Display",
-        cost_total=30000.00
-    )
+    plan_v1.create_lineitem({
+        "name": "Display Line Item",
+        "cost_total": 30000.00
+    })
 
     # Save as new version
     plan_v1.save(manager, overwrite=False, set_as_current=True)
@@ -502,6 +506,7 @@ def manage_plan_versions(manager):
 
     print(f"\n✓ Created Version 3")
     print(f"  - ID: {plan_v3_id}")
+    print(f"  - Name: {plan_v1.meta.name}")
     print(f"  - parent_id: {parent_id_v3} (links to Version 2)")
     print(f"  - is_current: {plan_v1.meta.is_current}")
     print(f"  - Budget: ${plan_v1.campaign.budget_total:,.2f}")
@@ -539,7 +544,8 @@ def manage_plan_versions(manager):
         print(f"\nAll Versions:")
         for idx, row in df.iterrows():
             is_current_marker = " ← CURRENT" if row['meta_is_current'] else ""
-            print(f"  {idx + 1}. {row['meta_id']}{is_current_marker}")
+            print(f"  {idx + 1}. {row['meta_name']}{is_current_marker}")
+            print(f"     • ID: {row['meta_id']}")
             print(f"     • Budget: ${row['campaign_budget_total']:,.2f}")
             print(f"     • parent_id: {row['meta_parent_id']}")
             print(f"     • is_current: {row['meta_is_current']}")
@@ -595,7 +601,8 @@ def manage_plan_versions(manager):
         print(f"\nVersions After Switch:")
         for idx, row in df_after.iterrows():
             is_current_marker = " ← CURRENT" if row['meta_is_current'] else ""
-            print(f"  {idx + 1}. {row['meta_id']}{is_current_marker}")
+            print(f"  {idx + 1}. {row['meta_name']}{is_current_marker}")
+            print(f"     • ID: {row['meta_id']}")
             print(f"     • is_current: {row['meta_is_current']}")
 
     # Clean up - delete all versions
