@@ -422,19 +422,19 @@ def edit_complex_plan_with_v3_features(manager, plan):
             li.metric_formulas = {}
 
         # Add a CTR formula
-        li.metric_formulas["CTR"] = MetricFormula(
+        li.metric_formulas["metric_clicks"] = MetricFormula(
             formula_type="conversion_rate",
             base_metric="metric_impressions",
-            parameter1="metric_clicks",
+            coefficient=0.01,
             comments="Click-through rate calculation"
         )
 
-        # Add a CPC formula
-        li.metric_formulas["CPC"] = MetricFormula(
-            formula_type="cost_per_metric",
-            base_metric="metric_clicks",
-            parameter1="cost_total",
-            comments="Cost per click calculation"
+        # Add a CPV formula
+        li.metric_formulas["metric_views"] = MetricFormula(
+            formula_type="cost_per_unit",
+            base_metric="cost_total",
+            parameter1=0.10,
+            comments="Cost per view calculation"
         )
 
         print(f"   - Added formulas: CTR, CPC")
