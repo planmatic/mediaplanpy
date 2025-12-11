@@ -1046,7 +1046,7 @@ DEFAULT_WORKSPACE_DIRECTORY = {
 }
 
 # Schema file paths
-SCHEMA_DEFINITIONS_PATH = "src/mediaplanpy/schema/definitions/"
+SCHEMA_DEFINITIONS_PATH = "../src/mediaplanpy/schema/definitions/"
 SCHEMA_VERSIONS = {
     "1.0": "definitions/1.0/mediaplan.schema.json",
     "2.0": "definitions/2.0/mediaplan.schema.json"

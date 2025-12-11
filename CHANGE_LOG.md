@@ -16,14 +16,12 @@
   - Multi-currency support (cost_currency_exchange_rate)
   - Budget constraints (cost_minimum, cost_maximum)
 
-### Changed
+### Improved
 - **Migration System**
   - v2.0 → v3.0 migration with automatic audience/location name generation
   - Removed v0.0 and v1.0 support (breaking change)
   - Dictionary field renamed: custom_dimensions → lineitem_custom_dimensions
   - Workspace upgrade requires explicit user action (strict version enforcement)
-
-### Improved
 - **Database & Storage**
   - Database schema migration with ALTER TABLE support for existing v2.0 tables
   - Automatic backups created before workspace upgrades
