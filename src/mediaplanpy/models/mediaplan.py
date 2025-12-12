@@ -400,17 +400,24 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
                         validation_errors.extend([f"Item {i}: {error}" for error in item_validation_errors])
                         continue
 
-                    # Validate line item dates against campaign
+                    # Check line item dates against campaign (warnings only)
+                    # Users may have legitimate reasons for dates outside campaign bounds
+                    import warnings
+
                     if processed_item.start_date < self.campaign.start_date:
-                        validation_errors.append(
-                            f"Item {i}: Line item starts before campaign: "
-                            f"{processed_item.start_date} < {self.campaign.start_date}"
+                        warnings.warn(
+                            f"Line item '{processed_item.name}' starts before campaign: "
+                            f"{processed_item.start_date} < {self.campaign.start_date}",
+                            UserWarning,
+                            stacklevel=2
                         )
 
                     if processed_item.end_date > self.campaign.end_date:
-                        validation_errors.append(
-                            f"Item {i}: Line item ends after campaign: "
-                            f"{processed_item.end_date} > {self.campaign.end_date}"
+                        warnings.warn(
+                            f"Line item '{processed_item.name}' ends after campaign: "
+                            f"{processed_item.end_date} > {self.campaign.end_date}",
+                            UserWarning,
+                            stacklevel=2
                         )
 
                 processed_items.append(processed_item)
@@ -487,17 +494,24 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
             if validation_errors:
                 raise ValidationError(f"Invalid line item: {'; '.join(validation_errors)}")
 
-            # Validate line item dates against campaign
+            # Check line item dates against campaign (warnings only)
+            # Users may have legitimate reasons for dates outside campaign bounds
+            import warnings
+
             if line_item.start_date < self.campaign.start_date:
-                raise ValidationError(
-                    f"Line item starts before campaign: "
-                    f"{line_item.start_date} < {self.campaign.start_date}"
+                warnings.warn(
+                    f"Line item '{line_item.name}' starts before campaign: "
+                    f"{line_item.start_date} < {self.campaign.start_date}",
+                    UserWarning,
+                    stacklevel=2
                 )
 
             if line_item.end_date > self.campaign.end_date:
-                raise ValidationError(
-                    f"Line item ends after campaign: "
-                    f"{line_item.end_date} > {self.campaign.end_date}"
+                warnings.warn(
+                    f"Line item '{line_item.name}' ends after campaign: "
+                    f"{line_item.end_date} > {self.campaign.end_date}",
+                    UserWarning,
+                    stacklevel=2
                 )
 
         # Replace the existing line item (only if validation passed)
@@ -544,6 +558,96 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
                 return True
 
         return False
+
+    def copy_lineitem(
+        self,
+        source_id: str,
+        modifications: Optional[Dict[str, Any]] = None,
+        new_name: Optional[str] = None,
+        validate: bool = True
+    ) -> LineItem:
+        """
+        Copy an existing line item with optional modifications.
+
+        Use Case:
+            Duplicate a line item and modify specific fields without manually
+            copying all fields. Useful for creating similar campaigns with
+            different dates, budgets, or targeting.
+
+        Pattern: Load source → deepcopy → modify → create new
+
+        Args:
+            source_id: ID of the line item to copy
+            modifications: Dictionary of fields to modify (optional)
+            new_name: New name for the copied line item (optional, defaults to "Original Name (Copy)")
+            validate: Whether to validate the copied line item (default: True)
+
+        Returns:
+            Newly created LineItem (copy)
+
+        Raises:
+            ValueError: If source line item not found
+            ValidationError: If validation fails
+
+        Example:
+            # Simple copy with new name
+            copied = plan.copy_lineitem("pli_12345", new_name="Q2 Campaign")
+
+            # Copy with multiple modifications
+            copied = plan.copy_lineitem(
+                "pli_12345",
+                modifications={
+                    "name": "Q2 Campaign",
+                    "start_date": date(2025, 4, 1),
+                    "end_date": date(2025, 6, 30),
+                    "cost_total": Decimal("8000")
+                }
+            )
+
+            # Copy and scale down
+            copied = plan.copy_lineitem(
+                "pli_12345",
+                modifications={
+                    "cost_total": source.cost_total * 0.8,
+                    "metric_impressions": source.metric_impressions * 0.8
+                }
+            )
+        """
+        import copy as copy_module
+
+        # Load source line item
+        source_li = self.load_lineitem(source_id)
+        if not source_li:
+            raise ValueError(f"Source line item '{source_id}' not found in media plan")
+
+        # Deep copy to dictionary
+        copied_dict = copy_module.deepcopy(source_li.to_dict())
+
+        # Remove ID (will auto-generate new one)
+        copied_dict.pop('id', None)
+
+        # Set name
+        if new_name:
+            copied_dict['name'] = new_name
+        elif modifications and 'name' in modifications:
+            # Name will be set via modifications
+            pass
+        else:
+            # Default: append " (Copy)"
+            copied_dict['name'] = f"{source_li.name} (Copy)"
+
+        # Apply modifications
+        if modifications:
+            for key, value in modifications.items():
+                # Convert special types to serializable format
+                if isinstance(value, (Decimal, date)):
+                    copied_dict[key] = str(value) if isinstance(value, date) else float(value)
+                else:
+                    copied_dict[key] = value
+
+        # Create the copy
+        # Note: Date validation warnings may be issued if dates extend beyond campaign
+        return self.create_lineitem(copied_dict, validate=validate)
 
     def archive(self, workspace_manager: 'WorkspaceManager') -> None:
         """
@@ -889,78 +993,304 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
         return MediaPlan.from_dict(migrated_data)
 
     # NEW v2.0 METHODS: Dictionary management
+    # ENHANCED v3.0: Added support for standard_metrics and scoped dimensions
 
-    def get_custom_field_config(self, field_name: str) -> Optional[Dict[str, Any]]:
+    def get_custom_field_config(self, field_name: str, scope: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get configuration for a custom field.
 
         Args:
-            field_name: Name of the custom field (e.g., 'dim_custom1')
+            field_name: Name of the custom field (e.g., 'dim_custom1', 'metric_custom1')
+            scope: Optional scope for dimension fields ('meta', 'campaign', 'lineitem')
 
         Returns:
             Dictionary with field configuration or None if not configured.
+
+        Example:
+            # Get lineitem dimension config
+            config = mp.get_custom_field_config("dim_custom1", scope="lineitem")
+            # {'enabled': True, 'caption': 'Brand Category'}
+
+            # Get custom metric config
+            config = mp.get_custom_field_config("metric_custom1")
+            # {'enabled': True, 'caption': 'Brand Lift %', 'formula_type': None, 'base_metric': None}
         """
         if not self.dictionary:
             return None
 
-        if self.dictionary.is_field_enabled(field_name):
+        if self.dictionary.is_field_enabled(field_name, scope=scope):
+            caption = self.dictionary.get_field_caption(field_name, scope=scope)
+
+            # For custom metrics, include formula info if available
+            if field_name in Dictionary.VALID_CUSTOM_METRIC_FIELDS:
+                if self.dictionary.custom_metrics and field_name in self.dictionary.custom_metrics:
+                    config = self.dictionary.custom_metrics[field_name]
+                    return {
+                        "enabled": True,
+                        "caption": caption,
+                        "formula_type": config.formula_type,
+                        "base_metric": config.base_metric
+                    }
+
             return {
                 "enabled": True,
-                "caption": self.dictionary.get_field_caption(field_name)
+                "caption": caption
             }
         return None
 
-    def set_custom_field_config(self, field_name: str, enabled: bool, caption: Optional[str] = None):
+    def set_custom_field_config(
+        self,
+        field_name: str,
+        enabled: bool,
+        caption: Optional[str] = None,
+        scope: Optional[str] = "lineitem",
+        formula_type: Optional[str] = None,
+        base_metric: Optional[str] = None
+    ):
         """
-        Configure a custom field.
+        Configure a custom field (dimensions, costs, or custom metrics).
+
+        ENHANCED v3.0: Now supports scoped dimensions and custom metrics with formulas.
 
         Args:
-            field_name: Name of the custom field (e.g., 'dim_custom1')
+            field_name: Name of the custom field (e.g., 'dim_custom1', 'metric_custom1', 'cost_custom1')
             enabled: Whether the field should be enabled
             caption: Display caption for the field (required if enabled)
+            scope: Scope for dimension fields ('meta', 'campaign', 'lineitem'). Default: 'lineitem'
+            formula_type: Optional formula type for custom metrics (e.g., 'cost_per_unit')
+            base_metric: Optional base metric for custom metrics (e.g., 'cost_total')
 
         Raises:
             ValueError: If field name is invalid or caption is missing for enabled field
+
+        Examples:
+            # Enable lineitem dimension (default scope)
+            mp.set_custom_field_config("dim_custom1", enabled=True, caption="Brand Category")
+
+            # Enable meta dimension
+            mp.set_custom_field_config("dim_custom1", enabled=True, caption="Region", scope="meta")
+
+            # Enable campaign dimension
+            mp.set_custom_field_config("dim_custom2", enabled=True, caption="Segment", scope="campaign")
+
+            # Enable custom metric with formula
+            mp.set_custom_field_config(
+                "metric_custom1",
+                enabled=True,
+                caption="Custom CPM",
+                formula_type="cost_per_unit",
+                base_metric="cost_total"
+            )
+
+            # Enable custom cost
+            mp.set_custom_field_config("cost_custom1", enabled=True, caption="Vendor Fee")
         """
-        from mediaplanpy.models.dictionary import CustomFieldConfig
+        from mediaplanpy.models.dictionary import CustomFieldConfig, CustomMetricConfig
 
         # Create dictionary if it doesn't exist
         if not self.dictionary:
             self.dictionary = Dictionary()
 
-        # Validate field name and determine category
-        if field_name in Dictionary.VALID_DIMENSION_FIELDS:
-            category = "custom_dimensions"
-        elif field_name in Dictionary.VALID_METRIC_FIELDS:
+        # Determine field type and category
+        is_dimension = (field_name in Dictionary.VALID_META_DIMENSION_FIELDS or
+                       field_name in Dictionary.VALID_CAMPAIGN_DIMENSION_FIELDS or
+                       field_name in Dictionary.VALID_LINEITEM_DIMENSION_FIELDS)
+        is_custom_metric = field_name in Dictionary.VALID_CUSTOM_METRIC_FIELDS
+        is_cost = field_name in Dictionary.VALID_COST_FIELDS
+
+        if not (is_dimension or is_custom_metric or is_cost):
+            raise ValueError(
+                f"Invalid custom field name: {field_name}. "
+                f"Must be dim_custom1-10, metric_custom1-10, or cost_custom1-10"
+            )
+
+        # Handle dimension fields with scope
+        if is_dimension:
+            if scope == "meta":
+                category = "meta_custom_dimensions"
+            elif scope == "campaign":
+                category = "campaign_custom_dimensions"
+            elif scope == "lineitem":
+                category = "lineitem_custom_dimensions"
+            else:
+                raise ValueError(f"Invalid scope: {scope}. Must be 'meta', 'campaign', or 'lineitem'")
+
+            # Create the category dict if it doesn't exist
+            category_dict = getattr(self.dictionary, category) or {}
+
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
+            else:
+                category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
+
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
+
+        # Handle custom metric fields (may have formula)
+        elif is_custom_metric:
             category = "custom_metrics"
-        elif field_name in Dictionary.VALID_COST_FIELDS:
+            category_dict = getattr(self.dictionary, category) or {}
+
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomMetricConfig(
+                    status="enabled",
+                    caption=caption,
+                    formula_type=formula_type,
+                    base_metric=base_metric
+                )
+            else:
+                category_dict[field_name] = CustomMetricConfig(
+                    status="disabled",
+                    caption=caption,
+                    formula_type=formula_type,
+                    base_metric=base_metric
+                )
+
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
+
+        # Handle cost fields
+        elif is_cost:
             category = "custom_costs"
-        else:
-            raise ValueError(f"Invalid custom field name: {field_name}")
+            category_dict = getattr(self.dictionary, category) or {}
 
-        # Create the category dict if it doesn't exist
-        category_dict = getattr(self.dictionary, category) or {}
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
+            else:
+                category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
 
-        if enabled:
-            if not caption:
-                raise ValueError("Caption is required when enabling a custom field")
-            category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
-        else:
-            category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
 
-        # Update the dictionary
-        setattr(self.dictionary, category, category_dict)
+    def set_standard_metric_formula(
+        self,
+        metric_name: str,
+        formula_type: str,
+        base_metric: str
+    ) -> None:
+        """
+        Configure a formula for a standard metric.
 
-    def get_enabled_custom_fields(self) -> Dict[str, str]:
+        NEW v3.0: Allows standard metrics to use formulas for calculation.
+
+        Args:
+            metric_name: Standard metric name (e.g., 'metric_impressions', 'metric_clicks')
+            formula_type: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', etc.)
+            base_metric: Base metric for calculation (e.g., 'cost_total', 'metric_impressions')
+
+        Raises:
+            ValueError: If metric_name is not a valid standard metric
+
+        Example:
+            # Configure impressions to calculate from cost and CPM
+            mp.set_standard_metric_formula(
+                "metric_impressions",
+                formula_type="cost_per_unit",
+                base_metric="cost_total"
+            )
+
+            # Configure CTR to calculate from clicks and impressions
+            mp.set_standard_metric_formula(
+                "metric_clicks",
+                formula_type="conversion_rate",
+                base_metric="metric_impressions"
+            )
+        """
+        from mediaplanpy.models.dictionary import MetricFormulaConfig
+
+        # Create dictionary if it doesn't exist
+        if not self.dictionary:
+            self.dictionary = Dictionary()
+
+        # Validate metric name
+        if metric_name not in Dictionary.VALID_STANDARD_METRIC_FIELDS:
+            raise ValueError(
+                f"Invalid standard metric: {metric_name}. "
+                f"Must be one of: {', '.join(sorted(Dictionary.VALID_STANDARD_METRIC_FIELDS))}"
+            )
+
+        # Create standard_metrics dict if it doesn't exist
+        if self.dictionary.standard_metrics is None:
+            self.dictionary.standard_metrics = {}
+
+        # Set the formula configuration
+        self.dictionary.standard_metrics[metric_name] = MetricFormulaConfig(
+            formula_type=formula_type,
+            base_metric=base_metric
+        )
+
+    def get_standard_metric_formula(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula configuration for a standard metric.
+
+        Args:
+            metric_name: Standard metric name (e.g., 'metric_impressions')
+
+        Returns:
+            Dictionary with formula configuration or None if not configured
+
+        Example:
+            config = mp.get_standard_metric_formula("metric_impressions")
+            # {'formula_type': 'cost_per_unit', 'base_metric': 'cost_total'}
+        """
+        if not self.dictionary or not self.dictionary.standard_metrics:
+            return None
+
+        config = self.dictionary.standard_metrics.get(metric_name)
+        if config:
+            return {
+                "formula_type": config.formula_type,
+                "base_metric": config.base_metric
+            }
+        return None
+
+    def remove_standard_metric_formula(self, metric_name: str) -> bool:
+        """
+        Remove formula configuration for a standard metric.
+
+        Args:
+            metric_name: Standard metric name
+
+        Returns:
+            True if formula was removed, False if it didn't exist
+
+        Example:
+            removed = mp.remove_standard_metric_formula("metric_impressions")
+        """
+        if not self.dictionary or not self.dictionary.standard_metrics:
+            return False
+
+        if metric_name in self.dictionary.standard_metrics:
+            del self.dictionary.standard_metrics[metric_name]
+            return True
+        return False
+
+    def get_enabled_custom_fields(self, scope: Optional[str] = None) -> Dict[str, str]:
         """
         Get all enabled custom fields and their captions.
 
+        Args:
+            scope: Optional scope filter ('meta', 'campaign', 'lineitem', 'all')
+
         Returns:
             Dictionary mapping field names to captions for all enabled fields.
+
+        Example:
+            # Get all enabled fields
+            fields = mp.get_enabled_custom_fields()
+
+            # Get only lineitem fields
+            fields = mp.get_enabled_custom_fields(scope="lineitem")
         """
         if not self.dictionary:
             return {}
-        return self.dictionary.get_enabled_fields()
+        return self.dictionary.get_enabled_fields(scope=scope)
 
     # Legacy method support - keeping old methods for any internal usage
     def add_lineitem(self, line_item: Union[LineItem, Dict[str, Any]], **kwargs) -> LineItem:

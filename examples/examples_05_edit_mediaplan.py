@@ -10,6 +10,7 @@ v3.0 Features Demonstrated:
 - Adding new objects to arrays
 - Updating KPIs and custom dimensions
 - Merging custom_properties dictionaries
+- Proper LineItem CRUD pattern (load → edit → update)
 - Advanced save options (overwrite, set_as_current)
 - Version management and lineage tracking
 - Verification with reload
@@ -31,6 +32,7 @@ Next Steps After Running:
 - Load edited plans to verify changes (examples_load_mediaplan.py)
 - Export edited plans (examples_export_mediaplan.py)
 - Query multiple plan versions (examples_list_objects.py)
+- Configure custom fields with Dictionary (examples_12_manage_dictionary.py)
 """
 
 import os
@@ -221,11 +223,11 @@ def edit_minimal_plan(manager, plan):
 
 def edit_complex_plan_with_v3_features(manager, plan):
     """
-    Edit v3.0 features: target audiences, target locations, KPIs, custom dimensions.
+    Edit v3.0 features: target audiences, target locations, KPIs, line items, custom dimensions.
 
     Use Case:
         When you need to update v3.0 array-based models, add new objects to arrays,
-        modify KPIs, update custom dimensions, or merge custom_properties.
+        modify KPIs, update custom dimensions, edit line items, or merge custom_properties.
 
     v3.0 Features:
         - Modifying existing TargetAudience objects in array
@@ -235,6 +237,8 @@ def edit_complex_plan_with_v3_features(manager, plan):
         - Updating KPI name/value pairs (kpi_name1-5, kpi_value1-5)
         - Updating custom dimensions (dim_custom1-5)
         - Merging custom_properties dictionaries
+        - Proper LineItem CRUD pattern (load → edit → update)
+        - Adding metric_formulas to line items
         - save() with overwrite=False (creates new version with parent_id)
 
     Args:
@@ -409,14 +413,20 @@ def edit_complex_plan_with_v3_features(manager, plan):
     print(f"   - Campaign custom_properties keys: {', '.join(plan.campaign.custom_properties.keys())}")
 
     # ====================
-    # 8. ADD METRIC FORMULA TO LINE ITEM
+    # 8. EDIT LINE ITEM USING PROPER CRUD PATTERN
     # ====================
-    print(f"\n8. Adding metric formula to line item...")
+    print(f"\n8. Editing line item using proper CRUD pattern...")
 
     if plan.lineitems and len(plan.lineitems) > 0:
-        li = plan.lineitems[0]
-        print(f"   - Line item: {li.name}")
+        # PROPER PATTERN: Load → Edit → Update
+        lineitem_id = plan.lineitems[0].id
+        print(f"   - Loading line item by ID: {lineitem_id}")
 
+        # Step 1: LOAD the line item
+        li = plan.load_lineitem(lineitem_id)
+        print(f"   - Loaded: {li.name}")
+
+        # Step 2: EDIT the line item
         # Add or update metric_formulas
         if li.metric_formulas is None:
             li.metric_formulas = {}
@@ -429,15 +439,15 @@ def edit_complex_plan_with_v3_features(manager, plan):
             comments="Click-through rate calculation"
         )
 
-        # Add a CPV formula
-        li.metric_formulas["metric_views"] = MetricFormula(
+        # Add a CPM formula
+        li.metric_formulas["cpm"] = MetricFormula(
             formula_type="cost_per_unit",
             base_metric="cost_total",
-            parameter1=0.10,
-            comments="Cost per view calculation"
+            coefficient=8.0,
+            comments="CPM calculation"
         )
 
-        print(f"   - Added formulas: CTR, CPC")
+        print(f"   - Added formulas: CTR, CPM")
         print(f"   - Total formulas: {len(li.metric_formulas)}")
 
         # Update line item custom properties
@@ -449,7 +459,12 @@ def edit_complex_plan_with_v3_features(manager, plan):
             "performance_tier": "High"
         })
 
-        print(f"   - Updated line item custom_properties")
+        print(f"   - Updated custom_properties")
+
+        # Step 3: UPDATE the line item (with validation)
+        print(f"   - Updating line item with validation...")
+        plan.update_lineitem(li, validate=True)
+        print(f"   ✓ Line item updated successfully")
 
     # ====================
     # 9. SAVE WITH NEW VERSION
@@ -696,13 +711,15 @@ if __name__ == "__main__":
     print(f"  3. Added new objects to arrays")
     print(f"  4. Updated KPIs and custom dimensions")
     print(f"  5. Merged custom_properties dictionaries")
-    print(f"  6. Added MetricFormula objects to line items")
-    print(f"  7. Used overwrite=True to update existing versions")
-    print(f"  8. Used overwrite=False to create new versions")
-    print(f"  9. Used set_as_current to manage version state")
-    print(f" 10. Verified changes by reloading")
+    print(f"  6. Proper LineItem CRUD pattern (load_lineitem → edit → update_lineitem)")
+    print(f"  7. Added MetricFormula objects to line items")
+    print(f"  8. Used overwrite=True to update existing versions")
+    print(f"  9. Used overwrite=False to create new versions")
+    print(f" 10. Used set_as_current to manage version state")
+    print(f" 11. Verified changes by reloading")
 
     print(f"\nNext Steps:")
     print(f"  - Run examples_load_mediaplan.py to inspect edited plans")
     print(f"  - Run examples_export_mediaplan.py to export edited plans")
     print(f"  - Run examples_list_objects.py to query all versions")
+    print(f"  - Run examples_12_manage_dictionary.py to configure custom fields")

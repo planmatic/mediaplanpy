@@ -46,12 +46,14 @@ All examples are located in the `/examples` directory. Run them in any order bas
 | 2 | `examples_02_load_workspace.py` | Load workspaces three ways | Load by ID, by path, by dictionary; version validation |
 | 3 | `examples_03_create_mediaplan.py` | Create media plans (minimal → advanced) | target_audiences, target_locations, metric_formulas, KPIs, custom dimensions, Dictionary |
 | 4 | `examples_04_load_mediaplan.py` | Load and inspect media plans | Access nested arrays, MetricFormula objects, all v3.0 fields |
-| 5 | `examples_05_edit_mediaplan.py` | Edit media plans and manage versions | Array modifications, save options (overwrite, set_as_current), version management |
+| 5 | `examples_05_edit_mediaplan.py` | Edit media plans, configure Dictionary | Proper LineItem CRUD, Dictionary config (scoped dimensions, formulas), version management |
 | 6 | `examples_06_export_mediaplan.py` | Export to JSON and Excel | v3.0 structure serialization, arrays & nested objects |
 | 7 | `examples_07_import_mediaplan.py` | Import from JSON and Excel | Automatic schema detection, object reconstruction, data integrity checks |
 | 8 | `examples_08_list_objects.py` | Query workspace contents | List campaigns/plans/lineitems, DataFrame output, filters on v3.0 fields |
 | 9 | `examples_09_sql_queries.py` | Run SQL queries on media plans | DuckDB queries, v3.0 columns, multi-dimensional analysis |
 | 10 | `examples_10_manage_mediaplan.py` | Lifecycle management | Delete (with dry_run), archive, restore, version management, parent_id tracking |
+| 11 | `examples_11_manage_lineitems.py` | Comprehensive LineItem CRUD operations | Load/create/edit/delete line items, dimensions, metrics, costs, formulas, custom_properties, bulk operations |
+| 12 | `examples_12_manage_dictionary.py` | Configure Dictionary for custom fields | Scoped dimensions (meta/campaign/lineitem), custom metrics with formulas, custom costs, standard metric formulas |
 
 ---
 
@@ -99,6 +101,41 @@ metric_formulas = {
     }
 }
 ```
+
+---
+
+## Recent Enhancements (December 2025)
+
+### NEW: examples_11_manage_lineitems.py
+Comprehensive guide to LineItem management with 11 complete examples:
+- ✅ **Proper CRUD Pattern** - load_lineitem() → edit → update_lineitem() → save()
+- ✅ **Full Field Coverage** - dimensions, metrics, costs, formulas, custom_properties
+- ✅ **Advanced Operations** - Copy line items, bulk editing, validation patterns
+- ✅ **900+ lines** of production-ready code examples
+
+### NEW: examples_12_manage_dictionary.py
+Dedicated guide to Dictionary configuration with 6 comprehensive examples:
+- ✅ **Scoped Dimensions** - Configure meta/campaign/lineitem custom dimensions separately
+- ✅ **Custom Metrics with Formulas** - Enable metric_custom1-10 with formula support
+- ✅ **Custom Costs** - Configure cost breakdown fields (cost_custom1-10)
+- ✅ **Standard Metric Formulas** - Set formulas for metric_impressions, metric_clicks, etc.
+- ✅ **Usage Examples** - Using custom fields in line items, querying enabled fields
+- ✅ **800+ lines** of production-ready Dictionary examples
+
+### ENHANCED: examples_05_edit_mediaplan.py
+Streamlined for core editing patterns:
+- ✅ **Proper LineItem CRUD** - Fixed to demonstrate correct load → edit → update pattern
+- ✅ **Focused on Editing** - Basic properties, v3.0 arrays, KPIs, versioning
+- ✅ **Simplified** - Dictionary examples moved to dedicated examples_12
+
+### Dictionary Methods Enhanced
+The SDK now includes full v3.0 Dictionary support:
+- `set_custom_field_config()` - Now supports scope parameter and formula configuration
+- `set_standard_metric_formula()` - Configure formulas for standard metrics (NEW)
+- `get_standard_metric_formula()` - Query standard metric formulas (NEW)
+- `remove_standard_metric_formula()` - Remove formula configurations (NEW)
+
+**See:** `examples_12_manage_dictionary.py` for complete Dictionary usage examples.
 
 ---
 
@@ -234,15 +271,24 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 ### For Advanced Users
 
 1. **examples_03_create_mediaplan.py** - Run `create_advanced_plan_with_v3_features()`
-2. **examples_05_edit_mediaplan.py** - Master version management with `save_with_versioning_options()`
-3. **examples_09_sql_queries.py** - Run complex analytics queries
-4. **examples_10_manage_mediaplan.py** - Lifecycle management
+2. **examples_05_edit_mediaplan.py** - Master version management and editing patterns
+3. **examples_11_manage_lineitems.py** - Comprehensive LineItem management patterns
+4. **examples_12_manage_dictionary.py** - Configure Dictionary for custom fields
+5. **examples_09_sql_queries.py** - Run complex analytics queries
+6. **examples_10_manage_mediaplan.py** - Lifecycle management
 
 ### For Specific Use Cases
+
+**Working with Line Items:**
+- `examples_11_manage_lineitems.py` → Complete CRUD operations, copy, bulk edit, validation patterns
 
 **Working with Excel:**
 - `examples_06_export_mediaplan.py` → `export_to_excel()`
 - `examples_07_import_mediaplan.py` → `import_from_excel()`
+
+**Configuring Custom Fields:**
+- `examples_12_manage_dictionary.py` → Complete Dictionary configuration guide
+- `examples_11_manage_lineitems.py` → Using custom dimensions, metrics, and costs
 
 **S3 Integration:**
 - `examples_01_create_workspace.py` → `create_custom_workspace_with_s3()`
@@ -313,4 +359,4 @@ See LICENSE file for license information.
 
 ---
 
-**Last Updated:** December 2025 for MediaPlanPy v3.0.0
+**Last Updated:** December 12, 2025 for MediaPlanPy v3.0.0 (includes examples_11, examples_12, and Dictionary enhancements)
