@@ -42,6 +42,7 @@ Next Steps After Running:
 """
 
 import os
+import sys
 import json
 import requests
 import tempfile
@@ -475,10 +476,9 @@ def list_campaigns_from_api(
                         print(f"\n{i}. Campaign: {campaign.get('campaign_name', 'N/A')}")
                         print(f"   - Campaign ID: {campaign.get('campaign_id', 'N/A')}")
                         print(f"   - Objective: {campaign.get('campaign_objective', 'N/A')}")
-                        print(f"   - Budget: ${campaign.get('budget_total', 0):,.0f} {campaign.get('budget_currency', 'USD')}")
-                        print(f"   - Period: {campaign.get('start_date', 'N/A')} to {campaign.get('end_date', 'N/A')}")
-                        print(f"   - Media plans: {campaign.get('plan_count', 0)} total ({campaign.get('current_plan_count', 0)} current)")
-                        print(f"   - Line items: {campaign.get('lineitem_count', 0)}")
+                        print(f"   - Budget: ${campaign.get('campaign_budget_total', 0):,.0f} {campaign.get('campaign_budget_currency', 'USD')}")
+                        print(f"   - Period: {campaign.get('campaign_start_date', 'N/A')} to {campaign.get('campaign_end_date', 'N/A')}")
+                        print(f"   - Media plans: {campaign.get('stat_media_plan_count', 0)} total")
 
                     print("\n" + "-" * 80)
                     print("\nNext Steps:")
@@ -621,15 +621,13 @@ def load_media_plan_from_api(
                 if media_plan.lineitems:
                     print(f"  - First 3 line items:")
                     for i, lineitem in enumerate(media_plan.lineitems[:3], 1):
-                        print(f"    {i}. {lineitem.lineitem_name} (ID: {lineitem.lineitem_id})")
+                        print(f"    {i}. {lineitem.name} (ID: {lineitem.id})")
 
                 print("\nv3.0 Features Available:")
                 if media_plan.campaign.target_audiences:
                     print(f"  - Target audiences: {len(media_plan.campaign.target_audiences)} configured")
                 if media_plan.campaign.target_locations:
                     print(f"  - Target locations: {len(media_plan.campaign.target_locations)} configured")
-                if media_plan.campaign.kpis:
-                    print(f"  - KPIs: {len(media_plan.campaign.kpis)} defined")
 
                 print("\nNext Steps:")
                 print("  1. Inspect plan details: plan.meta, plan.campaign, plan.lineitems")
@@ -982,6 +980,233 @@ def complete_api_workflow_example():
 
 
 # =============================================================================
+# INTERACTIVE WORKFLOW
+# =============================================================================
+
+def interactive_workflow():
+    """
+    Interactive guided workflow for API client operations.
+
+    This function provides a step-by-step guided experience through the
+    complete API workflow, from requesting an API key to importing an
+    edited media plan.
+
+    Workflow Steps:
+        1. Display API key request instructions
+        2. Prompt for API key (with validation)
+        3. Authenticate with API server
+        4. Prompt for workspace ID
+        5. Load workspace
+        6. List campaigns
+        7. Load media plan from first campaign
+        8. Edit media plan description
+        9. Import edited plan back to API
+        10. Display results
+
+    User Interaction:
+        - Interactive prompts guide user through each step
+        - Option to skip if not ready
+        - Clear error messages if steps fail
+        - Validation at each stage
+
+    Next Steps:
+        - Adapt workflow for your specific use case
+        - Integrate into automation scripts
+        - Build custom dashboards and tools
+    """
+    print("\n" + "=" * 80)
+    print("INTERACTIVE API WORKFLOW")
+    print("=" * 80)
+    print("\nThis interactive workflow will guide you through:")
+    print("  1. API key management and authentication")
+    print("  2. Workspace loading")
+    print("  3. Campaign listing")
+    print("  4. Media plan loading and editing")
+    print("  5. Importing changes back to API")
+
+    # Step 1: Show API key instructions
+    print("\n" + "=" * 80)
+    print("STEP 1: API KEY REQUEST INSTRUCTIONS")
+    print("=" * 80)
+    show_api_key_request_instructions()
+
+    # Step 2: Ask if user has API key
+    print("\n" + "=" * 80)
+    print("STEP 2: API KEY CHECK")
+    print("=" * 80)
+    has_key = input("\nDo you have an API key? (y/n): ").strip().lower()
+
+    if has_key != 'y':
+        print("\n✗ Workflow Stopped")
+        print("Please request an API key from your administrator before continuing.")
+        print("Follow the instructions shown above in Step 1.")
+        return
+
+    # Step 3: Get API key from user
+    print("\n" + "=" * 80)
+    print("STEP 3: PROVIDE API KEY")
+    print("=" * 80)
+    print("\nAPI Key Format: plnmtc_<env>_<client_id>_<token>")
+    print("Example: plnmtc_prod1_4_abc123def456...")
+    api_key = input("\nEnter your API key: ").strip()
+
+    if not api_key:
+        print("\n✗ Workflow Stopped")
+        print("API key is required to continue.")
+        return
+
+    if not api_key.startswith('plnmtc_'):
+        print("\n⚠️  Warning: API key does not match expected format")
+        print("Expected format: plnmtc_<env>_<client_id>_<token>")
+        continue_anyway = input("Continue anyway? (y/n): ").strip().lower()
+        if continue_anyway != 'y':
+            print("\n✗ Workflow Stopped")
+            return
+
+    # Step 4: Authenticate
+    print("\n" + "=" * 80)
+    print("STEP 4: AUTHENTICATE WITH API SERVER")
+    print("=" * 80)
+    session_token = authenticate_with_api(api_key, API_BASE_URL)
+
+    if not session_token:
+        print("\n✗ Workflow Stopped: Authentication failed")
+        print("Please verify your API key is correct and try again.")
+        return
+
+    # Step 5: Get workspace ID
+    print("\n" + "=" * 80)
+    print("STEP 5: PROVIDE WORKSPACE ID")
+    print("=" * 80)
+    print("\nWorkspace ID Format: workspace_<hash>")
+    print("Example: workspace_49aa28ac")
+    workspace_id = input("\nEnter workspace ID: ").strip()
+
+    if not workspace_id:
+        print("\n✗ Workflow Stopped")
+        print("Workspace ID is required to continue.")
+        return
+
+    # Step 6: Load workspace
+    print("\n" + "=" * 80)
+    print("STEP 6: LOAD WORKSPACE")
+    print("=" * 80)
+    workspace_loaded = load_workspace_from_api(session_token, workspace_id, API_BASE_URL)
+
+    if not workspace_loaded:
+        print("\n✗ Workflow Stopped: Workspace load failed")
+        print("Please verify the workspace ID is correct and you have access.")
+        return
+
+    # Step 7: List campaigns
+    print("\n" + "=" * 80)
+    print("STEP 7: LIST CAMPAIGNS")
+    print("=" * 80)
+    campaigns = list_campaigns_from_api(session_token, API_BASE_URL)
+
+    if not campaigns or len(campaigns) == 0:
+        print("\n✗ Workflow Stopped: No campaigns found in workspace")
+        print("Please create campaigns using the Python API or web interface.")
+        return
+
+    # Step 8: Load media plan from first campaign
+    print("\n" + "=" * 80)
+    print("STEP 8: LOAD MEDIA PLAN")
+    print("=" * 80)
+
+    campaign_id = campaigns[0].get('campaign_id')
+    campaign_name = campaigns[0].get('campaign_name', 'N/A')
+
+    print(f"\nLoading current plan from first campaign:")
+    print(f"  - Campaign ID: {campaign_id}")
+    print(f"  - Campaign Name: {campaign_name}")
+
+    media_plan = load_media_plan_from_api(session_token, campaign_id, API_BASE_URL)
+
+    if not media_plan:
+        print("\n✗ Workflow Stopped: Media plan load failed")
+        print("The selected campaign may not have a current plan.")
+        print("Please create a plan using the Python API.")
+        return
+
+    # Step 9: Edit media plan
+    print("\n" + "=" * 80)
+    print("STEP 9: EDIT MEDIA PLAN USING SDK")
+    print("=" * 80)
+    print("\nNow we'll edit the media plan using MediaPlanPy SDK methods.")
+    print("This demonstrates the power of combining API and SDK.")
+
+    # Show original values
+    print("\nOriginal Values:")
+    print(f"  - Plan name: {media_plan.meta.name}")
+    print(f"  - Plan description: {media_plan.meta.comments or '(empty)'}")
+
+    # Edit description to show API integration
+    from datetime import datetime
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    original_description = media_plan.meta.comments or ""
+    new_description = f"{original_description}\n\nEdited via API on {timestamp}"
+    media_plan.meta.comments = new_description.strip()
+
+    # Also update the name slightly to show it was edited
+    original_name = media_plan.meta.name
+    if "(API Edited)" not in original_name:
+        media_plan.meta.name = f"{original_name} (API Edited)"
+
+    print("\n✓ Media Plan Edited")
+    print("\nUpdated Values:")
+    print(f"  - Plan name: {media_plan.meta.name}")
+    print(f"  - Plan description: {media_plan.meta.comments}")
+
+    print("\nEdits made using MediaPlanPy SDK:")
+    print("  - Updated meta.name to include '(API Edited)' suffix")
+    print("  - Updated meta.comments with timestamp")
+    print("  - All changes made locally using SDK methods")
+
+    # Step 10: Import edited plan
+    print("\n" + "=" * 80)
+    print("STEP 10: IMPORT EDITED PLAN TO API")
+    print("=" * 80)
+    print("\nUploading edited media plan back to API server...")
+
+    new_plan_id = import_media_plan_to_api(session_token, media_plan, API_BASE_URL)
+
+    if not new_plan_id:
+        print("\n✗ Workflow Stopped: Media plan import failed")
+        print("Please check error messages above.")
+        return
+
+    # Success summary
+    print("\n" + "=" * 80)
+    print("✓ WORKFLOW COMPLETED SUCCESSFULLY!")
+    print("=" * 80)
+
+    print("\nWorkflow Summary:")
+    print(f"  1. ✓ Authenticated with API server")
+    print(f"  2. ✓ Loaded workspace: {workspace_id}")
+    print(f"  3. ✓ Listed {len(campaigns)} campaigns")
+    print(f"  4. ✓ Loaded plan from campaign: {campaign_name}")
+    print(f"  5. ✓ Edited plan using MediaPlanPy SDK")
+    print(f"  6. ✓ Imported edited plan: {new_plan_id}")
+
+    print("\nWhat Happened:")
+    print("  - Original plan downloaded from API")
+    print("  - Plan converted to MediaPlan SDK object")
+    print("  - Plan edited using SDK methods locally")
+    print("  - Edited plan uploaded back to API")
+    print("  - New plan version created and set as current")
+
+    print("\nNext Steps:")
+    print("  1. View updated plan in web interface/dashboard")
+    print("  2. Verify changes in plan description and name")
+    print("  3. Adapt this workflow for your use case")
+    print("  4. Integrate into automation scripts")
+
+    print("\n" + "=" * 80)
+
+
+# =============================================================================
 # MAIN - RUN EXAMPLES
 # =============================================================================
 
@@ -989,49 +1214,64 @@ if __name__ == "__main__":
     """
     Run API client examples.
 
-    To run all examples:
+    Interactive Mode (Default):
         python examples_14_api_client.py
 
-    To run specific examples:
-        python examples_14_api_client.py
-        # Then call individual functions from Python shell
+        This runs an interactive guided workflow that:
+        - Shows API key request instructions
+        - Prompts for API key and workspace ID
+        - Walks through complete workflow step-by-step
+        - Demonstrates loading, editing, and importing plans
 
-    Prerequisites:
-        1. Set environment variables:
-           export PLANMATIC_API_KEY='plnmtc_prod1_4_abc123...'
-           export PLANMATIC_WORKSPACE_ID='workspace_49aa28ac'
-
-        2. Or edit the script and set API_KEY and WORKSPACE_ID variables
+    Individual Functions:
+        You can also call individual example functions:
+        - show_api_key_request_instructions()
+        - authenticate_with_api(api_key)
+        - load_workspace_from_api(session_token, workspace_id)
+        - list_campaigns_from_api(session_token)
+        - load_media_plan_from_api(session_token, campaign_id)
+        - import_media_plan_to_api(session_token, media_plan)
+        - complete_api_workflow_example() (uses environment variables)
     """
 
     print("=" * 80)
     print("MediaPlanPy Examples - API Client Interface")
     print("=" * 80)
     print("\nThis script demonstrates how to interact with a Planmatic API Server.")
-    print("\nAvailable Examples:")
-    print("  1. show_api_key_request_instructions() - How to request API key")
-    print("  2. authenticate_with_api() - Authenticate with API")
-    print("  3. load_workspace_from_api() - Load workspace")
-    print("  4. list_campaigns_from_api() - List campaigns")
-    print("  5. load_media_plan_from_api() - Load media plan")
-    print("  6. import_media_plan_to_api() - Import media plan")
-    print("  7. complete_api_workflow_example() - Complete workflow")
+    print("\nTwo modes available:")
+    print("  1. Interactive Workflow (Guided, step-by-step)")
+    print("  2. Individual Functions (For reference and custom usage)")
 
     print("\n" + "=" * 80)
-    print("RUNNING EXAMPLE: API Key Request Instructions")
+    print("RUNNING: INTERACTIVE WORKFLOW")
     print("=" * 80)
+    print("\nThis will guide you through a complete API workflow:")
+    print("  - API authentication")
+    print("  - Workspace loading")
+    print("  - Campaign listing")
+    print("  - Media plan loading and editing")
+    print("  - Importing changes via API")
 
-    # Run Example 1: Show API key instructions
-    show_api_key_request_instructions()
+    print("\nPress Enter to start the interactive workflow...")
+    print("(Or press Ctrl+C to exit)")
+
+    try:
+        input()
+        interactive_workflow()
+    except KeyboardInterrupt:
+        print("\n\n✗ Workflow cancelled by user")
+        print("\n" + "=" * 80)
+        sys.exit(0)
 
     print("\n" + "=" * 80)
-    print("NEXT STEPS")
+    print("ADDITIONAL EXAMPLES")
     print("=" * 80)
-    print("\nTo run the complete workflow:")
-    print("  1. Obtain API key from administrator")
-    print("  2. Set environment variables:")
-    print("     export PLANMATIC_API_KEY='your_key_here'")
-    print("     export PLANMATIC_WORKSPACE_ID='your_workspace_id'")
-    print("  3. Run: complete_api_workflow_example()")
-    print("\nOr run individual examples as needed.")
+    print("\nYou can also call these functions individually:")
+    print("  - show_api_key_request_instructions()")
+    print("  - authenticate_with_api(api_key)")
+    print("  - load_workspace_from_api(session_token, workspace_id)")
+    print("  - list_campaigns_from_api(session_token)")
+    print("  - load_media_plan_from_api(session_token, campaign_id)")
+    print("  - import_media_plan_to_api(session_token, media_plan)")
+    print("  - complete_api_workflow_example()  # Uses env variables")
     print("\n" + "=" * 80)

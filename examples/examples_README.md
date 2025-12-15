@@ -54,6 +54,8 @@ All examples are located in the `/examples` directory. Run them in any order bas
 | 10 | `examples_10_manage_mediaplan.py` | Lifecycle management | Delete (with dry_run), archive, restore, version management, parent_id tracking |
 | 11 | `examples_11_manage_lineitems.py` | Comprehensive LineItem CRUD operations | Load/create/edit/delete line items, dimensions, metrics, costs, formulas, custom_properties, bulk operations |
 | 12 | `examples_12_manage_dictionary.py` | Configure Dictionary for custom fields | Scoped dimensions (meta/campaign/lineitem), custom metrics with formulas, custom costs, standard metric formulas |
+| 13 | `examples_13_cli_interface.md` | CLI commands for workspace management | Workspace create/settings/validate/upgrade, list campaigns/plans, CLI inspection tools |
+| 14 | `examples_14_api_client.py` | Interface with Planmatic API Server | API authentication, remote workspace operations, load/import media plans via API |
 
 ---
 
@@ -105,6 +107,23 @@ metric_formulas = {
 ---
 
 ## Recent Enhancements (December 2025)
+
+### NEW: examples_13_cli_interface.md
+Comprehensive CLI documentation for administrative and inspection tasks:
+- ✅ **Workspace Management** - create, settings, validate, upgrade, statistics, version
+- ✅ **Inspection Commands** - list campaigns, list mediaplans with filtering
+- ✅ **Common Workflows** - Setup, upgrade, debugging, S3 configuration
+- ✅ **Error Handling** - Common errors and solutions
+- ✅ **Concise Format** - Focused on practical usage with clear examples
+
+### NEW: examples_14_api_client.py
+Interface with Planmatic API Server for remote operations:
+- ✅ **API Authentication** - Request API key, authenticate with session tokens
+- ✅ **Remote Workspace** - Load workspace from API server
+- ✅ **Load Media Plans** - Retrieve current plans from campaigns via API
+- ✅ **Import/Upload Plans** - Upload media plans to API server
+- ✅ **Complete Workflow** - End-to-end example with all steps
+- ✅ **Error Handling** - Comprehensive error handling and security notes
 
 ### NEW: examples_11_manage_lineitems.py
 Comprehensive guide to LineItem management with 11 complete examples:
@@ -300,6 +319,12 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 - `examples_05_edit_mediaplan.py` → `save_with_versioning_options()`
 - `examples_10_manage_mediaplan.py` → `manage_plan_versions()`
 
+**CLI Management:**
+- `examples_13_cli_interface.md` → Complete CLI reference for workspace management and inspection
+
+**API Server Integration:**
+- `examples_14_api_client.py` → Authenticate, load workspace, load/import plans via Planmatic API
+
 ---
 
 ## Troubleshooting
@@ -359,4 +384,4 @@ See LICENSE file for license information.
 
 ---
 
-**Last Updated:** December 12, 2025 for MediaPlanPy v3.0.0 (includes examples_11, examples_12, and Dictionary enhancements)
+**Last Updated:** December 15, 2025 for MediaPlanPy v3.0.0 (includes examples_11, examples_12, examples_13, examples_14, and CLI/API integration)
