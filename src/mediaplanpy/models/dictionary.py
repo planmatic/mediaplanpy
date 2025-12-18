@@ -6,7 +6,7 @@ and formula settings across meta, campaign, and line item levels, following
 the Media Plan Open Data Standard v3.0.
 """
 
-from typing import Dict, Any, List, Optional, ClassVar
+from typing import Dict, Any, List, Optional, ClassVar, Set
 
 from pydantic import Field, field_validator, model_validator
 
@@ -441,3 +441,141 @@ class Dictionary(BaseModel):
                     enabled_fields[field_name] = config.caption
 
         return enabled_fields
+
+    # ========================================================================
+    # Formula Dependency Methods (v3.0 - NEW)
+    # ========================================================================
+
+    def get_dependency_graph(self, relevant_metrics: Optional[Set[str]] = None) -> Dict[str, set]:
+        """
+        Build dependency graph from dictionary's metric formula definitions.
+
+        This method is the source of truth for all formula dependencies. It maps
+        base metrics to sets of metrics that depend on them, enabling proper
+        recalculation order determination.
+
+        The dependency graph can be filtered to only relevant metrics to improve
+        performance when a mediaplan/lineitem only uses a subset of standard metrics.
+
+        Args:
+            relevant_metrics: Optional set of metric names to include in the graph.
+                            If None, includes all standard metrics (default).
+                            If provided, only includes metrics in this set.
+                            Should be built using LineItem._get_relevant_metrics() or
+                            MediaPlan._get_plan_relevant_metrics().
+
+        Returns:
+            Dict mapping base_metric -> set of dependent metric names.
+
+        Example:
+            # All metrics (default)
+            >>> dictionary.get_dependency_graph()
+            {"cost_total": {"metric_impressions", "metric_clicks", ...}}
+
+            # Filtered to relevant metrics
+            >>> relevant = {"metric_impressions", "metric_clicks"}
+            >>> dictionary.get_dependency_graph(relevant_metrics=relevant)
+            {"cost_total": {"metric_impressions", "metric_clicks"}}
+        """
+        graph: Dict[str, set] = {}
+
+        # Determine which standard metrics to process
+        if relevant_metrics is not None:
+            # Filter to only relevant standard metrics
+            metrics_to_process = relevant_metrics & self.VALID_STANDARD_METRIC_FIELDS
+        else:
+            # Process all standard metrics (default behavior)
+            metrics_to_process = self.VALID_STANDARD_METRIC_FIELDS
+
+        # Process standard metrics
+        for metric_name in metrics_to_process:
+            # Check if this metric is explicitly defined in dictionary
+            if self.standard_metrics and metric_name in self.standard_metrics:
+                config = self.standard_metrics[metric_name]
+                formula_type = config.formula_type if config.formula_type else "cost_per_unit"
+                base_metric = config.base_metric if config.base_metric else "cost_total"
+            else:
+                # Use defaults for standard metrics not explicitly defined
+                formula_type = "cost_per_unit"
+                base_metric = "cost_total"
+
+            # Add to graph
+            if base_metric not in graph:
+                graph[base_metric] = set()
+            graph[base_metric].add(metric_name)
+
+        # Process custom metrics (only if enabled and relevant)
+        if self.custom_metrics:
+            for metric_name, config in self.custom_metrics.items():
+                # Only include enabled custom metrics
+                if config.status == "enabled":
+                    # Only include if in relevant_metrics (or if no filter)
+                    if relevant_metrics is None or metric_name in relevant_metrics:
+                        # Get formula properties with defaults
+                        formula_type = config.formula_type if config.formula_type else "cost_per_unit"
+                        base_metric = config.base_metric if config.base_metric else "cost_total"
+
+                        # Add to graph
+                        if base_metric not in graph:
+                            graph[base_metric] = set()
+                        graph[base_metric].add(metric_name)
+
+        return graph
+
+    def get_metric_formula_definition(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula definition (formula_type and base_metric) for a specific metric.
+
+        This method retrieves the formula definition from the dictionary, which is
+        the source of truth for formula_type and base_metric. LineItems only store
+        coefficient and parameters.
+
+        For standard metrics: Returns definition from dictionary if present, otherwise
+        returns defaults (formula_type='cost_per_unit', base_metric='cost_total').
+
+        For custom metrics: Only returns definition if metric is enabled. Returns None
+        if metric is disabled or not found.
+
+        Args:
+            metric_name: Name of the metric (e.g., "metric_impressions", "metric_custom1")
+
+        Returns:
+            Dict with formula_type and base_metric, or None if custom metric is disabled.
+            Standard metrics always return a definition (defaults if not specified).
+
+        Example:
+            >>> dictionary.get_metric_formula_definition("metric_impressions")
+            {"formula_type": "cost_per_unit", "base_metric": "cost_total"}
+
+            >>> dictionary.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        """
+        # Check if it's a standard metric
+        if metric_name in self.VALID_STANDARD_METRIC_FIELDS:
+            # If explicitly defined in dictionary, use that (with defaults for missing properties)
+            if self.standard_metrics and metric_name in self.standard_metrics:
+                config = self.standard_metrics[metric_name]
+                return {
+                    "formula_type": config.formula_type if config.formula_type else "cost_per_unit",
+                    "base_metric": config.base_metric if config.base_metric else "cost_total"
+                }
+            else:
+                # Use defaults for standard metrics not explicitly defined
+                return {
+                    "formula_type": "cost_per_unit",
+                    "base_metric": "cost_total"
+                }
+
+        # Check if it's a custom metric
+        if self.custom_metrics and metric_name in self.custom_metrics:
+            config = self.custom_metrics[metric_name]
+
+            # Only return formula for enabled custom metrics
+            if config.status == "enabled":
+                return {
+                    "formula_type": config.formula_type if config.formula_type else "cost_per_unit",
+                    "base_metric": config.base_metric if config.base_metric else "cost_total"
+                }
+
+        # Custom metric not found, disabled, or unknown metric name
+        return None

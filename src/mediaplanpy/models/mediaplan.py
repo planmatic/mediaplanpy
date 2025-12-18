@@ -125,6 +125,20 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, BaseModel):
     # NEW v2.0 FIELD: Dictionary for custom field configuration
     dictionary: Optional[Dictionary] = Field(None, description="Configuration dictionary defining custom field settings and captions")
 
+    def model_post_init(self, __context: Any) -> None:
+        """
+        Post-initialization hook to set parent references on child objects.
+
+        This ensures that lineitems have a reference to their parent MediaPlan,
+        enabling smart metric methods to access the dictionary automatically.
+
+        Note: This creates a circular reference (MediaPlan ↔ LineItem), but it's
+        safe because _mediaplan is excluded from serialization.
+        """
+        # Set parent reference on all lineitems
+        for lineitem in self.lineitems:
+            lineitem._mediaplan = self
+
     @classmethod
     def check_schema_version(cls, data: Dict[str, Any]) -> None:
         """
