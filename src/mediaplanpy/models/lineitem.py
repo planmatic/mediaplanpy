@@ -15,6 +15,106 @@ from mediaplanpy.models.base import BaseModel
 from mediaplanpy.models.metric_formula import MetricFormula
 
 
+class MetricValue:
+    """
+    Read-only wrapper providing access to a metric's value and formula.
+
+    This class is returned by LineItem.get_metric_object() and provides a
+    convenient way to access both the metric value and its formula definition
+    in a single object. It is created on-demand and is not persisted.
+
+    Attributes:
+        value: The current value of the metric (Decimal or None)
+        formula_type: Type of formula (e.g., 'cost_per_unit', 'conversion_rate')
+        base_metric: Name of the base metric this metric depends on
+        coefficient: Formula coefficient (CPU, not CPM)
+        parameter1: First formula parameter (e.g., for power_function)
+        parameter2: Second formula parameter (reserved for future use)
+        comments: Comments about the formula
+
+    Example:
+        >>> metric = lineitem.get_metric_object("metric_impressions")
+        >>> print(f"Value: {metric.value}")
+        >>> print(f"Formula: {metric.formula_type} from {metric.base_metric}")
+        >>> print(f"CPM: ${float(metric.coefficient) * 1000:.2f}")
+    """
+
+    def __init__(
+        self,
+        value: Optional[Decimal],
+        formula_type: Optional[str],
+        base_metric: Optional[str],
+        coefficient: Optional[Decimal],
+        parameter1: Optional[Decimal],
+        parameter2: Optional[Decimal],
+        comments: Optional[str]
+    ):
+        self._value = value
+        self._formula_type = formula_type
+        self._base_metric = base_metric
+        self._coefficient = coefficient
+        self._parameter1 = parameter1
+        self._parameter2 = parameter2
+        self._comments = comments
+
+    @property
+    def value(self) -> Optional[Decimal]:
+        """The current value of the metric."""
+        return self._value
+
+    @property
+    def formula_type(self) -> Optional[str]:
+        """Type of formula (e.g., 'cost_per_unit', 'conversion_rate')."""
+        return self._formula_type
+
+    @property
+    def base_metric(self) -> Optional[str]:
+        """Name of the base metric this metric depends on."""
+        return self._base_metric
+
+    @property
+    def coefficient(self) -> Optional[Decimal]:
+        """Formula coefficient (CPU, not CPM)."""
+        return self._coefficient
+
+    @property
+    def parameter1(self) -> Optional[Decimal]:
+        """First formula parameter (e.g., for power_function)."""
+        return self._parameter1
+
+    @property
+    def parameter2(self) -> Optional[Decimal]:
+        """Second formula parameter (reserved for future use)."""
+        return self._parameter2
+
+    @property
+    def comments(self) -> Optional[str]:
+        """Comments about the formula."""
+        return self._comments
+
+    @property
+    def cpm(self) -> Optional[Decimal]:
+        """
+        Convenience property: Coefficient as CPM (Cost Per Mille).
+
+        Only applicable for cost_per_unit formulas. Converts CPU to CPM
+        by multiplying by 1000.
+
+        Returns:
+            CPM value if coefficient exists, None otherwise
+        """
+        if self._coefficient is not None:
+            return self._coefficient * 1000
+        return None
+
+    def __repr__(self) -> str:
+        """String representation for debugging."""
+        return (
+            f"MetricValue(value={self.value}, formula_type={self.formula_type}, "
+            f"base_metric={self.base_metric}, coefficient={self.coefficient})"
+        )
+
+
 class LineItem(BaseModel):
     """
     Represents a line item within a media plan.
@@ -1028,3 +1128,78 @@ class LineItem(BaseModel):
             recalculated.update(dependent_recalculated)
 
         return recalculated
+
+    def get_metric_object(self, metric_name: str) -> MetricValue:
+        """
+        Get a read-only MetricValue object for a metric.
+
+        This method returns a convenient wrapper object that provides access to
+        both the metric's value and its complete formula definition (including
+        formula_type and base_metric from the dictionary, and coefficient/parameters
+        from the lineitem).
+
+        Args:
+            metric_name: Name of the metric (e.g., "metric_impressions")
+
+        Returns:
+            MetricValue object with value and formula information
+
+        Raises:
+            ValueError: If metric_name is invalid or LineItem not attached to MediaPlan
+
+        Example:
+            >>> mediaplan = MediaPlan(...)
+            >>> lineitem = mediaplan.lineitems[0]
+            >>>
+            >>> # Get metric object
+            >>> impressions = lineitem.get_metric_object("metric_impressions")
+            >>> print(f"Value: {impressions.value}")
+            >>> print(f"CPM: {float(impressions.cpm):.2f}")
+            >>> print(f"Formula: {impressions.formula_type} from {impressions.base_metric}")
+        """
+        # Get dictionary from parent MediaPlan
+        dictionary = self.get_dictionary()
+
+        # Validate metric name exists as an attribute
+        if not hasattr(self, metric_name):
+            raise ValueError(
+                f"Invalid metric name '{metric_name}'. "
+                f"Metric must be a valid LineItem attribute."
+            )
+
+        # Get metric value
+        value = getattr(self, metric_name, None)
+
+        # Get formula definition from dictionary
+        formula_def = dictionary.get_metric_formula_definition(metric_name)
+
+        # Extract formula_type and base_metric from dictionary
+        formula_type = None
+        base_metric = None
+        if formula_def:
+            formula_type = formula_def.get("formula_type")
+            base_metric = formula_def.get("base_metric")
+
+        # Get formula parameters from lineitem's metric_formulas
+        coefficient = None
+        parameter1 = None
+        parameter2 = None
+        comments = None
+
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+            coefficient = formula.coefficient
+            parameter1 = formula.parameter1
+            parameter2 = formula.parameter2
+            comments = formula.comments
+
+        # Create and return MetricValue wrapper
+        return MetricValue(
+            value=value,
+            formula_type=formula_type,
+            base_metric=base_metric,
+            coefficient=coefficient,
+            parameter1=parameter1,
+            parameter2=parameter2,
+            comments=comments
+        )
