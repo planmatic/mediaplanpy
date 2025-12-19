@@ -56,6 +56,7 @@ All examples are located in the `/examples` directory. Run them in any order bas
 | 12 | `examples_12_manage_dictionary.py` | Configure Dictionary for custom fields | Scoped dimensions (meta/campaign/lineitem), custom metrics with formulas, custom costs, standard metric formulas |
 | 13 | `examples_13_cli_interface.md` | CLI commands for workspace management | Workspace create/settings/validate/upgrade, list campaigns/plans, CLI inspection tools |
 | 14 | `examples_14_api_client.py` | Interface with Planmatic API Server | API authentication, remote workspace operations, load/import media plans via API |
+| 15 | `examples_15_formulas.py` | Formula management and auto-recalculation | Dynamic formula system, automatic recalculation, coefficient management, dependency chains |
 
 ---
 
@@ -124,6 +125,16 @@ Interface with Planmatic API Server for remote operations:
 - ✅ **Import/Upload Plans** - Upload media plans to API server
 - ✅ **Complete Workflow** - End-to-end example with all steps
 - ✅ **Error Handling** - Comprehensive error handling and security notes
+
+### NEW: examples_15_formulas.py
+Progressive demonstration of the v3.0 dynamic formula system:
+- ✅ **Auto-Recalculation** - Change cost_total → dependent metrics recalculate automatically
+- ✅ **Bidirectional Updates** - Edit values to update formulas, or edit formulas to update values
+- ✅ **Coefficient Management** - System preserves relationships when base metrics change
+- ✅ **Dependency Chains** - Configure cascading calculations (cost → impressions → clicks → conversions)
+- ✅ **Default Formulas** - Works without dictionary (defaults to cost_per_unit/cost_total)
+- ✅ **Progressive Workflow** - 5-step demonstration from simple to advanced
+- ✅ **Production-Ready** - Real-world patterns for formula management
 
 ### NEW: examples_11_manage_lineitems.py
 Comprehensive guide to LineItem management with 11 complete examples:
@@ -293,10 +304,15 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 2. **examples_05_edit_mediaplan.py** - Master version management and editing patterns
 3. **examples_11_manage_lineitems.py** - Comprehensive LineItem management patterns
 4. **examples_12_manage_dictionary.py** - Configure Dictionary for custom fields
-5. **examples_09_sql_queries.py** - Run complex analytics queries
-6. **examples_10_manage_mediaplan.py** - Lifecycle management
+5. **examples_15_formulas.py** - Master dynamic formulas and auto-recalculation
+6. **examples_09_sql_queries.py** - Run complex analytics queries
+7. **examples_10_manage_mediaplan.py** - Lifecycle management
 
 ### For Specific Use Cases
+
+**Working with Formulas:**
+- `examples_15_formulas.py` → Auto-recalculation, coefficient management, dependency chains
+- `examples_12_manage_dictionary.py` → Configure formula definitions for metrics
 
 **Working with Line Items:**
 - `examples_11_manage_lineitems.py` → Complete CRUD operations, copy, bulk edit, validation patterns
@@ -384,4 +400,4 @@ See LICENSE file for license information.
 
 ---
 
-**Last Updated:** December 15, 2025 for MediaPlanPy v3.0.0 (includes examples_11, examples_12, examples_13, examples_14, and CLI/API integration)
+**Last Updated:** December 19, 2025 for MediaPlanPy v3.0.0 (includes examples_11-15: LineItems, Dictionary, CLI, API, and Formulas)

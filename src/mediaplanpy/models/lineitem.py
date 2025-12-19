@@ -1079,7 +1079,8 @@ class LineItem(BaseModel):
         setattr(self, metric_name, value)
 
         # Optionally update the coefficient (reverse-calculate)
-        if update_coefficient:
+        # Skip for cost fields - they are base metrics and don't have formulas
+        if update_coefficient and not metric_name.startswith("cost_"):
             new_coefficient = self._reverse_calculate_coefficient(
                 metric_name, value, dictionary
             )
