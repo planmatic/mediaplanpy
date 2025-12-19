@@ -56,6 +56,234 @@ def _parse_json_field(value: Any, field_name: str) -> Dict[str, Any]:
         return {}
 
 
+def _build_metric_formulas_from_import(
+    line_item: Dict[str, Any],
+    calculated_data: Dict[str, float],
+    dictionary: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Build metric_formulas structure for a line item based on imported data.
+
+    Logic:
+    - For each metric with non-zero value: reverse-calculate coefficient from metric and base metric
+    - For each metric with zero value: read coefficient from calculated_data (Excel columns)
+    - Uses formula_type and base_metric from Dictionary (defaults to cost_per_unit/cost_total)
+
+    Args:
+        line_item: Line item dictionary with metric values
+        calculated_data: Dictionary of calculated column values (_cpu, _cvr, _coef, _param1)
+        dictionary: Dictionary configuration with formula types and base metrics
+
+    Returns:
+        Dictionary of metric_formulas ready for line item
+    """
+    from decimal import Decimal
+
+    metric_formulas = {}
+
+    # Get dictionary sections for formula configs
+    standard_metrics = dictionary.get("standard_metrics", {}) if dictionary else {}
+    custom_metrics = dictionary.get("custom_metrics", {}) if dictionary else {}
+
+    # List of all possible metrics (standard + custom)
+    all_metrics = [
+        "metric_impressions", "metric_clicks", "metric_views", "metric_view_starts",
+        "metric_view_completions", "metric_reach", "metric_units", "metric_impression_share",
+        "metric_engagements", "metric_followers", "metric_visits", "metric_leads",
+        "metric_sales", "metric_add_to_cart", "metric_app_install", "metric_application_start",
+        "metric_application_complete", "metric_contact_us", "metric_download", "metric_signup",
+        "metric_page_views", "metric_likes", "metric_shares", "metric_comments", "metric_conversions"
+    ]
+
+    # Add custom metrics
+    for i in range(1, 11):
+        all_metrics.append(f"metric_custom{i}")
+
+    # Process each metric
+    for metric_name in all_metrics:
+        # Check if metric exists in line item
+        metric_value = line_item.get(metric_name)
+
+        # Skip if metric doesn't exist or column is missing entirely
+        if metric_value is None:
+            continue
+
+        # Convert to Decimal
+        if not isinstance(metric_value, Decimal):
+            metric_value = Decimal(str(metric_value)) if metric_value else Decimal("0")
+
+        # Get formula config from dictionary (or use defaults)
+        formula_config = _get_metric_formula_config(metric_name, standard_metrics, custom_metrics)
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+        base_metric = formula_config.get("base_metric", "cost_total")
+
+        # Branch based on whether metric has non-zero value
+        if metric_value != 0:
+            # === CASE 1: Metric has value - Calculate coefficient from value ===
+            base_metric_value = line_item.get(base_metric, 0)
+            if not isinstance(base_metric_value, Decimal):
+                base_metric_value = Decimal(str(base_metric_value)) if base_metric_value else Decimal("0")
+
+            # Skip if base metric is 0 (can't calculate coefficient)
+            if base_metric_value == 0:
+                continue
+
+            # Get parameter1 for power_function (read from calculated_data)
+            parameter1 = None
+            if formula_type == "power_function":
+                param1_key = f"{metric_name}_param1"
+                if param1_key in calculated_data:
+                    parameter1 = Decimal(str(calculated_data[param1_key]))
+                else:
+                    parameter1 = Decimal("1.0")
+
+            # Reverse-calculate coefficient
+            coefficient = _reverse_calculate_coefficient(
+                metric_value, base_metric_value, formula_type, parameter1
+            )
+
+        else:
+            # === CASE 2: Metric is 0 - Read coefficient from calculated_data ===
+            coefficient = _read_coefficient_from_calculated_data(
+                metric_name, formula_type, calculated_data
+            )
+
+            # Get parameter1 for power_function
+            parameter1 = None
+            if formula_type == "power_function":
+                param1_key = f"{metric_name}_param1"
+                if param1_key in calculated_data:
+                    parameter1 = Decimal(str(calculated_data[param1_key]))
+                else:
+                    parameter1 = Decimal("1.0")
+
+        # Build metric_formula entry
+        if coefficient is not None:
+            formula_entry = {
+                "formula_type": formula_type,
+                "base_metric": base_metric,
+                "coefficient": float(coefficient)
+            }
+
+            if parameter1 is not None:
+                formula_entry["parameter1"] = float(parameter1)
+
+            metric_formulas[metric_name] = formula_entry
+
+    return metric_formulas
+
+
+def _get_metric_formula_config(
+    metric_name: str,
+    standard_metrics: Dict[str, Any],
+    custom_metrics: Dict[str, Any]
+) -> Dict[str, str]:
+    """
+    Get formula_type and base_metric for a metric from dictionary.
+
+    Returns dict with formula_type and base_metric, or defaults.
+    """
+    # Check standard_metrics first
+    if metric_name in standard_metrics:
+        config = standard_metrics[metric_name]
+        if isinstance(config, dict):
+            return {
+                "formula_type": config.get("formula_type", "cost_per_unit"),
+                "base_metric": config.get("base_metric", "cost_total")
+            }
+
+    # Check custom_metrics
+    if metric_name in custom_metrics:
+        config = custom_metrics[metric_name]
+        if isinstance(config, dict):
+            return {
+                "formula_type": config.get("formula_type", "cost_per_unit"),
+                "base_metric": config.get("base_metric", "cost_total")
+            }
+
+    # Defaults
+    return {"formula_type": "cost_per_unit", "base_metric": "cost_total"}
+
+
+def _reverse_calculate_coefficient(
+    metric_value: Decimal,
+    base_metric_value: Decimal,
+    formula_type: str,
+    parameter1: Optional[Decimal]
+) -> Optional[Decimal]:
+    """
+    Reverse-calculate coefficient from metric and base metric values.
+
+    Same logic as exporter's _populate_coefficient_column().
+    """
+    try:
+        if formula_type == "cost_per_unit":
+            coefficient = base_metric_value / metric_value
+            # Special case: For impressions, multiply by 1000 for CPM
+            # Note: metric_name not available here, so caller must handle this
+
+        elif formula_type == "conversion_rate":
+            coefficient = metric_value / base_metric_value
+
+        elif formula_type == "constant":
+            coefficient = metric_value
+
+        elif formula_type == "power_function":
+            if parameter1 is None:
+                parameter1 = Decimal("1.0")
+            if base_metric_value > 0:
+                coefficient = metric_value / (base_metric_value ** parameter1)
+            else:
+                coefficient = Decimal("0")
+
+        else:
+            coefficient = Decimal("0")
+
+        return coefficient
+
+    except (ZeroDivisionError, ValueError, ArithmeticError):
+        return None
+
+
+def _read_coefficient_from_calculated_data(
+    metric_name: str,
+    formula_type: str,
+    calculated_data: Dict[str, float]
+) -> Optional[Decimal]:
+    """
+    Read coefficient from calculated_data (Excel columns).
+
+    Handles special case for impressions CPM (divide by 1000).
+    """
+    from decimal import Decimal
+
+    # Determine calculated column suffix based on formula type
+    if formula_type == "cost_per_unit":
+        suffix = "_cpu"
+    elif formula_type == "conversion_rate":
+        suffix = "_cvr"
+    elif formula_type == "constant":
+        suffix = "_const"
+    elif formula_type == "power_function":
+        suffix = "_coef"
+    else:
+        return None
+
+    calc_key = f"{metric_name}{suffix}"
+
+    if calc_key in calculated_data:
+        coefficient = Decimal(str(calculated_data[calc_key]))
+
+        # Special case: For impressions CPM, divide by 1000 to get actual coefficient
+        # (Export multiplies by 1000 for display, so we reverse it)
+        if metric_name == "metric_impressions" and formula_type == "cost_per_unit":
+            coefficient = coefficient / 1000
+
+        return coefficient
+
+    return None
+
+
 def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
     """
     Import a media plan from an Excel file using v3.0 schema with enhanced data validation.
@@ -413,18 +641,21 @@ def _import_v3_media_plan(workbook: Workbook) -> Dict[str, Any]:
 
         media_plan["campaign"] = campaign
 
-    # Import line items with v3.0 fields (buy fields, new metrics, JSON fields)
-    if "Line Items" in workbook.sheetnames:
-        line_items_sheet = workbook["Line Items"]
-        lineitems = _import_v3_lineitems(line_items_sheet)
-        media_plan["lineitems"] = lineitems
-
-    # Import dictionary configuration (v3.0: 6 sections with formula support)
+    # Import dictionary configuration FIRST (v3.0: 6 sections with formula support)
+    # Dictionary must be imported before line items for formula processing
+    dictionary = {}
     if "Dictionary" in workbook.sheetnames:
         dictionary_sheet = workbook["Dictionary"]
         dictionary = _import_v3_dictionary(dictionary_sheet)
         if dictionary:  # Only include if not empty
             media_plan["dictionary"] = dictionary
+
+    # Import line items with v3.0 fields (buy fields, new metrics, JSON fields)
+    # Pass dictionary for formula-aware import
+    if "Line Items" in workbook.sheetnames:
+        line_items_sheet = workbook["Line Items"]
+        lineitems = _import_v3_lineitems(line_items_sheet, dictionary)
+        media_plan["lineitems"] = lineitems
 
     # Ensure required meta fields with v3.0 format
     _ensure_v3_meta_fields(media_plan["meta"])
@@ -792,15 +1023,16 @@ def _import_v3_target_locations(target_locations_sheet) -> List[Dict[str, Any]]:
     return locations
 
 
-def _import_v3_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
+def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Import line items section with v3.0 fields, including calculated columns for zero budget reconstruction.
+    Import line items section with v3.0 fields, including formula-aware metric_formulas reconstruction.
 
     Args:
         line_items_sheet: The line items worksheet
+        dictionary: Dictionary configuration with formula types and base metrics
 
     Returns:
-        List of line item dictionaries
+        List of line item dictionaries with metric_formulas auto-generated
     """
     # Get headers
     headers = [cell.value for cell in line_items_sheet[1] if cell.value]
@@ -976,6 +1208,78 @@ def _import_v3_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
                     number = metric_part.replace("metric custom ", "").replace("metric custom", "")
                     calculated_field_mapping[header] = f"metric_custom{number}_cpu"
 
+    # Map conversion rate columns: "Clicks Conversion Rate" -> "metric_clicks_cvr"
+    for header in headers:
+        if "Conversion Rate" in header and not header.startswith("_"):
+            # Extract metric name from header (e.g., "Clicks Conversion Rate" -> "Clicks")
+            metric_part = header.replace(" Conversion Rate", "").strip().lower()
+
+            # Map to metric field names
+            metric_name_mapping = {
+                "clicks": "metric_clicks",
+                "views": "metric_views",
+                "view starts": "metric_view_starts",
+                "view completions": "metric_view_completions",
+                "reach": "metric_reach",
+                "units": "metric_units",
+                "engagements": "metric_engagements",
+                "followers": "metric_followers",
+                "visits": "metric_visits",
+                "leads": "metric_leads",
+                "sales": "metric_sales",
+                "add to cart": "metric_add_to_cart",
+                "app install": "metric_app_install",
+                "application start": "metric_application_start",
+                "application complete": "metric_application_complete",
+                "contact us": "metric_contact_us",
+                "download": "metric_download",
+                "signup": "metric_signup",
+                "page views": "metric_page_views",
+                "likes": "metric_likes",
+                "shares": "metric_shares",
+                "comments": "metric_comments",
+                "conversions": "metric_conversions",
+            }
+
+            if metric_part in metric_name_mapping:
+                metric_field = metric_name_mapping[metric_part]
+                calculated_field_mapping[header] = f"{metric_field}_cvr"
+
+            # Handle custom metrics
+            elif "metric custom" in metric_part:
+                number = metric_part.replace("metric custom ", "").replace("metric custom", "").strip()
+                calculated_field_mapping[header] = f"metric_custom{number}_cvr"
+
+    # Map power function coefficient columns: "Reach Coefficient" -> "metric_reach_coef"
+    for header in headers:
+        if "Coefficient" in header and not header.startswith("_") and not "Exchange" in header:
+            # Extract metric name from header (e.g., "Reach Coefficient" -> "Reach")
+            metric_part = header.replace(" Coefficient", "").strip().lower()
+
+            # Use same mapping as above
+            if metric_part in ["reach", "units", "views", "clicks"]:  # Common power function metrics
+                calculated_field_mapping[header] = f"metric_{metric_part}_coef"
+
+            # Handle custom metrics
+            elif "metric custom" in metric_part:
+                number = metric_part.replace("metric custom ", "").replace("metric custom", "").strip()
+                calculated_field_mapping[header] = f"metric_custom{number}_coef"
+
+    # Map power function parameter1 columns: "Reach Parameter 1" -> "metric_reach_param1"
+    for header in headers:
+        if "Parameter 1" in header and not header.startswith("_"):
+            # Extract metric name from header (e.g., "Reach Parameter 1" -> "Reach")
+            metric_part = header.replace(" Parameter 1", "").strip().lower()
+
+            # Use same mapping
+            if metric_part in ["reach", "units", "views", "clicks"]:
+                calculated_field_mapping[header] = f"metric_{metric_part}_param1"
+
+            # Handle custom metrics
+            elif "metric custom" in metric_part:
+                number = metric_part.replace("metric custom ", "").replace("metric custom", "").strip()
+                calculated_field_mapping[header] = f"metric_custom{number}_param1"
+
     # Helper function to handle Excel errors and convert to appropriate values
     def clean_excel_value(cell_value, field_name: str):
         """Clean Excel cell values, converting errors to appropriate defaults."""
@@ -1103,6 +1407,14 @@ def _import_v3_lineitems(line_items_sheet) -> List[Dict[str, Any]]:
         if cost_total == 0 and calculated_data:
             line_item = _reconstruct_zero_budget_breakdown(line_item, calculated_data)
             reconstructed_count += 1
+
+        # FORMULA-AWARE IMPORT: Build metric_formulas from imported data
+        # This overrides any metric_formulas that may have been in the JSON column
+        auto_generated_formulas = _build_metric_formulas_from_import(
+            line_item, calculated_data, dictionary
+        )
+        if auto_generated_formulas:
+            line_item["metric_formulas"] = auto_generated_formulas
 
         lineitems.append(line_item)
 
