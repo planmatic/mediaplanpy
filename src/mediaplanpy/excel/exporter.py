@@ -152,6 +152,508 @@ def _create_v3_workbook() -> Workbook:
     return workbook
 
 
+# ============================================================================
+# Formula-Aware Column Building Helper Functions (NEW for v3.0 formulas)
+# ============================================================================
+
+def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """
+    Get formula configuration from Dictionary for a metric.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        dictionary: Dictionary configuration from media plan
+
+    Returns:
+        Dictionary with formula_type and base_metric, or None if not configured:
+        {
+            "formula_type": "conversion_rate",
+            "base_metric": "metric_impressions"
+        }
+
+    Examples:
+        >>> _get_formula_config("metric_clicks", dictionary)
+        {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+
+        >>> _get_formula_config("metric_impressions", {})
+        None  # No dictionary config, will use defaults
+    """
+    if not dictionary:
+        return None
+
+    # Check standard_metrics first
+    standard_metrics = dictionary.get("standard_metrics", {})
+    if metric_name in standard_metrics:
+        config = standard_metrics[metric_name]
+        # Extract formula_type and base_metric
+        formula_type = getattr(config, 'formula_type', None) if hasattr(config, 'formula_type') else config.get('formula_type')
+        base_metric = getattr(config, 'base_metric', None) if hasattr(config, 'base_metric') else config.get('base_metric')
+
+        if formula_type and base_metric:
+            return {
+                "formula_type": formula_type,
+                "base_metric": base_metric
+            }
+
+    # Check custom_metrics
+    custom_metrics = dictionary.get("custom_metrics", {})
+    if metric_name in custom_metrics:
+        config = custom_metrics[metric_name]
+        # Extract formula_type and base_metric from dict
+        formula_type = config.get('formula_type') if isinstance(config, dict) else None
+        base_metric = config.get('base_metric') if isinstance(config, dict) else None
+
+        if formula_type and base_metric:
+            return {
+                "formula_type": formula_type,
+                "base_metric": base_metric
+            }
+
+    return None
+
+
+def _determine_calculated_columns(
+    metric_name: str,
+    metric_header: str,
+    formula_config: Optional[Dict[str, str]]
+) -> List[Tuple[str, str, str]]:
+    """
+    Determine which calculated columns to create based on formula_type.
+
+    Args:
+        metric_name: Field name (e.g., "metric_clicks")
+        metric_header: Display name (e.g., "Clicks")
+        formula_config: Formula configuration from dictionary, or None for defaults
+
+    Returns:
+        List of (field_name, header_name, field_type) tuples for calculated and metric columns
+
+    Examples:
+        >>> # Default (no config): cost_per_unit
+        >>> _determine_calculated_columns("metric_clicks", "Clicks", None)
+        [("metric_clicks_cpu", "Cost per Click", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+
+        >>> # Conversion rate
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> _determine_calculated_columns("metric_clicks", "Clicks", config)
+        [("metric_clicks_cvr", "Clicks Conversion Rate", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+
+        >>> # Constant
+        >>> config = {"formula_type": "constant", "base_metric": "cost_total"}
+        >>> _determine_calculated_columns("metric_reach", "Reach", config)
+        [("metric_reach_const", "Reach Constant", "calculated"),
+         ("metric_reach", "Reach", "formula")]
+
+        >>> # Power function
+        >>> config = {"formula_type": "power_function", "base_metric": "metric_impressions"}
+        >>> _determine_calculated_columns("metric_custom1", "Metric Custom 1", config)
+        [("metric_custom1_coef", "Metric Custom 1 Coefficient", "calculated"),
+         ("metric_custom1_param1", "Metric Custom 1 Parameter 1", "calculated"),
+         ("metric_custom1", "Metric Custom 1", "formula")]
+    """
+    columns = []
+
+    # Determine formula type (default to cost_per_unit)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+
+    # Generate calculated column names and headers based on formula type
+    if formula_type == "cost_per_unit":
+        # Cost per unit: CPU column
+        calc_field = f"{metric_name}_cpu"
+
+        # Special handling for impressions (CPM)
+        if metric_name == "metric_impressions":
+            calc_header = "Cost per 1000 Impressions"
+        else:
+            # Convert "Clicks" -> "Click", but preserve special cases
+            singular_name = metric_header
+            if singular_name.endswith('s') and singular_name not in ['Views', 'Sales']:
+                singular_name = singular_name.rstrip('s')
+            calc_header = f"Cost per {singular_name}"
+
+        columns.append((calc_field, calc_header, "calculated"))
+
+    elif formula_type == "conversion_rate":
+        # Conversion rate: CVR column
+        calc_field = f"{metric_name}_cvr"
+        calc_header = f"{metric_header} Conversion Rate"
+        columns.append((calc_field, calc_header, "calculated"))
+
+    elif formula_type == "constant":
+        # Constant: No calculated column needed - coefficient goes directly in formula
+        pass
+
+    elif formula_type == "power_function":
+        # Power function: coefficient and parameter1 columns
+        coef_field = f"{metric_name}_coef"
+        coef_header = f"{metric_header} Coefficient"
+        columns.append((coef_field, coef_header, "calculated"))
+
+        param1_field = f"{metric_name}_param1"
+        param1_header = f"{metric_header} Parameter 1"
+        columns.append((param1_field, param1_header, "calculated"))
+
+    # Add the metric column itself (with formula)
+    columns.append((metric_name, metric_header, "formula"))
+
+    return columns
+
+
+def _get_missing_base_metrics(
+    present_metrics: List[Tuple[str, str]],
+    dictionary: Dict[str, Any]
+) -> List[Tuple[str, str]]:
+    """
+    Identify base metrics that are missing but needed for formulas.
+
+    Per Design Decision 1: If a metric has a base_metric that doesn't exist in the
+    line items, add that base_metric column with 0 values.
+
+    Args:
+        present_metrics: List of (field_name, header_name) tuples for metrics present in data
+        dictionary: Dictionary configuration
+
+    Returns:
+        List of (field_name, header_name) tuples for missing base metrics to add
+
+    Example:
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> dictionary = {
+        ...     "standard_metrics": {
+        ...         "metric_clicks": {"formula_type": "conversion_rate", "base_metric": "metric_impressions"},
+        ...         "metric_conversions": {"formula_type": "conversion_rate", "base_metric": "metric_clicks"}
+        ...     }
+        ... }
+        >>> _get_missing_base_metrics(present, dictionary)
+        [("metric_impressions", "Impressions")]  # Missing but needed for clicks formula
+    """
+    if not dictionary:
+        return []
+
+    missing = []
+    present_field_names = {field_name for field_name, _ in present_metrics}
+
+    # Check all present metrics to see if their base_metrics exist
+    for metric_name, _ in present_metrics:
+        formula_config = _get_formula_config(metric_name, dictionary)
+        if formula_config:
+            base_metric = formula_config.get("base_metric")
+            if base_metric and base_metric not in present_field_names:
+                # IMPORTANT: Skip cost fields - they are always added in base section
+                # and should never have formulas. Only add missing metric fields.
+                if base_metric.startswith("cost_"):
+                    logger.debug(f"Skipping cost field {base_metric} - already in base fields")
+                    continue
+
+                # Base metric is missing - need to add it
+                # Generate header name from field name
+                if base_metric.startswith("metric_"):
+                    # Convert metric_impressions -> Impressions
+                    header = base_metric.replace("metric_", "").replace("_", " ").title()
+                else:
+                    # Convert cost_total -> Cost Total
+                    header = base_metric.replace("_", " ").title()
+
+                missing.append((base_metric, header))
+                # Add to present set so we don't add duplicates
+                present_field_names.add(base_metric)
+                logger.info(f"Added missing base metric column: {base_metric}")
+
+    return missing
+
+
+def _populate_coefficient_column(
+    metric_name: str,
+    line_item: Dict[str, Any],
+    formula_config: Optional[Dict[str, str]]
+) -> Optional[Decimal]:
+    """
+    Calculate coefficient value to populate in Excel calculated column.
+
+    This function either retrieves the coefficient from lineitem.metric_formulas,
+    or reverse-calculates it from the metric and base metric values.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        line_item: Line item data dictionary
+        formula_config: Formula configuration with formula_type and base_metric
+
+    Returns:
+        Decimal coefficient value, or None if cannot be calculated
+
+    Examples:
+        >>> # Has formula with coefficient
+        >>> line_item = {
+        ...     "metric_clicks": 20000,
+        ...     "metric_formulas": {
+        ...         "metric_clicks": {"coefficient": Decimal("0.02")}
+        ...     }
+        ... }
+        >>> _populate_coefficient_column("metric_clicks", line_item, config)
+        Decimal("0.02")
+
+        >>> # No formula, reverse-calculate from values (conversion_rate)
+        >>> line_item = {
+        ...     "metric_clicks": 20000,
+        ...     "metric_impressions": 1000000
+        ... }
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> _populate_coefficient_column("metric_clicks", line_item, config)
+        Decimal("0.02")  # 20000 / 1000000
+    """
+    # Step 1: Check if formula exists in lineitem with coefficient
+    metric_formulas = line_item.get("metric_formulas", {})
+    if metric_formulas and metric_name in metric_formulas:
+        formula = metric_formulas[metric_name]
+        if isinstance(formula, dict):
+            coefficient = formula.get("coefficient")
+            formula_type_from_formula = formula.get("formula_type")
+        else:
+            # MetricFormula object
+            coefficient = getattr(formula, "coefficient", None)
+            formula_type_from_formula = getattr(formula, "formula_type", None)
+
+        if coefficient is not None:
+            # Convert to Decimal if needed
+            if not isinstance(coefficient, Decimal):
+                coefficient = Decimal(str(coefficient))
+
+            # Special case: For impressions with cost_per_unit, multiply by 1000 to show CPM
+            if metric_name == "metric_impressions" and formula_type_from_formula == "cost_per_unit":
+                coefficient = coefficient * 1000
+
+            return coefficient
+
+    # Step 2: Reverse-calculate from metric and base metric values
+    metric_value = line_item.get(metric_name)
+    if metric_value is None or metric_value == 0:
+        return Decimal("0")
+
+    # Convert to Decimal
+    if not isinstance(metric_value, Decimal):
+        metric_value = Decimal(str(metric_value))
+
+    # Get formula type and base metric (default to cost_per_unit/cost_total)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+        base_metric_name = "cost_total"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+        base_metric_name = formula_config.get("base_metric", "cost_total")
+
+    # Get base metric value
+    base_metric_value = line_item.get(base_metric_name)
+    if base_metric_value is None or base_metric_value == 0:
+        return Decimal("0")
+
+    # Convert to Decimal
+    if not isinstance(base_metric_value, Decimal):
+        base_metric_value = Decimal(str(base_metric_value))
+
+    # Reverse-calculate coefficient based on formula type
+    try:
+        if formula_type == "cost_per_unit":
+            # coefficient = base / metric
+            coefficient = base_metric_value / metric_value
+
+            # Special case: For impressions, multiply by 1000 to show CPM
+            # (Cost Per Mille = cost per 1000 impressions)
+            if metric_name == "metric_impressions":
+                coefficient = coefficient * 1000
+
+        elif formula_type == "conversion_rate":
+            # coefficient = metric / base
+            coefficient = metric_value / base_metric_value
+
+        elif formula_type == "constant":
+            # coefficient = metric (constant value)
+            coefficient = metric_value
+
+        elif formula_type == "power_function":
+            # coefficient = metric / (base ^ parameter1)
+            # Get parameter1 from formula or default to 1.0
+            parameter1 = Decimal("1.0")
+            if metric_formulas and metric_name in metric_formulas:
+                formula = metric_formulas[metric_name]
+                if isinstance(formula, dict):
+                    param1 = formula.get("parameter1")
+                else:
+                    param1 = getattr(formula, "parameter1", None)
+
+                if param1 is not None:
+                    parameter1 = Decimal(str(param1))
+
+            # Calculate: coefficient = metric / (base ^ param1)
+            if base_metric_value > 0:
+                coefficient = metric_value / (base_metric_value ** parameter1)
+            else:
+                coefficient = Decimal("0")
+
+        else:
+            # Unknown formula type, default to 0
+            coefficient = Decimal("0")
+
+        return coefficient
+
+    except (ZeroDivisionError, ValueError, ArithmeticError):
+        # Handle any calculation errors
+        return Decimal("0")
+
+
+def _get_parameter1_value(
+    metric_name: str,
+    line_item: Dict[str, Any]
+) -> Decimal:
+    """
+    Get parameter1 value for power_function formulas.
+
+    Args:
+        metric_name: Name of the metric
+        line_item: Line item data dictionary
+
+    Returns:
+        Decimal parameter1 value, defaults to 1.0 if not found
+    """
+    metric_formulas = line_item.get("metric_formulas", {})
+    if metric_formulas and metric_name in metric_formulas:
+        formula = metric_formulas[metric_name]
+        if isinstance(formula, dict):
+            param1 = formula.get("parameter1")
+        else:
+            param1 = getattr(formula, "parameter1", None)
+
+        if param1 is not None:
+            if not isinstance(param1, Decimal):
+                return Decimal(str(param1))
+            return param1
+
+    return Decimal("1.0")
+
+
+def _generate_excel_formula(
+    metric_name: str,
+    formula_config: Optional[Dict[str, str]],
+    column_refs: Dict[str, str],
+    line_item: Dict[str, Any]
+) -> str:
+    """
+    Generate Excel formula string based on formula_type and base_metric.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        formula_config: Formula configuration with formula_type and base_metric
+        column_refs: Dictionary mapping field names to Excel column references
+            Example: {"cost_total": "$C5", "metric_impressions": "$B5", "metric_clicks_cvr": "$D5"}
+        line_item: Line item data dictionary (needed for constant formula coefficient)
+
+    Returns:
+        Excel formula string (e.g., "=IF($D5=0,0,$B5*$D5)")
+
+    Examples:
+        >>> # Cost per unit (default)
+        >>> config = None
+        >>> refs = {"cost_total": "$C5", "metric_clicks_cpu": "$D5"}
+        >>> _generate_excel_formula("metric_clicks", config, refs)
+        "=IF($D5=0,0,$C5/$D5)"
+
+        >>> # Conversion rate
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> refs = {"metric_impressions": "$B5", "metric_clicks_cvr": "$D5"}
+        >>> _generate_excel_formula("metric_clicks", config, refs)
+        "=IF($D5=0,0,$B5*$D5)"
+
+        >>> # Constant
+        >>> config = {"formula_type": "constant", "base_metric": "cost_total"}
+        >>> refs = {"metric_reach_const": "$D5"}
+        >>> _generate_excel_formula("metric_reach", config, refs)
+        "=$D5"
+
+        >>> # Power function
+        >>> config = {"formula_type": "power_function", "base_metric": "metric_impressions"}
+        >>> refs = {"metric_impressions": "$B5", "metric_custom1_coef": "$D5", "metric_custom1_param1": "$E5"}
+        >>> _generate_excel_formula("metric_custom1", config, refs)
+        "=IF($B5=0,0,$D5*($B5^$E5))"
+    """
+    # Determine formula type (default to cost_per_unit)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+        base_metric = "cost_total"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+        base_metric = formula_config.get("base_metric", "cost_total")
+
+    # Get base metric column reference
+    base_ref = column_refs.get(base_metric)
+    if not base_ref:
+        # Base metric column doesn't exist - return empty string
+        logger.warning(f"Base metric '{base_metric}' not found in column references for {metric_name}")
+        return ""
+
+    # Generate formula based on type
+    if formula_type == "cost_per_unit":
+        # Formula: metric = base / coefficient
+        # Excel: =IF(coefficient=0, 0, base/coefficient)
+        coef_field = f"{metric_name}_cpu"
+        coef_ref = column_refs.get(coef_field, "")
+
+        if not coef_ref:
+            return ""
+
+        # Special case for impressions (multiply by 1000 for CPM)
+        if metric_name == "metric_impressions":
+            formula = f"=IF({coef_ref}=0,0,{base_ref}/{coef_ref}*1000)"
+        else:
+            formula = f"=IF({coef_ref}=0,0,{base_ref}/{coef_ref})"
+
+    elif formula_type == "conversion_rate":
+        # Formula: metric = base * coefficient
+        # Excel: =IF(coefficient=0, 0, base*coefficient)
+        coef_field = f"{metric_name}_cvr"
+        coef_ref = column_refs.get(coef_field, "")
+
+        if not coef_ref:
+            return ""
+
+        formula = f"=IF({coef_ref}=0,0,{base_ref}*{coef_ref})"
+
+    elif formula_type == "constant":
+        # Formula: metric = coefficient (constant value)
+        # Excel: ={coefficient_value} directly (no column reference)
+        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+
+        if coefficient is None or coefficient == 0:
+            formula = "=0"
+        else:
+            # Format the coefficient value in the formula
+            formula = f"={float(coefficient)}"
+
+    elif formula_type == "power_function":
+        # Formula: metric = coefficient * (base ^ parameter1)
+        # Excel: =IF(base=0, 0, coefficient*(base^parameter1))
+        coef_field = f"{metric_name}_coef"
+        param1_field = f"{metric_name}_param1"
+
+        coef_ref = column_refs.get(coef_field, "")
+        param1_ref = column_refs.get(param1_field, "")
+
+        if not coef_ref or not param1_ref:
+            return ""
+
+        formula = f"=IF({base_ref}=0,0,{coef_ref}*({base_ref}^{param1_ref}))"
+
+    else:
+        # Unknown formula type
+        logger.warning(f"Unknown formula type '{formula_type}' for {metric_name}")
+        return ""
+
+    return formula
+
+
 def _create_v3_styles(workbook: Workbook) -> None:
     """
     Create styles for v3.0 Excel export including formula column styling.
@@ -219,7 +721,7 @@ def _populate_v3_workbook(workbook: Workbook, media_plan: Dict[str, Any], includ
     _populate_v3_campaign_sheet(workbook["Campaign"], campaign)
     _populate_v3_target_audiences_sheet(workbook["Target Audiences"], campaign)  # NEW for v3.0
     _populate_v3_target_locations_sheet(workbook["Target Locations"], campaign)  # NEW for v3.0
-    _populate_v3_lineitems_sheet(workbook["Line Items"], line_items)
+    _populate_v3_lineitems_sheet(workbook["Line Items"], line_items, dictionary)  # Pass dictionary for formula-aware export
     _populate_v3_dictionary_sheet(workbook["Dictionary"], dictionary)
 
     # Populate documentation sheet if needed
@@ -524,13 +1026,18 @@ def _populate_v3_target_locations_sheet(sheet, campaign: Dict[str, Any]) -> None
     logger.info(f"Exported {len(target_locations)} target location(s) to Target Locations sheet")
 
 
-def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
+def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictionary: Dict[str, Any]) -> None:
     """
-    Populate the line items sheet with v3.0 schema data including dynamic calculated columns.
+    Populate the line items sheet with v3.0 schema data including formula-aware calculated columns.
+
+    This function creates Excel formulas that match the formula_type and base_metric
+    configurations in the Dictionary. For metrics with no Dictionary configuration,
+    defaults to cost_per_unit formulas.
 
     Args:
         sheet: The worksheet to populate
         line_items: List of line item data
+        dictionary: Dictionary configuration with formula definitions
     """
     # Determine which fields are actually present in line items
     fields_present = set()
@@ -674,25 +1181,24 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         # Add actual cost column
         dynamic_field_order.append((field_name, header_name, "formula"))
 
-    # Add performance fields with calculated columns
+    # FORMULA-AWARE: Add missing base metrics if needed (Design Decision 1)
+    missing_base_metrics = _get_missing_base_metrics(present_performance_fields, dictionary)
+    for missing_field, missing_header in missing_base_metrics:
+        # Add as base column (will be populated with 0 values)
+        # Note: Do NOT add to present_performance_fields to avoid duplicate processing
+        dynamic_field_order.append((missing_field, missing_header, "base"))
+
+    # FORMULA-AWARE: Add performance fields with calculated columns based on Dictionary config
     for field_name, header_name in present_performance_fields:
-        # Add cost-per-unit column before actual metric column
-        calc_field_name = f"{field_name}_cpu"
+        # Get formula configuration from Dictionary
+        formula_config = _get_formula_config(field_name, dictionary)
 
-        # Special handling for impressions (CPM)
-        if field_name == "metric_impressions":
-            calc_header_name = "Cost per 1000 Impressions"
-        else:
-            # Convert metric_clicks -> Cost per Click, etc.
-            metric_name = header_name  # Already clean (e.g., "Clicks")
-            if metric_name.endswith('s') and metric_name not in ['Views', 'Sales']:
-                metric_name = metric_name.rstrip('s')  # Remove plural 's'
-            calc_header_name = f"Cost per {metric_name}"
+        # Determine which calculated columns to create based on formula_type
+        columns_to_add = _determine_calculated_columns(field_name, header_name, formula_config)
 
-        dynamic_field_order.append((calc_field_name, calc_header_name, "calculated"))
-
-        # Add actual metric column
-        dynamic_field_order.append((field_name, header_name, "formula"))
+        # Add all columns (calculated + metric)
+        for col_field, col_header, col_type in columns_to_add:
+            dynamic_field_order.append((col_field, col_header, col_type))
 
     # Add remaining metric fields that don't get calculated columns
     remaining_metrics = [
@@ -763,14 +1269,19 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                 else:
                     sheet.cell(row=row_idx, column=col_idx, value=value)
 
-        # Second pass: populate calculated columns and formulas
+        # Second pass: populate calculated columns and formulas (FORMULA-AWARE)
         cost_total_value = line_item.get("cost_total", 0)
         cost_total_cell_ref = f"{get_column_letter(cost_total_col)}{row_idx}" if cost_total_col else "0"
+
+        # Build column reference map for formula generation
+        column_refs = {}
+        for idx, (fname, _, _) in enumerate(dynamic_field_order, 1):
+            column_refs[fname] = f"${get_column_letter(idx)}{row_idx}"
 
         for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
             if field_type == "calculated":
                 if field_name.endswith("_pct"):
-                    # Cost percentage calculation
+                    # Cost percentage calculation (unchanged)
                     base_field = field_name.replace("_pct", "")
                     cost_value = line_item.get(base_field, 0)
 
@@ -782,27 +1293,50 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                     cell = sheet.cell(row=row_idx, column=col_idx, value=percentage)
                     cell.number_format = '0.0%'  # Percentage format with 1 decimal place
 
-                elif field_name.endswith("_cpu"):
-                    # Cost-per-unit calculation
-                    base_field = field_name.replace("_cpu", "")
-                    metric_value = line_item.get(base_field, 0)
+                elif field_name.endswith(("_cpu", "_cvr", "_coef")):
+                    # FORMULA-AWARE: Coefficient column (CPU, CVR, or Power Coefficient)
+                    # Extract metric name from calculated field name
+                    if field_name.endswith("_cpu"):
+                        metric_name = field_name.replace("_cpu", "")
+                    elif field_name.endswith("_cvr"):
+                        metric_name = field_name.replace("_cvr", "")
+                    elif field_name.endswith("_coef"):
+                        metric_name = field_name.replace("_coef", "")
 
-                    if metric_value and metric_value != 0:
-                        if base_field == "metric_impressions":
-                            # CPM calculation (cost per 1000 impressions)
-                            cpu_value = (cost_total_value / metric_value) * 1000
+                    # Get formula config and calculate coefficient
+                    formula_config = _get_formula_config(metric_name, dictionary)
+                    coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+
+                    if coefficient is not None:
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=float(coefficient))
+                        # Apply appropriate format based on formula type
+                        if field_name.endswith("_cvr"):
+                            cell.number_format = '0.00%'  # Percentage format for conversion rates
+                        elif field_name.endswith("_cpu"):
+                            cell.number_format = '$#,##0.00'  # Currency format for cost per unit
                         else:
-                            cpu_value = cost_total_value / metric_value
+                            cell.number_format = '0.0000'  # 4 decimal places (Decision 4)
                     else:
-                        cpu_value = 0
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=0)
+                        # Apply appropriate format based on formula type
+                        if field_name.endswith("_cvr"):
+                            cell.number_format = '0.00%'
+                        elif field_name.endswith("_cpu"):
+                            cell.number_format = '$#,##0.00'  # Currency format for cost per unit
+                        else:
+                            cell.number_format = '0.0000'
 
-                    cell = sheet.cell(row=row_idx, column=col_idx, value=cpu_value)
-                    cell.number_format = '$0.00'
-                    # cell.style = "currency_style"
+                elif field_name.endswith("_param1"):
+                    # FORMULA-AWARE: Parameter1 column for power_function
+                    metric_name = field_name.replace("_param1", "")
+                    parameter1 = _get_parameter1_value(metric_name, line_item)
+
+                    cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter1))
+                    cell.number_format = '0.0000'  # 4 decimal places
 
             elif field_type == "formula":
                 if field_name.startswith("cost_") and field_name != "cost_total" and field_name != "cost_currency":
-                    # Cost field formula: cost_total * percentage
+                    # Cost field formula: cost_total * percentage (unchanged)
                     pct_col_idx = None
                     for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
                         if fname == f"{field_name}_pct":
@@ -818,26 +1352,20 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                         cell.font = Font(color="808080")  # Grey color
 
                 elif field_name.startswith("metric_"):
-                    # Performance metric formula
-                    cpu_col_idx = None
-                    for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
-                        if fname == f"{field_name}_cpu":
-                            cpu_col_idx = idx
-                            break
+                    # FORMULA-AWARE: Performance metric formula
+                    formula_config = _get_formula_config(field_name, dictionary)
+                    formula = _generate_excel_formula(field_name, formula_config, column_refs, line_item)
 
-                    if cpu_col_idx:
-                        cpu_cell_ref = f"{get_column_letter(cpu_col_idx)}{row_idx}"
-
-                        if field_name == "metric_impressions":
-                            # Special formula for impressions (divide by 1000 since CPU is per 1000)
-                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref}*1000)"
-                        else:
-                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref})"
-
+                    if formula:
                         cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
                         # Apply grey font formatting and comma separator for formula columns
                         cell.font = Font(color="808080")  # Grey color
                         cell.number_format = "#,##0"  # Thousand comma separator, no decimals
+                    else:
+                        # Formula generation failed - show metric value directly
+                        metric_value = line_item.get(field_name, 0)
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
+                        cell.number_format = "#,##0"
 
             elif field_type == "json":
                 # NEW v3.0: Handle JSON fields (metric_formulas, custom_properties)
