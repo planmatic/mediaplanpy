@@ -92,13 +92,56 @@ def target_location_northeast():
 
 
 @pytest.fixture
-def metric_formula_cpm():
-    """Create a sample MetricFormula for CPM calculation."""
+def metric_formula_impressions():
+    """
+    Create a sample MetricFormula for calculating impressions from cost.
+
+    This formula calculates impressions using cost_per_unit (CPU) method:
+    impressions = cost_total / coefficient
+
+    With coefficient=0.008 (CPU), this represents a CPM of $8.00.
+    """
     return MetricFormula(
         formula_type="cost_per_unit",
         base_metric="cost_total",
-        coefficient=1000.0,
-        comments="CPM = (cost_total / impressions) * 1000"
+        coefficient=Decimal("0.008"),  # CPU $0.008 = CPM $8.00
+        comments="Premium inventory CPM $8.00"
+    )
+
+
+@pytest.fixture
+def metric_formula_clicks():
+    """
+    Create a sample MetricFormula for calculating clicks from impressions.
+
+    This formula calculates clicks using conversion_rate method:
+    clicks = impressions * coefficient
+
+    With coefficient=0.025, this represents a 2.5% CTR.
+    """
+    return MetricFormula(
+        formula_type="conversion_rate",
+        base_metric="metric_impressions",
+        coefficient=Decimal("0.025"),  # 2.5% CTR
+        comments="Expected CTR for display ads"
+    )
+
+
+@pytest.fixture
+def metric_formula_conversions():
+    """
+    Create a sample MetricFormula for calculating conversions from clicks.
+
+    This formula calculates conversions using conversion_rate method:
+    conversions = clicks * coefficient
+
+    With coefficient=0.10, this represents a 10% conversion rate.
+    """
+    return MetricFormula(
+        formula_type="conversion_rate",
+        base_metric="metric_clicks",
+        coefficient=Decimal("0.10"),  # 10% conversion rate
+        comments="Landing page conversion rate"
     )
 
 
@@ -160,8 +203,8 @@ def lineitem_v3_minimal():
 
 
 @pytest.fixture
-def lineitem_v3_full(metric_formula_cpm):
-    """Create a complete v3.0 LineItem with all optional fields."""
+def lineitem_v3_full(metric_formula_impressions, metric_formula_clicks):
+    """Create a complete v3.0 LineItem with all optional fields and formulas."""
     return LineItem(
         id="LI002",
         name="Complete Line Item",
@@ -193,8 +236,11 @@ def lineitem_v3_full(metric_formula_cpm):
         metric_likes=Decimal("5000"),
         metric_shares=Decimal("1200"),
         metric_comments=Decimal("800"),
-        # v3.0 metric formulas
-        metric_formulas={"cpm": metric_formula_cpm},
+        # v3.0 metric formulas (keys match metric field names)
+        metric_formulas={
+            "metric_impressions": metric_formula_impressions,
+            "metric_clicks": metric_formula_clicks
+        },
         # v3.0 custom properties
         custom_properties={"campaign_type": "awareness", "creative_rotation": "optimized"}
     )
@@ -219,7 +265,7 @@ def meta_v3():
 
 @pytest.fixture
 def dictionary_v3():
-    """Create a v3.0 Dictionary with renamed field."""
+    """Create a v3.0 Dictionary with custom dimensions only (no formulas)."""
     return Dictionary(
         lineitem_custom_dimensions={
             "dim_custom1": {"status": "enabled", "caption": "Placement Type"},
@@ -236,6 +282,53 @@ def dictionary_v3():
 
 
 @pytest.fixture
+def dictionary_with_formulas():
+    """
+    Create a v3.0 Dictionary with formula definitions.
+
+    This dictionary defines the formula types and base metrics for standard metrics,
+    enabling automatic recalculation through dependency chains:
+    cost_total → impressions → clicks → conversions
+    """
+    from mediaplanpy.models.dictionary import MetricFormulaConfig
+
+    return Dictionary(
+        standard_metrics={
+            "metric_impressions": MetricFormulaConfig(
+                formula_type="cost_per_unit",
+                base_metric="cost_total"
+            ),
+            "metric_clicks": MetricFormulaConfig(
+                formula_type="conversion_rate",
+                base_metric="metric_impressions"
+            ),
+            "metric_conversions": MetricFormulaConfig(
+                formula_type="conversion_rate",
+                base_metric="metric_clicks"
+            ),
+            "metric_reach": MetricFormulaConfig(
+                formula_type="conversion_rate",
+                base_metric="metric_impressions"
+            )
+        },
+        custom_metrics={
+            "metric_custom1": {
+                "status": "enabled",
+                "caption": "Custom Metric 1",
+                "formula_type": "power_function",
+                "base_metric": "metric_impressions"
+            },
+            "metric_custom2": {
+                "status": "enabled",
+                "caption": "Custom Metric 2",
+                "formula_type": "constant",
+                "base_metric": None
+            }
+        }
+    )
+
+
+@pytest.fixture
 def mediaplan_v3_minimal(meta_v3, campaign_v3_minimal, lineitem_v3_minimal):
     """Create a minimal v3.0 MediaPlan."""
     return MediaPlan(
@@ -247,12 +340,59 @@ def mediaplan_v3_minimal(meta_v3, campaign_v3_minimal, lineitem_v3_minimal):
 
 @pytest.fixture
 def mediaplan_v3_full(meta_v3, campaign_v3_full, lineitem_v3_full, dictionary_v3):
-    """Create a complete v3.0 MediaPlan with all features."""
+    """Create a complete v3.0 MediaPlan with all features (no formulas)."""
     return MediaPlan(
         meta=meta_v3,
         campaign=campaign_v3_full,
         lineitems=[lineitem_v3_full],
         dictionary=dictionary_v3
+    )
+
+
+@pytest.fixture
+def mediaplan_with_formulas(
+    meta_v3,
+    campaign_v3_minimal,
+    dictionary_with_formulas,
+    metric_formula_impressions,
+    metric_formula_clicks,
+    metric_formula_conversions
+):
+    """
+    Create a v3.0 MediaPlan with complete formula configuration.
+
+    This mediaplan demonstrates:
+    - Dictionary with formula definitions (formula_type, base_metric)
+    - LineItems with formula instances (coefficients, parameters)
+    - Complete dependency chain: cost_total → impressions → clicks → conversions
+    - Ready for testing auto-recalculation functionality
+    """
+    lineitem_with_formulas = LineItem(
+        id="LI_FORMULAS",
+        name="LineItem with Complete Formula Chain",
+        start_date=date(2025, 1, 1),
+        end_date=date(2025, 3, 31),
+        cost_total=Decimal("10000"),
+        channel="display",
+        vehicle="Programmatic",
+        partner="DSP Partner",
+        # Initial metric values
+        metric_impressions=Decimal("1250000"),
+        metric_clicks=Decimal("31250"),
+        metric_conversions=Decimal("3125"),
+        # Formula instances with coefficients
+        metric_formulas={
+            "metric_impressions": metric_formula_impressions,
+            "metric_clicks": metric_formula_clicks,
+            "metric_conversions": metric_formula_conversions
+        }
+    )
+
+    return MediaPlan(
+        meta=meta_v3,
+        campaign=campaign_v3_minimal,
+        lineitems=[lineitem_with_formulas],
+        dictionary=dictionary_with_formulas
     )
 
 

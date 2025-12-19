@@ -691,14 +691,18 @@ class LineItem(BaseModel):
         from decimal import Decimal, InvalidOperation
         from mediaplanpy.models.dictionary import Dictionary
 
-        # Get formula definition from dictionary
-        formula_def = dictionary.get_metric_formula_definition(metric_name)
-        if formula_def is None:
-            # Metric has no formula definition
-            return None
+        # Get formula definition from dictionary (or use defaults)
+        formula_def = None
+        if dictionary:
+            formula_def = dictionary.get_metric_formula_definition(metric_name)
 
-        formula_type = formula_def.get("formula_type", "cost_per_unit")
-        base_metric = formula_def.get("base_metric", "cost_total")
+        # Use defaults if no formula definition exists
+        if formula_def is None:
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
+        else:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
 
         # Get coefficient and parameters from lineitem's metric_formulas
         coefficient = Decimal("0")
@@ -789,14 +793,18 @@ class LineItem(BaseModel):
         from decimal import Decimal, InvalidOperation
         from mediaplanpy.models.dictionary import Dictionary
 
-        # Get formula definition from dictionary
-        formula_def = dictionary.get_metric_formula_definition(metric_name)
-        if formula_def is None:
-            # Metric has no formula definition
-            return None
+        # Get formula definition from dictionary (or use defaults)
+        formula_def = None
+        if dictionary:
+            formula_def = dictionary.get_metric_formula_definition(metric_name)
 
-        formula_type = formula_def.get("formula_type", "cost_per_unit")
-        base_metric = formula_def.get("base_metric", "cost_total")
+        # Use defaults if no formula definition exists
+        if formula_def is None:
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
+        else:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
 
         # Ensure metric_value is a Decimal
         if not isinstance(metric_value, Decimal):
@@ -866,6 +874,78 @@ class LineItem(BaseModel):
             # Calculation failed, return None
             return None
 
+    def _update_dependent_coefficients(
+        self,
+        metric_name: str,
+        dictionary: "Dictionary"
+    ) -> None:
+        """
+        Update coefficients for metrics that depend on metric_name.
+
+        Called BEFORE changing a base metric value to ensure dependent metrics
+        without formulas get their coefficients calculated and stored using the
+        CURRENT (old) base metric value.
+
+        Critical for workflow: preserve coefficients → change base → recalculate
+
+        Args:
+            metric_name: Base metric being changed (e.g., "cost_total")
+            dictionary: Dictionary containing formula definitions
+        """
+        from mediaplanpy.models.metric_formula import MetricFormula
+
+        # Get dependency graph
+        relevant_metrics = self._get_relevant_metrics()
+        if dictionary is None:
+            dependency_graph = {}
+            if relevant_metrics:
+                dependency_graph["cost_total"] = relevant_metrics
+        else:
+            dependency_graph = dictionary.get_dependency_graph(relevant_metrics=relevant_metrics)
+
+        # Find metrics that depend on the one being changed
+        dependent_metrics = dependency_graph.get(metric_name, set())
+
+        for dependent_metric in dependent_metrics:
+            # Skip if formula already exists
+            if self.metric_formulas and dependent_metric in self.metric_formulas:
+                continue
+
+            # Get current value of dependent metric
+            dependent_value = getattr(self, dependent_metric, None)
+            if dependent_value is None or dependent_value == 0:
+                continue
+
+            # Reverse-calculate coefficient from current values
+            coefficient = self._reverse_calculate_coefficient(
+                dependent_metric,
+                dependent_value,
+                dictionary
+            )
+
+            if coefficient is not None and coefficient != 0:
+                # Create formula with calculated coefficient
+                if self.metric_formulas is None:
+                    self.metric_formulas = {}
+
+                # Get formula definition (or use defaults)
+                formula_def = None
+                if dictionary:
+                    formula_def = dictionary.get_metric_formula_definition(dependent_metric)
+
+                if formula_def:
+                    formula_type = formula_def.get("formula_type", "cost_per_unit")
+                    base_metric_name = formula_def.get("base_metric", "cost_total")
+                else:
+                    formula_type = "cost_per_unit"
+                    base_metric_name = "cost_total"
+
+                self.metric_formulas[dependent_metric] = MetricFormula(
+                    formula_type=formula_type,
+                    base_metric=base_metric_name,
+                    coefficient=coefficient
+                )
+
     def _recalculate_dependent_metrics(
         self,
         start_metrics: List[str],
@@ -900,7 +980,14 @@ class LineItem(BaseModel):
         relevant_metrics = self._get_relevant_metrics()
 
         # Get dependency graph from dictionary, filtered by relevant metrics
-        dependency_graph = dictionary.get_dependency_graph(relevant_metrics=relevant_metrics)
+        # If no dictionary, use default: all metrics depend on cost_total with cost_per_unit
+        if dictionary is None:
+            # Build default dependency graph: cost_total -> all relevant metrics
+            dependency_graph = {}
+            if relevant_metrics:
+                dependency_graph["cost_total"] = relevant_metrics
+        else:
+            dependency_graph = dictionary.get_dependency_graph(relevant_metrics=relevant_metrics)
 
         # Perform topological sort to determine calculation order
         try:
@@ -983,6 +1070,11 @@ class LineItem(BaseModel):
         if not isinstance(value, Decimal):
             value = Decimal(str(value))
 
+        # CRITICAL: Update coefficients for dependents BEFORE changing the value
+        # This preserves coefficients using the CURRENT (old) value of the base metric
+        if recalculate_dependents:
+            self._update_dependent_coefficients(metric_name, dictionary)
+
         # Set the metric value
         setattr(self, metric_name, value)
 
@@ -1002,13 +1094,23 @@ class LineItem(BaseModel):
                 else:
                     # Create new formula with calculated coefficient
                     from mediaplanpy.models.metric_formula import MetricFormula
-                    formula_def = dictionary.get_metric_formula_definition(metric_name)
+                    formula_def = None
+                    if dictionary:
+                        formula_def = dictionary.get_metric_formula_definition(metric_name)
+
+                    # Use formula_def if exists, otherwise use defaults
                     if formula_def:
-                        self.metric_formulas[metric_name] = MetricFormula(
-                            formula_type=formula_def.get("formula_type"),
-                            base_metric=formula_def.get("base_metric"),
-                            coefficient=new_coefficient
-                        )
+                        formula_type = formula_def.get("formula_type", "cost_per_unit")
+                        base_metric = formula_def.get("base_metric", "cost_total")
+                    else:
+                        formula_type = "cost_per_unit"
+                        base_metric = "cost_total"
+
+                    self.metric_formulas[metric_name] = MetricFormula(
+                        formula_type=formula_type,
+                        base_metric=base_metric,
+                        coefficient=new_coefficient
+                    )
 
         # Optionally recalculate dependent metrics
         if recalculate_dependents:
@@ -1017,7 +1119,7 @@ class LineItem(BaseModel):
         
         return {}
 
-    def set_metric_formula(
+    def configure_metric_formula(
         self,
         metric_name: str,
         coefficient: Optional[Decimal] = None,
@@ -1028,14 +1130,14 @@ class LineItem(BaseModel):
         recalculate_dependents: bool = True
     ) -> Dict[str, Decimal]:
         """
-        Set or update formula parameters for a metric.
+        Configure formula parameters for a metric.
 
-        This method allows updating the coefficient, parameter1, parameter2, and
+        This method allows configuring the coefficient, parameter1, parameter2, and
         comments for a metric's formula. The formula_type and base_metric are
-        managed at the dictionary level and cannot be changed here.
+        managed at the dictionary level via mediaplan.select_metric_formula().
 
         Args:
-            metric_name: Name of the metric to update formula for
+            metric_name: Name of the metric to configure formula for
             coefficient: New coefficient value (None = no change)
             parameter1: New parameter1 value (None = no change)
             parameter2: New parameter2 value (None = no change)
@@ -1056,14 +1158,14 @@ class LineItem(BaseModel):
             >>> mediaplan = MediaPlan(...)
             >>> lineitem = mediaplan.lineitems[0]
             >>>
-            >>> # Update CPM coefficient for impressions
-            >>> lineitem.set_metric_formula("metric_impressions", 
-            ...                             coefficient=Decimal("0.010"))
+            >>> # Configure CPM coefficient for impressions
+            >>> lineitem.configure_metric_formula("metric_impressions",
+            ...                                    coefficient=Decimal("0.010"))
             {"metric_impressions": Decimal("1000000"), "metric_conversions": Decimal("10")}
             >>>
-            >>> # Update power function parameter
-            >>> lineitem.set_metric_formula("metric_custom1",
-            ...                             parameter1=Decimal("0.5"))
+            >>> # Configure power function parameter
+            >>> lineitem.configure_metric_formula("metric_custom1",
+            ...                                    parameter1=Decimal("0.5"))
         """
         from decimal import Decimal
         from mediaplanpy.models.metric_formula import MetricFormula
@@ -1078,13 +1180,19 @@ class LineItem(BaseModel):
                 f"Metric must be a valid LineItem attribute."
             )
 
-        # Get formula definition from dictionary (for formula_type and base_metric)
-        formula_def = dictionary.get_metric_formula_definition(metric_name)
-        if formula_def is None:
-            raise ValueError(
-                f"Metric '{metric_name}' has no formula definition in the dictionary. "
-                f"Cannot set formula parameters."
-            )
+        # Get formula definition from dictionary (or use defaults)
+        formula_def = None
+        if dictionary:
+            formula_def = dictionary.get_metric_formula_definition(metric_name)
+
+        # Extract formula_type and base_metric (or use defaults)
+        if formula_def:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
+        else:
+            # Use defaults when no dictionary or no formula definition
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
 
         # Initialize metric_formulas dict if needed
         if self.metric_formulas is None:
@@ -1103,10 +1211,10 @@ class LineItem(BaseModel):
             if comments is not None:
                 formula.comments = comments
         else:
-            # Create new formula with dictionary's formula_type and base_metric
+            # Create new formula with formula_type and base_metric (from dictionary or defaults)
             self.metric_formulas[metric_name] = MetricFormula(
-                formula_type=formula_def.get("formula_type"),
-                base_metric=formula_def.get("base_metric"),
+                formula_type=formula_type,
+                base_metric=base_metric,
                 coefficient=Decimal(str(coefficient)) if coefficient is not None else None,
                 parameter1=Decimal(str(parameter1)) if parameter1 is not None else None,
                 parameter2=Decimal(str(parameter2)) if parameter2 is not None else None,
@@ -1170,15 +1278,19 @@ class LineItem(BaseModel):
         # Get metric value
         value = getattr(self, metric_name, None)
 
-        # Get formula definition from dictionary
-        formula_def = dictionary.get_metric_formula_definition(metric_name)
+        # Get formula definition from dictionary (or use defaults)
+        formula_def = None
+        if dictionary:
+            formula_def = dictionary.get_metric_formula_definition(metric_name)
 
-        # Extract formula_type and base_metric from dictionary
-        formula_type = None
-        base_metric = None
+        # Extract formula_type and base_metric from dictionary or use defaults
         if formula_def:
-            formula_type = formula_def.get("formula_type")
-            base_metric = formula_def.get("base_metric")
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
+        else:
+            # Use defaults when no formula definition exists
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
 
         # Get formula parameters from lineitem's metric_formulas
         coefficient = None
