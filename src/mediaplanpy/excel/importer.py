@@ -1164,6 +1164,36 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                 schema_field = f"cost_custom{number}_pct"
                 calculated_field_mapping[header] = schema_field
 
+    # Create comprehensive metric name mapping for all calculated columns
+    # Maps display names (e.g., "click", "impression") to schema field names (e.g., "metric_clicks")
+    metric_name_to_field = {
+        "impression": "metric_impressions",
+        "click": "metric_clicks",
+        "view": "metric_views",
+        "view start": "metric_view_starts",
+        "view completion": "metric_view_completions",
+        "reach": "metric_reach",
+        "unit": "metric_units",
+        "impression share": "metric_impression_share",
+        "engagement": "metric_engagements",
+        "follower": "metric_followers",
+        "visit": "metric_visits",
+        "lead": "metric_leads",
+        "sale": "metric_sales",
+        "add to cart": "metric_add_to_cart",
+        "app install": "metric_app_install",
+        "application start": "metric_application_start",
+        "application complete": "metric_application_complete",
+        "contact us": "metric_contact_us",
+        "download": "metric_download",
+        "signup": "metric_signup",
+        "page view": "metric_page_views",
+        "like": "metric_likes",
+        "share": "metric_shares",
+        "comment": "metric_comments",
+        "conversion": "metric_conversions",
+    }
+
     # Map cost-per-unit columns: "Cost per Click" -> "metric_clicks_cpu"
     for header in headers:
         if header.startswith("Cost per ") and not header.startswith("_"):
@@ -1173,35 +1203,10 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                 # Extract metric name from header
                 metric_part = header.replace("Cost per ", "").lower()  # "click"
 
-                # Map common metric names to schema fields (v3.0 comprehensive list)
-                metric_mapping = {
-                    "click": "metric_clicks_cpu",
-                    "view": "metric_views_cpu",
-                    "view start": "metric_view_starts_cpu",  # NEW v3.0
-                    "view completion": "metric_view_completions_cpu",  # NEW v3.0
-                    "reach": "metric_reach_cpu",  # NEW v3.0
-                    "unit": "metric_units_cpu",  # NEW v3.0
-                    "engagement": "metric_engagements_cpu",
-                    "follower": "metric_followers_cpu",
-                    "visit": "metric_visits_cpu",
-                    "lead": "metric_leads_cpu",
-                    "sale": "metric_sales_cpu",
-                    "add to cart": "metric_add_to_cart_cpu",
-                    "app install": "metric_app_install_cpu",
-                    "application start": "metric_application_start_cpu",
-                    "application complete": "metric_application_complete_cpu",
-                    "contact us": "metric_contact_us_cpu",
-                    "download": "metric_download_cpu",
-                    "signup": "metric_signup_cpu",
-                    "page view": "metric_page_views_cpu",  # NEW v3.0
-                    "like": "metric_likes_cpu",  # NEW v3.0
-                    "share": "metric_shares_cpu",  # NEW v3.0
-                    "comment": "metric_comments_cpu",  # NEW v3.0
-                    "conversion": "metric_conversions_cpu",  # NEW v3.0
-                }
-
-                if metric_part in metric_mapping:
-                    calculated_field_mapping[header] = metric_mapping[metric_part]
+                # Check if in comprehensive mapping
+                if metric_part in metric_name_to_field:
+                    metric_field = metric_name_to_field[metric_part]
+                    calculated_field_mapping[header] = f"{metric_field}_cpu"
 
                 # Handle custom metrics: "Cost per Metric Custom 1" -> "metric_custom1_cpu"
                 elif "metric custom" in metric_part:
@@ -1209,40 +1214,43 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                     calculated_field_mapping[header] = f"metric_custom{number}_cpu"
 
     # Map conversion rate columns: "Clicks Conversion Rate" -> "metric_clicks_cvr"
+    # Note: Conversion rate columns use plural forms (e.g., "Clicks", "Views")
+    metric_plural_to_field = {
+        "impressions": "metric_impressions",
+        "clicks": "metric_clicks",
+        "views": "metric_views",
+        "view starts": "metric_view_starts",
+        "view completions": "metric_view_completions",
+        "reach": "metric_reach",
+        "units": "metric_units",
+        "impression share": "metric_impression_share",
+        "engagements": "metric_engagements",
+        "followers": "metric_followers",
+        "visits": "metric_visits",
+        "leads": "metric_leads",
+        "sales": "metric_sales",
+        "add to cart": "metric_add_to_cart",
+        "app install": "metric_app_install",
+        "application start": "metric_application_start",
+        "application complete": "metric_application_complete",
+        "contact us": "metric_contact_us",
+        "download": "metric_download",
+        "signup": "metric_signup",
+        "page views": "metric_page_views",
+        "likes": "metric_likes",
+        "shares": "metric_shares",
+        "comments": "metric_comments",
+        "conversions": "metric_conversions",
+    }
+
     for header in headers:
         if "Conversion Rate" in header and not header.startswith("_"):
             # Extract metric name from header (e.g., "Clicks Conversion Rate" -> "Clicks")
             metric_part = header.replace(" Conversion Rate", "").strip().lower()
 
-            # Map to metric field names
-            metric_name_mapping = {
-                "clicks": "metric_clicks",
-                "views": "metric_views",
-                "view starts": "metric_view_starts",
-                "view completions": "metric_view_completions",
-                "reach": "metric_reach",
-                "units": "metric_units",
-                "engagements": "metric_engagements",
-                "followers": "metric_followers",
-                "visits": "metric_visits",
-                "leads": "metric_leads",
-                "sales": "metric_sales",
-                "add to cart": "metric_add_to_cart",
-                "app install": "metric_app_install",
-                "application start": "metric_application_start",
-                "application complete": "metric_application_complete",
-                "contact us": "metric_contact_us",
-                "download": "metric_download",
-                "signup": "metric_signup",
-                "page views": "metric_page_views",
-                "likes": "metric_likes",
-                "shares": "metric_shares",
-                "comments": "metric_comments",
-                "conversions": "metric_conversions",
-            }
-
-            if metric_part in metric_name_mapping:
-                metric_field = metric_name_mapping[metric_part]
+            # Check if in comprehensive mapping
+            if metric_part in metric_plural_to_field:
+                metric_field = metric_plural_to_field[metric_part]
                 calculated_field_mapping[header] = f"{metric_field}_cvr"
 
             # Handle custom metrics
@@ -1251,14 +1259,16 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                 calculated_field_mapping[header] = f"metric_custom{number}_cvr"
 
     # Map power function coefficient columns: "Reach Coefficient" -> "metric_reach_coef"
+    # Note: Coefficient columns use plural forms (e.g., "Impressions", "Clicks", "Reach")
     for header in headers:
         if "Coefficient" in header and not header.startswith("_") and not "Exchange" in header:
             # Extract metric name from header (e.g., "Reach Coefficient" -> "Reach")
             metric_part = header.replace(" Coefficient", "").strip().lower()
 
-            # Use same mapping as above
-            if metric_part in ["reach", "units", "views", "clicks"]:  # Common power function metrics
-                calculated_field_mapping[header] = f"metric_{metric_part}_coef"
+            # Check if in comprehensive mapping (use plural forms)
+            if metric_part in metric_plural_to_field:
+                metric_field = metric_plural_to_field[metric_part]
+                calculated_field_mapping[header] = f"{metric_field}_coef"
 
             # Handle custom metrics
             elif "metric custom" in metric_part:
@@ -1266,14 +1276,16 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                 calculated_field_mapping[header] = f"metric_custom{number}_coef"
 
     # Map power function parameter1 columns: "Reach Parameter 1" -> "metric_reach_param1"
+    # Note: Parameter 1 columns use plural forms (e.g., "Impressions", "Clicks", "Reach")
     for header in headers:
         if "Parameter 1" in header and not header.startswith("_"):
             # Extract metric name from header (e.g., "Reach Parameter 1" -> "Reach")
             metric_part = header.replace(" Parameter 1", "").strip().lower()
 
-            # Use same mapping
-            if metric_part in ["reach", "units", "views", "clicks"]:
-                calculated_field_mapping[header] = f"metric_{metric_part}_param1"
+            # Check if in comprehensive mapping (use plural forms)
+            if metric_part in metric_plural_to_field:
+                metric_field = metric_plural_to_field[metric_part]
+                calculated_field_mapping[header] = f"{metric_field}_param1"
 
             # Handle custom metrics
             elif "metric custom" in metric_part:
