@@ -1075,6 +1075,7 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
         # KPI fields
         ("kpi", "KPI"),
         ("kpi_custom", "KPI Custom"),
+        ("kpi_value", "KPI Value"),
 
         # Dayparts and inventory fields
         ("dayparts", "Dayparts"),
@@ -1084,23 +1085,25 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
 
         # NEW v3.0: Buy fields
         ("buy_type", "Buy Type"),
-        ("buy_model", "Buy Model"),
-        ("buy_objective", "Buy Objective"),
+        ("buy_commitment", "Buy Commitment"),
 
-        # NEW v3.0: Aggregation and currency fields
+        # NEW v3.0: Aggregation fields
+        ("is_aggregate", "Is Aggregate"),
         ("aggregation_level", "Aggregation Level"),
-        ("currency_exchange_rate", "Currency Exchange Rate"),
-        ("cost_min", "Cost Min"),
-        ("cost_max", "Cost Max"),
+
+        # NEW v3.0: Cost metadata and constraint fields (no % columns needed)
+        ("cost_currency", "Cost Currency"),
+        ("cost_currency_exchange_rate", "Cost Currency Exchange Rate"),
+        ("cost_minimum", "Cost Minimum"),
+        ("cost_maximum", "Cost Maximum"),
     ]
 
     # Add custom dimension fields
     for i in range(1, 11):
         base_field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
 
-    # Cost fields - we'll insert calculated columns here
+    # Cost fields - we'll insert calculated columns here (% columns for breakdown components)
     cost_fields = [
-        ("cost_currency", "Cost Currency"),
         ("cost_media", "Cost Media"),
         ("cost_buying", "Cost Buying"),
         ("cost_platform", "Cost Platform"),
@@ -1169,9 +1172,6 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
             dynamic_field_order.append((field_name, header_name, "base"))
 
     # Add cost fields with calculated columns
-    if "cost_currency" in fields_present:
-        dynamic_field_order.append(("cost_currency", "Cost Currency", "base"))
-
     for field_name, header_name in present_cost_fields:
         # Add percentage column before actual cost column
         calc_field_name = f"{field_name}_pct"
