@@ -16,6 +16,17 @@
   - Multi-currency support (cost_currency_exchange_rate)
   - Budget constraints (cost_minimum, cost_maximum)
 
+- **3-Tier Formula Hierarchy System**
+  - LineItem-level formula overrides for flexible metric calculations
+  - Dictionary-level default formulas for workspace-wide consistency
+  - System-level defaults for standard behavior
+  - New `LineItem.get_metric_formula_definition()` method for hierarchy resolution
+  - Enhanced `LineItem.configure_metric_formula()` with formula_type and base_metric override support
+  - Support for all formula types: cost_per_unit, conversion_rate, power_function, constant
+  - Excel export generates appropriate coefficient columns based on detected formula types
+  - Excel import preserves lineitem-level overrides through Metric Formulas JSON column
+  - Full round-trip support: export → import → export maintains formula integrity
+
 ### Improved
 - **Migration System**
   - v2.0 → v3.0 migration with automatic audience/location name generation
@@ -27,6 +38,12 @@
   - Automatic backups created before workspace upgrades
   - Excel export with separate Target Audiences and Target Locations worksheets
   - Comprehensive validation for new array structures
+- **Excel Integration**
+  - Smart column generation: creates columns for all formula types actually used across lineitems
+  - Unused coefficient cells display as empty (not 0) for better clarity
+  - Parameter 1 column only populated for lineitems using power_function
+  - Constant formulas generate direct value formulas (e.g., =1000) without base metric references
+  - Formula-aware import uses hierarchy to determine correct coefficients from appropriate columns
 
 ### Breaking Changes
 - SDK v3.0 only loads v3.0 workspaces (v2.0 workspaces must be explicitly upgraded)
