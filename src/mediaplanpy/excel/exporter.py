@@ -951,19 +951,19 @@ def _populate_v3_target_audiences_sheet(sheet, campaign) -> None:
 
     # Add audience data (one row per audience)
     for row_idx, audience in enumerate(target_audiences, 2):
-        sheet.cell(row=row_idx, column=1, value=audience.get("name", ""))
-        sheet.cell(row=row_idx, column=2, value=audience.get("description", ""))
-        sheet.cell(row=row_idx, column=3, value=audience.get("demo_age_start"))
-        sheet.cell(row=row_idx, column=4, value=audience.get("demo_age_end"))
-        sheet.cell(row=row_idx, column=5, value=audience.get("demo_gender", ""))
-        sheet.cell(row=row_idx, column=6, value=audience.get("demo_attributes", ""))
-        sheet.cell(row=row_idx, column=7, value=audience.get("interest_attributes", ""))
-        sheet.cell(row=row_idx, column=8, value=audience.get("intent_attributes", ""))
-        sheet.cell(row=row_idx, column=9, value=audience.get("purchase_attributes", ""))
-        sheet.cell(row=row_idx, column=10, value=audience.get("content_attributes", ""))
-        sheet.cell(row=row_idx, column=11, value=audience.get("exclusion_list", ""))
-        sheet.cell(row=row_idx, column=12, value=audience.get("extension_approach", ""))
-        sheet.cell(row=row_idx, column=13, value=audience.get("population_size"))
+        sheet.cell(row=row_idx, column=1, value=getattr(audience, "name", ""))
+        sheet.cell(row=row_idx, column=2, value=getattr(audience, "description", ""))
+        sheet.cell(row=row_idx, column=3, value=getattr(audience, "demo_age_start", None))
+        sheet.cell(row=row_idx, column=4, value=getattr(audience, "demo_age_end", None))
+        sheet.cell(row=row_idx, column=5, value=getattr(audience, "demo_gender", ""))
+        sheet.cell(row=row_idx, column=6, value=getattr(audience, "demo_attributes", ""))
+        sheet.cell(row=row_idx, column=7, value=getattr(audience, "interest_attributes", ""))
+        sheet.cell(row=row_idx, column=8, value=getattr(audience, "intent_attributes", ""))
+        sheet.cell(row=row_idx, column=9, value=getattr(audience, "purchase_attributes", ""))
+        sheet.cell(row=row_idx, column=10, value=getattr(audience, "content_attributes", ""))
+        sheet.cell(row=row_idx, column=11, value=getattr(audience, "exclusion_list", ""))
+        sheet.cell(row=row_idx, column=12, value=getattr(audience, "extension_approach", ""))
+        sheet.cell(row=row_idx, column=13, value=getattr(audience, "population_size", None))
 
     logger.info(f"Exported {len(target_audiences)} target audience(s) to Target Audiences sheet")
 
@@ -1008,29 +1008,29 @@ def _populate_v3_target_locations_sheet(sheet, campaign) -> None:
 
     # Add location data (one row per location)
     for row_idx, location in enumerate(target_locations, 2):
-        sheet.cell(row=row_idx, column=1, value=location.get("name", ""))
-        sheet.cell(row=row_idx, column=2, value=location.get("description", ""))
-        sheet.cell(row=row_idx, column=3, value=location.get("location_type", ""))
+        sheet.cell(row=row_idx, column=1, value=getattr(location, "name", ""))
+        sheet.cell(row=row_idx, column=2, value=getattr(location, "description", ""))
+        sheet.cell(row=row_idx, column=3, value=getattr(location, "location_type", ""))
 
         # location_list is an array - convert to comma-separated string or JSON
-        location_list = location.get("location_list", [])
+        location_list = getattr(location, "location_list", [])
         if location_list:
             if isinstance(location_list, list):
                 sheet.cell(row=row_idx, column=4, value=", ".join(location_list))
             else:
                 sheet.cell(row=row_idx, column=4, value=location_list)
 
-        sheet.cell(row=row_idx, column=5, value=location.get("exclusion_type", ""))
+        sheet.cell(row=row_idx, column=5, value=getattr(location, "exclusion_type", ""))
 
         # exclusion_list is an array - convert to comma-separated string or JSON
-        exclusion_list = location.get("exclusion_list", [])
+        exclusion_list = getattr(location, "exclusion_list", [])
         if exclusion_list:
             if isinstance(exclusion_list, list):
                 sheet.cell(row=row_idx, column=6, value=", ".join(exclusion_list))
             else:
                 sheet.cell(row=row_idx, column=6, value=exclusion_list)
 
-        sheet.cell(row=row_idx, column=7, value=location.get("population_percent"))
+        sheet.cell(row=row_idx, column=7, value=getattr(location, "population_percent", None))
 
     logger.info(f"Exported {len(target_locations)} target location(s) to Target Locations sheet")
 
@@ -1051,8 +1051,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
     # Determine which fields are actually present in line items
     fields_present = set()
     for line_item in line_items:
-        # For Pydantic models, use model_dump() to get dict representation
-        fields_present.update(line_item.model_dump(exclude_none=False).keys())
+        # For Pydantic models, use model_dump(exclude_unset=True) to only include fields that were explicitly set
+        # This matches the old dict behavior where only present fields were included
+        fields_present.update(line_item.model_dump(exclude_unset=True).keys())
 
     # Define base field order for v3.0 schema
     base_field_order = [
@@ -1388,16 +1389,44 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                     import json
                     # Convert to dict if it's a Pydantic model, then to JSON string
                     if hasattr(value, 'model_dump'):
-                        # Pydantic model - convert to dict first
+                        # Single Pydantic model - convert to dict first
                         json_string = json.dumps(value.model_dump(exclude_none=True))
                     elif isinstance(value, dict):
-                        json_string = json.dumps(value)
+                        # Dict that may contain Pydantic models as values (e.g., Dict[str, MetricFormula])
+                        converted_dict = {}
+                        for key, val in value.items():
+                            if hasattr(val, 'model_dump'):
+                                # Convert Pydantic model to dict
+                                converted_dict[key] = val.model_dump(exclude_none=True)
+                            else:
+                                converted_dict[key] = val
+                        json_string = json.dumps(converted_dict)
                     else:
                         json_string = str(value)
                     sheet.cell(row=row_idx, column=col_idx, value=json_string)
 
     logger.info(
         f"Created {len(dynamic_field_order)} columns with {len(present_cost_fields)} cost calculations and {len(present_performance_fields)} performance calculations")
+
+
+def _get_config_value(config, field_name: str, default=""):
+    """
+    Helper to get value from config which can be either Pydantic object or dict.
+
+    Args:
+        config: Either a Pydantic model (CustomFieldConfig, StandardMetricConfig) or plain dict
+        field_name: Name of the field to retrieve
+        default: Default value if not found
+
+    Returns:
+        The field value or default
+    """
+    if hasattr(config, field_name):
+        # Pydantic object
+        return getattr(config, field_name, default)
+    else:
+        # Plain dict
+        return config.get(field_name, default)
 
 
 def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
@@ -1458,8 +1487,8 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Meta Dimension"
         sheet[f'C{row}'] = column_name
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
         # Grey out formula columns for dimensions
@@ -1477,8 +1506,8 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Campaign Dimension"
         sheet[f'C{row}'] = column_name
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
         # Grey out formula columns for dimensions
@@ -1496,8 +1525,8 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "LineItem Dimension"
         sheet[f'C{row}'] = column_name
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for dimensions
         sheet[f'G{row}'] = ""  # No base metric for dimensions
         # Grey out formula columns for dimensions
@@ -1543,8 +1572,8 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'C{row}'] = column_name
         sheet[f'D{row}'] = ""  # No caption for standard metrics
         sheet[f'E{row}'] = ""  # No status for standard metrics
-        sheet[f'F{row}'] = config.get("formula_type", "")
-        sheet[f'G{row}'] = config.get("base_metric", "")
+        sheet[f'F{row}'] = _get_config_value(config, "formula_type", "")
+        sheet[f'G{row}'] = _get_config_value(config, "base_metric", "")
         # Grey out Caption and Status columns for standard metrics
         sheet[f'D{row}'].fill = grey_fill
         sheet[f'E{row}'].fill = grey_fill
@@ -1560,10 +1589,10 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Custom Metric"
         sheet[f'C{row}'] = column_name
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
-        sheet[f'F{row}'] = config.get("formula_type", "")
-        sheet[f'G{row}'] = config.get("base_metric", "")
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = _get_config_value(config, "formula_type", "")
+        sheet[f'G{row}'] = _get_config_value(config, "base_metric", "")
         row += 1
 
     # Section 6: Custom costs (10 fields)
@@ -1576,8 +1605,8 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         sheet[f'A{row}'] = field_name
         sheet[f'B{row}'] = "Custom Cost"
         sheet[f'C{row}'] = column_name
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
         sheet[f'F{row}'] = ""  # No formula for costs
         sheet[f'G{row}'] = ""  # No base metric for costs
         # Grey out formula columns for costs
