@@ -536,8 +536,9 @@ class LineItem(BaseModel):
         2. Delegate to dictionary for plan-level definition (fallback)
         3. Dictionary returns defaults (ultimate fallback)
 
-        A lineitem override is only valid if BOTH formula_type AND base_metric
-        are non-null in the lineitem's metric_formulas.
+        A lineitem override is valid if:
+        - formula_type is "constant": only formula_type is required (base_metric can be None)
+        - formula_type is other: BOTH formula_type AND base_metric must be non-null
 
         Args:
             metric_name: Name of the metric (e.g., "metric_clicks")
@@ -562,13 +563,22 @@ class LineItem(BaseModel):
         if self.metric_formulas and metric_name in self.metric_formulas:
             formula = self.metric_formulas[metric_name]
 
-            # Override is ONLY valid if BOTH formula_type AND base_metric are present
-            if formula.formula_type and formula.base_metric:
+            # Override validation depends on formula_type:
+            # - constant: only needs formula_type (base_metric can be None)
+            # - all others: need both formula_type AND base_metric
+            if formula.formula_type == "constant":
+                # Constant formulas don't need base_metric
+                return {
+                    "formula_type": formula.formula_type,
+                    "base_metric": None  # Constants have no base metric
+                }
+            elif formula.formula_type and formula.base_metric:
+                # Non-constant formulas require both fields
                 return {
                     "formula_type": formula.formula_type,
                     "base_metric": formula.base_metric
                 }
-            # If only one is present, ignore the override and fall through to dictionary
+            # If incomplete (non-constant with missing base_metric), ignore the override and fall through to dictionary
 
         # TIER 2 & 3: Delegate to dictionary (which handles defaults)
         dictionary = self.get_dictionary()

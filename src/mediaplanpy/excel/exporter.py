@@ -789,7 +789,21 @@ def _generate_excel_formula(
         formula_type = formula_config.get("formula_type", "cost_per_unit")
         base_metric = formula_config.get("base_metric", "cost_total")
 
-    # Get base metric column reference
+    # Handle constant formulas FIRST (they don't need base_metric/base_ref)
+    if formula_type == "constant":
+        # Formula: metric = coefficient (constant value)
+        # Excel: ={coefficient_value} directly (no column reference needed)
+        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+
+        if coefficient is None or coefficient == 0:
+            formula = "=0"
+        else:
+            # Format the coefficient value in the formula
+            formula = f"={float(coefficient)}"
+
+        return formula
+
+    # Get base metric column reference (required for all non-constant formulas)
     base_ref = column_refs.get(base_metric)
     if not base_ref:
         # Base metric column doesn't exist - return empty string
@@ -822,17 +836,6 @@ def _generate_excel_formula(
             return ""
 
         formula = f"=IF({coef_ref}=0,0,{base_ref}*{coef_ref})"
-
-    elif formula_type == "constant":
-        # Formula: metric = coefficient (constant value)
-        # Excel: ={coefficient_value} directly (no column reference)
-        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
-
-        if coefficient is None or coefficient == 0:
-            formula = "=0"
-        else:
-            # Format the coefficient value in the formula
-            formula = f"={float(coefficient)}"
 
     elif formula_type == "power_function":
         # Formula: metric = coefficient * (base ^ parameter1)
@@ -1546,7 +1549,9 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                         else:
                             cell.number_format = '0.0000'  # 4 decimal places (Decision 4)
                     else:
-                        cell = sheet.cell(row=row_idx, column=col_idx, value=0)
+                        # Leave cell empty (None) when formula type doesn't match
+                        # This makes it clear to users that this coefficient is not used for this lineitem
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
                         # Apply appropriate format based on formula type
                         if field_name.endswith("_cvr"):
                             cell.number_format = '0.00%'
@@ -1558,10 +1563,20 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                 elif field_name.endswith("_param1"):
                     # FORMULA-AWARE: Parameter1 column for power_function
                     metric_name = field_name.replace("_param1", "")
-                    parameter1 = _get_parameter1_value(metric_name, line_item)
 
-                    cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter1))
-                    cell.number_format = '0.0000'  # 4 decimal places
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(metric_name)
+
+                    # Only populate parameter1 if lineitem uses power_function
+                    # Leave empty for other formula types to make it clear this parameter is not used
+                    if formula_config and formula_config.get("formula_type") == "power_function":
+                        parameter1 = _get_parameter1_value(metric_name, line_item)
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter1))
+                        cell.number_format = '0.0000'  # 4 decimal places
+                    else:
+                        # Leave cell empty when not using power_function
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
+                        cell.number_format = '0.0000'
 
             elif field_type == "formula":
                 if field_name.startswith("cost_") and field_name != "cost_total" and field_name != "cost_currency":
