@@ -7,7 +7,7 @@ supporting only v3.0 schema with target audiences/locations arrays and all new f
 
 import os
 import logging
-from typing import Dict, Any, List, Optional, Union, Tuple, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Union, Tuple, Set, TYPE_CHECKING
 from datetime import datetime
 from decimal import Decimal
 
@@ -187,7 +187,7 @@ def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optiona
         return None
 
     # Check standard_metrics first
-    standard_metrics = getattr(dictionary,"standard_metrics", {})
+    standard_metrics = getattr(dictionary,"standard_metrics", {}) or {}
     if metric_name in standard_metrics:
         config = standard_metrics[metric_name]
         # Extract formula_type and base_metric
@@ -201,7 +201,7 @@ def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optiona
             }
 
     # Check custom_metrics
-    custom_metrics = getattr(dictionary,"custom_metrics", {})
+    custom_metrics = getattr(dictionary,"custom_metrics", {}) or {}
     if metric_name in custom_metrics:
         config = custom_metrics[metric_name]
         # Extract formula_type and base_metric from dict
@@ -215,6 +215,71 @@ def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optiona
             }
 
     return None
+
+
+def _collect_all_formula_types(
+    lineitems: List["LineItem"],
+    present_metrics: List[Tuple[str, str]]
+) -> Dict[str, Set[Tuple[str, str]]]:
+    """
+    Efficiently collect all formula_types actually used across lineitems for each metric.
+
+    This function scans all lineitems to detect if different lineitems use different
+    formula_types for the same metric. This is necessary to ensure the Excel export
+    creates all required columns (e.g., both CPU and CVR columns if some lineitems
+    use cost_per_unit while others use conversion_rate).
+
+    Optimizations:
+    - Single-pass processing of all metrics per lineitem
+    - Pre-extracted metric names (avoids tuple unpacking overhead)
+    - Pre-initialized result dict (avoids repeated dict creation)
+    - Set-based deduplication (O(1) amortized operations)
+
+    Args:
+        lineitems: List of LineItem objects to scan
+        present_metrics: List of (metric_name, header_name) tuples for metrics in data
+
+    Returns:
+        Dict mapping metric_name to set of (formula_type, base_metric) tuples.
+        Example: {
+            "metric_clicks": {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")},
+            "metric_conversions": {("conversion_rate", "metric_clicks")}
+        }
+
+    Example:
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> formula_types = _collect_all_formula_types(lineitems, present)
+        >>> formula_types["metric_clicks"]
+        {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")}
+    """
+    # Early exit if no lineitems
+    if not lineitems:
+        return {}
+
+    # Pre-extract metric names once (avoid repeated tuple unpacking in inner loop)
+    metric_names = [name for name, _ in present_metrics]
+
+    # Pre-initialize result dict with empty sets (avoid repeated dict lookup/set creation)
+    metric_formula_types = {name: set() for name in metric_names}
+
+    # Single pass through all lineitems
+    for lineitem in lineitems:
+        # Process all metrics for this lineitem in one batch
+        for metric_name in metric_names:
+            # This is the only "expensive" call, but it's already optimized:
+            # - O(1) dict lookup for lineitem.metric_formulas first
+            # - Only falls back to dictionary if not found
+            formula_def = lineitem.get_metric_formula_definition(metric_name)
+
+            if formula_def:
+                formula_type = formula_def.get("formula_type")
+                base_metric = formula_def.get("base_metric")
+
+                if formula_type and base_metric:
+                    # Set.add() is O(1) amortized, automatically deduplicates
+                    metric_formula_types[metric_name].add((formula_type, base_metric))
+
+    return metric_formula_types
 
 
 def _determine_calculated_columns(
@@ -307,6 +372,140 @@ def _determine_calculated_columns(
     columns.append((metric_name, metric_header, "formula"))
 
     return columns
+
+
+def _determine_calculated_columns_multi(
+    metric_name: str,
+    metric_header: str,
+    formula_types: Set[Tuple[str, str]]
+) -> List[Tuple[str, str, str]]:
+    """
+    Determine which calculated columns to create when multiple formula_types are used.
+
+    This function handles the case where different lineitems use different formula_types
+    for the same metric. It creates columns for ALL formula_types detected, ensuring
+    each lineitem can write its coefficient to the appropriate column.
+
+    Args:
+        metric_name: Field name (e.g., "metric_clicks")
+        metric_header: Display name (e.g., "Clicks")
+        formula_types: Set of (formula_type, base_metric) tuples detected across lineitems
+
+    Returns:
+        List of (field_name, header_name, field_type) tuples for calculated and metric columns
+
+    Example:
+        >>> # Multiple formula types for same metric
+        >>> types = {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")}
+        >>> _determine_calculated_columns_multi("metric_clicks", "Clicks", types)
+        [("metric_clicks_cpu", "Cost per Click", "calculated"),
+         ("metric_clicks_cvr", "Clicks Conversion Rate", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+    """
+    columns = []
+
+    # If no formula types, use default
+    if not formula_types:
+        # Default to cost_per_unit
+        return _determine_calculated_columns(metric_name, metric_header, None)
+
+    # Track which column types we've already added (avoid duplicates)
+    added_column_types = set()
+
+    # Process each formula type and create corresponding columns
+    for formula_type, base_metric in formula_types:
+        # Generate calculated column based on formula type
+        if formula_type == "cost_per_unit" and "cpu" not in added_column_types:
+            calc_field = f"{metric_name}_cpu"
+
+            # Special handling for impressions (CPM)
+            if metric_name == "metric_impressions":
+                calc_header = "Cost per 1000 Impressions"
+            else:
+                # Convert "Clicks" -> "Click", but preserve special cases
+                singular_name = metric_header
+                if singular_name.endswith('s') and singular_name not in ['Views', 'Sales']:
+                    singular_name = singular_name.rstrip('s')
+                calc_header = f"Cost per {singular_name}"
+
+            columns.append((calc_field, calc_header, "calculated"))
+            added_column_types.add("cpu")
+
+        elif formula_type == "conversion_rate" and "cvr" not in added_column_types:
+            calc_field = f"{metric_name}_cvr"
+            calc_header = f"{metric_header} Conversion Rate"
+            columns.append((calc_field, calc_header, "calculated"))
+            added_column_types.add("cvr")
+
+        elif formula_type == "constant" and "const" not in added_column_types:
+            # Constants don't need calculated columns - coefficient goes directly in formula
+            added_column_types.add("const")
+
+        elif formula_type == "power_function" and "power" not in added_column_types:
+            coef_field = f"{metric_name}_coef"
+            coef_header = f"{metric_header} Coefficient"
+            columns.append((coef_field, coef_header, "calculated"))
+
+            param1_field = f"{metric_name}_param1"
+            param1_header = f"{metric_header} Parameter 1"
+            columns.append((param1_field, param1_header, "calculated"))
+            added_column_types.add("power")
+
+    # Add the metric column itself (with formula)
+    columns.append((metric_name, metric_header, "formula"))
+
+    return columns
+
+
+def _extract_missing_base_metrics_from_formula_types(
+    all_formula_types: Dict[str, Set[Tuple[str, str]]],
+    present_metrics: List[Tuple[str, str]]
+) -> List[Tuple[str, str]]:
+    """
+    Extract missing base metrics from already-collected formula types.
+
+    This function reuses the output of _collect_all_formula_types() to identify
+    which base metrics are referenced but not present in the data. This avoids
+    scanning the lineitem matrix a second time.
+
+    Args:
+        all_formula_types: Dict from _collect_all_formula_types() mapping metric_name
+                          to set of (formula_type, base_metric) tuples
+        present_metrics: List of (field_name, header_name) tuples for metrics present in data
+
+    Returns:
+        List of (field_name, header_name) tuples for missing base metrics to add
+
+    Example:
+        >>> formula_types = {
+        ...     "metric_clicks": {("conversion_rate", "metric_impressions")},
+        ...     "metric_conversions": {("conversion_rate", "metric_clicks")}
+        ... }
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> _extract_missing_base_metrics_from_formula_types(formula_types, present)
+        [("metric_impressions", "Impressions")]  # Missing but needed for clicks formula
+    """
+    missing = []
+    present_field_names = {field_name for field_name, _ in present_metrics}
+    checked_base_metrics = set()
+
+    # Extract all base metrics from formula types
+    for metric_name, formula_type_set in all_formula_types.items():
+        for formula_type, base_metric in formula_type_set:
+            if base_metric and base_metric not in present_field_names and base_metric not in checked_base_metrics:
+                # Skip cost fields - always in base section
+                if not base_metric.startswith("cost_"):
+                    # Generate header name
+                    if base_metric.startswith("metric_"):
+                        header = base_metric.replace("metric_", "").replace("_", " ").title()
+                    else:
+                        header = base_metric.replace("_", " ").title()
+
+                    missing.append((base_metric, header))
+                    checked_base_metrics.add(base_metric)
+                    logger.info(f"Added missing base metric column: {base_metric}")
+
+    return missing
 
 
 def _get_missing_base_metrics(
@@ -1192,20 +1391,27 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
         # Add actual cost column
         dynamic_field_order.append((field_name, header_name, "formula"))
 
+    # FORMULA-AWARE: Collect all formula types used across all lineitems for each metric
+    # This ensures we create columns for ALL formula_types (e.g., both CPU and CVR if different
+    # lineitems use different formula_types for the same metric)
+    # This single scan is reused for both column creation AND missing base metric detection
+    all_formula_types = _collect_all_formula_types(line_items, present_performance_fields)
+
     # FORMULA-AWARE: Add missing base metrics if needed (Design Decision 1)
-    missing_base_metrics = _get_missing_base_metrics(present_performance_fields, dictionary)
+    # Extract from already-collected formula types to avoid scanning lineitems again
+    missing_base_metrics = _extract_missing_base_metrics_from_formula_types(all_formula_types, present_performance_fields)
     for missing_field, missing_header in missing_base_metrics:
         # Add as base column (will be populated with 0 values)
         # Note: Do NOT add to present_performance_fields to avoid duplicate processing
         dynamic_field_order.append((missing_field, missing_header, "base"))
 
-    # FORMULA-AWARE: Add performance fields with calculated columns based on Dictionary config
+    # FORMULA-AWARE: Add performance fields with calculated columns based on detected formula types
     for field_name, header_name in present_performance_fields:
-        # Get formula configuration from Dictionary
-        formula_config = _get_formula_config(field_name, dictionary)
+        # Get all formula types used for this metric across lineitems
+        formula_types = all_formula_types.get(field_name, set())
 
-        # Determine which calculated columns to create based on formula_type
-        columns_to_add = _determine_calculated_columns(field_name, header_name, formula_config)
+        # Determine which calculated columns to create based on ALL formula_types detected
+        columns_to_add = _determine_calculated_columns_multi(field_name, header_name, formula_types)
 
         # Add all columns (calculated + metric)
         for col_field, col_header, col_type in columns_to_add:
@@ -1310,17 +1516,25 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
 
                 elif field_name.endswith(("_cpu", "_cvr", "_coef")):
                     # FORMULA-AWARE: Coefficient column (CPU, CVR, or Power Coefficient)
-                    # Extract metric name from calculated field name
+                    # Extract metric name and expected formula type from calculated field name
                     if field_name.endswith("_cpu"):
                         metric_name = field_name.replace("_cpu", "")
+                        expected_formula_type = "cost_per_unit"
                     elif field_name.endswith("_cvr"):
                         metric_name = field_name.replace("_cvr", "")
+                        expected_formula_type = "conversion_rate"
                     elif field_name.endswith("_coef"):
                         metric_name = field_name.replace("_coef", "")
+                        expected_formula_type = "power_function"
 
-                    # Get formula config and calculate coefficient
-                    formula_config = _get_formula_config(metric_name, dictionary)
-                    coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(metric_name)
+
+                    # Only populate coefficient if lineitem's formula_type matches this column type
+                    # (when multiple formula types exist, only write to the matching column)
+                    coefficient = None
+                    if formula_config and formula_config.get("formula_type") == expected_formula_type:
+                        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
 
                     if coefficient is not None:
                         cell = sheet.cell(row=row_idx, column=col_idx, value=float(coefficient))
@@ -1368,7 +1582,8 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
 
                 elif field_name.startswith("metric_"):
                     # FORMULA-AWARE: Performance metric formula
-                    formula_config = _get_formula_config(field_name, dictionary)
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(field_name)
                     formula = _generate_excel_formula(field_name, formula_config, column_refs, line_item)
 
                     if formula:
@@ -1477,7 +1692,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
     row = 3
 
     # Section 1: Meta custom dimensions (5 fields)
-    meta_custom_dimensions = getattr(dictionary,"meta_custom_dimensions", {})
+    meta_custom_dimensions = getattr(dictionary,"meta_custom_dimensions", {}) or {}
     grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
     for i in range(1, 6):
         field_name = f"dim_custom{i}"
@@ -1497,7 +1712,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         row += 1
 
     # Section 2: Campaign custom dimensions (5 fields)
-    campaign_custom_dimensions = getattr(dictionary,"campaign_custom_dimensions", {})
+    campaign_custom_dimensions = getattr(dictionary,"campaign_custom_dimensions", {}) or {}
     for i in range(1, 6):
         field_name = f"dim_custom{i}"
         config = campaign_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
@@ -1516,7 +1731,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         row += 1
 
     # Section 3: LineItem custom dimensions (10 fields)
-    lineitem_custom_dimensions = getattr(dictionary,"lineitem_custom_dimensions", {})
+    lineitem_custom_dimensions = getattr(dictionary,"lineitem_custom_dimensions", {}) or {}
     for i in range(1, 11):
         field_name = f"dim_custom{i}"
         config = lineitem_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
@@ -1535,7 +1750,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         row += 1
 
     # Section 4: Standard metrics (25 fields) - NEW in v3.0
-    standard_metrics = getattr(dictionary,"standard_metrics", {})
+    standard_metrics = getattr(dictionary,"standard_metrics", {}) or {}
     standard_metric_list = [
         ("metric_impressions", "Impressions"),
         ("metric_clicks", "Clicks"),
@@ -1580,7 +1795,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         row += 1
 
     # Section 5: Custom metrics (10 fields) - Updated in v3.0 to include formula support
-    custom_metrics = getattr(dictionary,"custom_metrics", {})
+    custom_metrics = getattr(dictionary,"custom_metrics", {}) or {}
     for i in range(1, 11):
         field_name = f"metric_custom{i}"
         config = custom_metrics.get(field_name, {"status": "disabled", "caption": ""})
@@ -1596,7 +1811,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
         row += 1
 
     # Section 6: Custom costs (10 fields)
-    custom_costs = getattr(dictionary,"custom_costs", {})
+    custom_costs = getattr(dictionary,"custom_costs", {}) or {}
     for i in range(1, 11):
         field_name = f"cost_custom{i}"
         config = custom_costs.get(field_name, {"status": "disabled", "caption": ""})
