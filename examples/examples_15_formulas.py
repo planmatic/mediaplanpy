@@ -11,6 +11,7 @@ Progressive Demonstration:
 3. Edit CPM → impressions recalculate from new coefficient
 4. Edit clicks → CPC automatically updates
 5. Configure dependency chain → cascading recalculation
+6. Create lineitem-level formula overrides → 3-tier hierarchy
 
 Prerequisites:
 - MediaPlanPy SDK v3.0.0+ installed
@@ -488,6 +489,129 @@ def step_04_configure_dependencies(manager, mediaplan):
     return mediaplan
 
 
+def step_05_lineitem_overrides(manager, mediaplan):
+    """
+    Step 5: Create lineitem-level formula overrides.
+
+    Demonstrates the 3-tier formula hierarchy in v3.0:
+    1. Lineitem-level override (highest priority)
+    2. Dictionary-level definition (fallback)
+    3. Defaults (ultimate fallback)
+
+    Use Case:
+    - Different lineitems need different formulas for the same metric
+    - Example: Premium placement uses CPM pricing, standard uses CPM+CTR hybrid
+
+    Configuration:
+    - LineItem #1: clicks from impressions (CTR) - uses dictionary definition
+    - LineItem #2: clicks from cost (CPC) - lineitem override!
+
+    This allows flexible per-lineitem formula configuration while maintaining
+    plan-level defaults for consistency.
+    """
+    print("\n\n" + "=" * 70)
+    print("STEP 5: Lineitem-Level Formula Overrides")
+    print("=" * 70)
+    print("\nDemonstrating: 3-Tier Formula Hierarchy (v3.0)")
+    print("  • Tier 1: Lineitem override (highest priority)")
+    print("  • Tier 2: Dictionary definition (fallback)")
+    print("  • Tier 3: Defaults (ultimate fallback)")
+
+    li1 = mediaplan.lineitems[0]
+    li2 = mediaplan.lineitems[1]
+
+    print("\n" + "-" * 70)
+    print("Current Configuration:")
+    print("  • Both lineitems use dictionary formula for clicks")
+
+    # Check current formula definitions using the hierarchy method
+    li1_formula = li1.get_metric_formula_definition("metric_clicks")
+    li2_formula = li2.get_metric_formula_definition("metric_clicks")
+
+    print(f"\n  LI#1 clicks: {li1_formula['formula_type']} from {li1_formula['base_metric']}")
+    print(f"  LI#2 clicks: {li2_formula['formula_type']} from {li2_formula['base_metric']}")
+
+    print("\nBEFORE (both use same formula):")
+    show_lineitem_state(li1, "LineItem #1 - Premium Placement")
+    show_lineitem_state(li2, "LineItem #2 - Standard Placement")
+
+    # Create lineitem-level override for LI#2
+    print("\n" + "-" * 70)
+    print("Creating Lineitem Override for LI#2...")
+    print("\nScenario: Standard placement negotiated CPC pricing")
+    print("  • LI#2 will use CPC (cost_per_unit from cost_total)")
+    print("  • LI#1 continues using CTR (dictionary definition)")
+
+    print("\nConfiguring lineitem override with formula_type and base_metric...")
+    recalc = li2.configure_metric_formula(
+        "metric_clicks",
+        formula_type="cost_per_unit",     # Override: Use CPC instead of CTR
+        base_metric="cost_total",         # Must provide both parameters
+        coefficient=Decimal("0.267"),     # CPC = $0.267 (calculated from current values)
+        comments="Standard placement uses CPC pricing model"
+    )
+
+    print("\nAFTER (different formulas per lineitem):")
+    show_lineitem_state(li1, "LineItem #1 - Premium (CTR from dictionary)")
+    show_lineitem_state(li2, "LineItem #2 - Standard (CPC override)")
+
+    # Verify the hierarchy is working
+    li1_formula_after = li1.get_metric_formula_definition("metric_clicks")
+    li2_formula_after = li2.get_metric_formula_definition("metric_clicks")
+
+    print("\n" + "-" * 70)
+    print("Verification using get_metric_formula_definition():")
+    print(f"  • LI#1: {li1_formula_after['formula_type']} from {li1_formula_after['base_metric']}")
+    print(f"    → Uses dictionary definition (Tier 2)")
+    print(f"  • LI#2: {li2_formula_after['formula_type']} from {li2_formula_after['base_metric']}")
+    print(f"    → Uses lineitem override (Tier 1) ✓")
+
+    # Demonstrate the difference with a practical example
+    print("\n" + "-" * 70)
+    print("Practical Impact: Change cost on both lineitems")
+    print("\nBoth lineitems have $5,000 budget. Increase to $6,000 (+20%):")
+
+    old_li1_clicks = li1.metric_clicks
+    old_li2_clicks = li2.metric_clicks
+
+    print("\nChanging both costs to $6,000...")
+    li1.set_metric_value("cost_total", 6000)
+    li2.set_metric_value("cost_total", 6000)
+
+    print("\nResult:")
+    print(f"  • LI#1 clicks: {int(old_li1_clicks):,} → {int(li1.metric_clicks):,}")
+    print(f"    Uses CTR - clicks recalculated from impressions")
+    print(f"  • LI#2 clicks: {int(old_li2_clicks):,} → {int(li2.metric_clicks):,}")
+    print(f"    Uses CPC - clicks recalculated from cost (+20%)")
+
+    li1_change = ((li1.metric_clicks / old_li1_clicks) - 1) * 100 if old_li1_clicks else 0
+    li2_change = ((li2.metric_clicks / old_li2_clicks) - 1) * 100 if old_li2_clicks else 0
+
+    print(f"\n  • LI#1 click change: {li1_change:+.1f}% (CTR-based: depends on impressions)")
+    print(f"  • LI#2 click change: {li2_change:+.1f}% (CPC-based: proportional to cost)")
+
+    print("\n" + "-" * 70)
+    print("Summary:")
+    print("  ✓ Same metric (clicks) uses different formulas on different lineitems")
+    print("  ✓ LI#1 uses dictionary definition (Tier 2 - fallback)")
+    print("  ✓ LI#2 uses lineitem override (Tier 1 - highest priority)")
+    print("  ✓ Both lineitems respond differently to cost changes")
+    print("  ✓ Enables flexible pricing models within same media plan!")
+
+    print("\nKey Concept: 3-Tier Hierarchy")
+    print("  1. Check lineitem's metric_formulas for override")
+    print("  2. If not found, check dictionary definition")
+    print("  3. If not found, use system defaults")
+    print("  → This hierarchy is queried via get_metric_formula_definition()")
+
+    # Save final state
+    print("\nSaving final state to workspace...")
+    mediaplan.save(manager)
+    print("✓ Saved")
+
+    return mediaplan
+
+
 # ============================================================================
 # Main Execution
 # ============================================================================
@@ -508,6 +632,7 @@ def main():
     print("  • Editing formulas to change metric values")
     print("  • Editing values to update formula coefficients")
     print("  • Configuring dependency chains for cascading updates")
+    print("  • Lineitem-level formula overrides (3-tier hierarchy)")
 
     # Load workspace
     manager = load_workspace()
@@ -532,6 +657,9 @@ def main():
         # Step 4: Configure dependencies → cascading
         mediaplan = step_04_configure_dependencies(manager, mediaplan)
 
+        # Step 5: Lineitem-level formula overrides
+        mediaplan = step_05_lineitem_overrides(manager, mediaplan)
+
         print("\n\n" + "=" * 70)
         print("✓ All Steps Completed Successfully!")
         print("=" * 70)
@@ -542,6 +670,7 @@ def main():
         print("  2. Edit formula parameters → metric values recalculate")
         print("  3. Edit metric values → formula coefficients update")
         print("  4. Dependency chains → changes cascade automatically")
+        print("  5. Lineitem overrides → 3-tier hierarchy (lineitem → dictionary → defaults)")
         print("\nNext Steps:")
         print("  • Inspect JSON files in workspace to see formula configuration")
         print("  • Try examples_04_load_mediaplan.py to reload and continue editing")

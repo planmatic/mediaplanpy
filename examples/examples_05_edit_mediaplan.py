@@ -427,28 +427,36 @@ def edit_complex_plan_with_v3_features(manager, plan):
         print(f"   - Loaded: {li.name}")
 
         # Step 2: EDIT the line item
-        # Add or update metric_formulas
-        if li.metric_formulas is None:
-            li.metric_formulas = {}
+        # Configure metric formulas using configure_metric_formula()
+        # v3.0: Can now specify formula_type and base_metric to create
+        # lineitem-level overrides that differ from dictionary defaults
 
-        # Add a CTR formula
-        li.metric_formulas["metric_clicks"] = MetricFormula(
-            formula_type="conversion_rate",
-            base_metric="metric_impressions",
-            coefficient=0.01,
-            comments="Click-through rate calculation"
+        # Add a CTR formula for clicks using formula_type and base_metric parameters
+        print(f"   - Configuring clicks formula with lineitem-level override...")
+        li.configure_metric_formula(
+            "metric_clicks",
+            formula_type="conversion_rate",   # Create lineitem override
+            base_metric="metric_impressions", # Must provide both parameters
+            coefficient=Decimal("0.01"),      # CTR = 1%
+            comments="Click-through rate calculation - lineitem override"
         )
+        print(f"     ✓ Clicks: conversion_rate from impressions (CTR)")
 
-        # Add a CPM formula
-        li.metric_formulas["cpm"] = MetricFormula(
-            formula_type="cost_per_unit",
-            base_metric="cost_total",
-            coefficient=8.0,
-            comments="CPM calculation"
+        # Configure impressions with CPM using formula_type and base_metric parameters
+        print(f"   - Configuring impressions formula with lineitem-level override...")
+        li.configure_metric_formula(
+            "metric_impressions",
+            formula_type="cost_per_unit",    # Create lineitem override
+            base_metric="cost_total",        # Must provide both parameters
+            coefficient=Decimal("8.0"),      # CPM = $8.00
+            comments="CPM calculation - lineitem override"
         )
+        print(f"     ✓ Impressions: cost_per_unit from cost_total (CPM)")
 
-        print(f"   - Added formulas: CTR, CPM")
-        print(f"   - Total formulas: {len(li.metric_formulas)}")
+        print(f"   - Formulas configured with lineitem-level overrides")
+        print(f"     (These formulas are specific to this lineitem)")
+        if li.metric_formulas:
+            print(f"   - Total formulas: {len(li.metric_formulas)}")
 
         # Update line item custom properties
         if li.custom_properties is None:
@@ -712,7 +720,7 @@ if __name__ == "__main__":
     print(f"  4. Updated KPIs and custom dimensions")
     print(f"  5. Merged custom_properties dictionaries")
     print(f"  6. Proper LineItem CRUD pattern (load_lineitem → edit → update_lineitem)")
-    print(f"  7. Added MetricFormula objects to line items")
+    print(f"  7. Configured lineitem-level formula overrides (formula_type, base_metric)")
     print(f"  8. Used overwrite=True to update existing versions")
     print(f"  9. Used overwrite=False to create new versions")
     print(f" 10. Used set_as_current to manage version state")
