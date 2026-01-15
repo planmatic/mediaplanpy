@@ -64,13 +64,21 @@ def _build_metric_formulas_from_import(
     """
     Build metric_formulas structure for a line item based on imported data.
 
+    FORMULA-AWARE IMPORT (Phase 4):
+    Uses 3-tier hierarchy to determine formula_type and base_metric for each metric:
+    1. Lineitem-level override (from Metric Formulas JSON column)
+    2. Dictionary-level definition
+    3. Defaults
+
+    Then reads coefficient from the appropriate column based on formula_type.
+
     Logic:
     - For each metric with non-zero value: reverse-calculate coefficient from metric and base metric
     - For each metric with zero value: read coefficient from calculated_data (Excel columns)
-    - Uses formula_type and base_metric from Dictionary (defaults to cost_per_unit/cost_total)
+    - Uses formula_type and base_metric from hierarchy (respects lineitem overrides)
 
     Args:
-        line_item: Line item dictionary with metric values
+        line_item: Line item dictionary with metric values and metric_formulas (from JSON column)
         calculated_data: Dictionary of calculated column values (_cpu, _cvr, _coef, _param1)
         dictionary: Dictionary configuration with formula types and base metrics
 
@@ -80,6 +88,9 @@ def _build_metric_formulas_from_import(
     from decimal import Decimal
 
     metric_formulas = {}
+
+    # Get existing metric_formulas from JSON column (lineitem-level overrides)
+    existing_formulas = line_item.get("metric_formulas", {})
 
     # Get dictionary sections for formula configs
     standard_metrics = dictionary.get("standard_metrics", {}) if dictionary else {}
@@ -112,39 +123,48 @@ def _build_metric_formulas_from_import(
         if not isinstance(metric_value, Decimal):
             metric_value = Decimal(str(metric_value)) if metric_value else Decimal("0")
 
-        # Get formula config from dictionary (or use defaults)
-        formula_config = _get_metric_formula_config(metric_name, standard_metrics, custom_metrics)
-        formula_type = formula_config.get("formula_type", "cost_per_unit")
-        base_metric = formula_config.get("base_metric", "cost_total")
+        # PHASE 4: Use 3-tier hierarchy to get formula_type and base_metric
+        formula_def = _get_metric_formula_definition_from_import(
+            metric_name, existing_formulas, standard_metrics, custom_metrics
+        )
+        formula_type = formula_def.get("formula_type", "cost_per_unit")
+        base_metric = formula_def.get("base_metric", "cost_total")
 
         # Branch based on whether metric has non-zero value
         if metric_value != 0:
             # === CASE 1: Metric has value - Calculate coefficient from value ===
-            base_metric_value = line_item.get(base_metric, 0)
-            if not isinstance(base_metric_value, Decimal):
-                base_metric_value = Decimal(str(base_metric_value)) if base_metric_value else Decimal("0")
 
-            # Skip if base metric is 0 (can't calculate coefficient)
-            if base_metric_value == 0:
-                continue
+            # Special case: constant formulas don't need base metric calculation
+            if formula_type == "constant":
+                coefficient = metric_value
+            else:
+                base_metric_value = line_item.get(base_metric, 0)
+                if not isinstance(base_metric_value, Decimal):
+                    base_metric_value = Decimal(str(base_metric_value)) if base_metric_value else Decimal("0")
 
-            # Get parameter1 for power_function (read from calculated_data)
-            parameter1 = None
-            if formula_type == "power_function":
-                param1_key = f"{metric_name}_param1"
-                if param1_key in calculated_data:
-                    parameter1 = Decimal(str(calculated_data[param1_key]))
-                else:
-                    parameter1 = Decimal("1.0")
+                # Skip if base metric is 0 (can't calculate coefficient)
+                if base_metric_value == 0:
+                    continue
 
-            # Reverse-calculate coefficient
-            coefficient = _reverse_calculate_coefficient(
-                metric_value, base_metric_value, formula_type, parameter1
-            )
+                # Get parameter1 for power_function (read from calculated_data)
+                parameter1 = None
+                if formula_type == "power_function":
+                    param1_key = f"{metric_name}_param1"
+                    if param1_key in calculated_data:
+                        parameter1 = Decimal(str(calculated_data[param1_key]))
+                    else:
+                        parameter1 = Decimal("1.0")
+
+                # Reverse-calculate coefficient
+                coefficient = _reverse_calculate_coefficient(
+                    metric_value, base_metric_value, formula_type, parameter1
+                )
 
         else:
             # === CASE 2: Metric is 0 - Read coefficient from calculated_data ===
-            coefficient = _read_coefficient_from_calculated_data(
+
+            # PHASE 4: Read coefficient from matching column based on formula_type
+            coefficient = _read_coefficient_for_formula_type(
                 metric_name, formula_type, calculated_data
             )
 
@@ -171,6 +191,108 @@ def _build_metric_formulas_from_import(
             metric_formulas[metric_name] = formula_entry
 
     return metric_formulas
+
+
+def _get_metric_formula_definition_from_import(
+    metric_name: str,
+    existing_formulas: Dict[str, Any],
+    standard_metrics: Dict[str, Any],
+    custom_metrics: Dict[str, Any]
+) -> Dict[str, str]:
+    """
+    Get formula_type and base_metric using 3-tier hierarchy (Phase 4).
+
+    This mirrors the logic in LineItem.get_metric_formula_definition() for import context.
+
+    Hierarchy:
+    1. TIER 1: Lineitem-level override (from Metric Formulas JSON column)
+    2. TIER 2: Dictionary-level definition
+    3. TIER 3: Defaults
+
+    Args:
+        metric_name: The metric to get formula definition for
+        existing_formulas: Lineitem-level formulas from JSON column
+        standard_metrics: Dictionary standard_metrics section
+        custom_metrics: Dictionary custom_metrics section
+
+    Returns:
+        Dict with formula_type and base_metric (base_metric can be None for constants)
+    """
+    # TIER 1: Check lineitem-level override from JSON column
+    if metric_name in existing_formulas:
+        formula = existing_formulas[metric_name]
+        if isinstance(formula, dict):
+            formula_type = formula.get("formula_type")
+            base_metric = formula.get("base_metric")
+
+            # Validate based on formula_type (same validation as LineItem model)
+            if formula_type == "constant":
+                # Constant formulas don't need base_metric
+                return {
+                    "formula_type": formula_type,
+                    "base_metric": None
+                }
+            elif formula_type and base_metric:
+                # Non-constant formulas require both fields
+                return {
+                    "formula_type": formula_type,
+                    "base_metric": base_metric
+                }
+            # If incomplete (non-constant with missing base_metric), fall through to dictionary
+
+    # TIER 2 & 3: Dictionary/defaults
+    return _get_metric_formula_config(metric_name, standard_metrics, custom_metrics)
+
+
+def _read_coefficient_for_formula_type(
+    metric_name: str,
+    formula_type: str,
+    calculated_data: Dict[str, float]
+) -> Optional[Decimal]:
+    """
+    Read coefficient from the appropriate column based on formula_type (Phase 4).
+
+    This function reads from the matching coefficient column:
+    - cost_per_unit → _cpu column
+    - conversion_rate → _cvr column
+    - power_function → _coef column
+    - constant → _const column (if exists)
+
+    Args:
+        metric_name: The metric name (e.g., "metric_clicks")
+        formula_type: The formula type to read coefficient for
+        calculated_data: Dictionary of calculated column values
+
+    Returns:
+        Coefficient as Decimal, or None if not found/not applicable
+    """
+    from decimal import Decimal
+
+    # Determine calculated column suffix based on formula type
+    if formula_type == "cost_per_unit":
+        suffix = "_cpu"
+    elif formula_type == "conversion_rate":
+        suffix = "_cvr"
+    elif formula_type == "constant":
+        suffix = "_const"
+    elif formula_type == "power_function":
+        suffix = "_coef"
+    else:
+        return None
+
+    calc_key = f"{metric_name}{suffix}"
+
+    if calc_key in calculated_data:
+        coefficient = Decimal(str(calculated_data[calc_key]))
+
+        # Special case: For impressions CPM, divide by 1000 to get actual coefficient
+        # (Export multiplies by 1000 for display, so we reverse it)
+        if metric_name == "metric_impressions" and formula_type == "cost_per_unit":
+            coefficient = coefficient / 1000
+
+        return coefficient
+
+    return None
 
 
 def _get_metric_formula_config(
