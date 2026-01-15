@@ -527,6 +527,53 @@ class LineItem(BaseModel):
 
         return self._mediaplan.dictionary
 
+    def get_metric_formula_definition(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula definition for this metric on THIS lineitem.
+
+        Implements 3-tier hierarchy:
+        1. Check this lineitem's metric_formulas for override (highest priority)
+        2. Delegate to dictionary for plan-level definition (fallback)
+        3. Dictionary returns defaults (ultimate fallback)
+
+        A lineitem override is only valid if BOTH formula_type AND base_metric
+        are non-null in the lineitem's metric_formulas.
+
+        Args:
+            metric_name: Name of the metric (e.g., "metric_clicks")
+
+        Returns:
+            Dict with keys "formula_type" and "base_metric", or None if metric not found
+
+        Example:
+            >>> # Lineitem with override
+            >>> lineitem.metric_formulas = {
+            ...     "metric_clicks": MetricFormula(formula_type="cost_per_unit", base_metric="cost_total")
+            ... }
+            >>> lineitem.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "cost_per_unit", "base_metric": "cost_total"}
+
+            >>> # Lineitem without override - uses dictionary definition
+            >>> lineitem.metric_formulas = {}
+            >>> lineitem.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}  # from dictionary
+        """
+        # TIER 1: Check this lineitem's metric_formulas for override
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+
+            # Override is ONLY valid if BOTH formula_type AND base_metric are present
+            if formula.formula_type and formula.base_metric:
+                return {
+                    "formula_type": formula.formula_type,
+                    "base_metric": formula.base_metric
+                }
+            # If only one is present, ignore the override and fall through to dictionary
+
+        # TIER 2 & 3: Delegate to dictionary (which handles defaults)
+        dictionary = self.get_dictionary()
+        return dictionary.get_metric_formula_definition(metric_name)
+
     def _get_relevant_metrics(self) -> Set[str]:
         """
         Get set of metrics that are relevant for this lineitem.
@@ -691,10 +738,8 @@ class LineItem(BaseModel):
         from decimal import Decimal, InvalidOperation
         from mediaplanpy.models.dictionary import Dictionary
 
-        # Get formula definition from dictionary (or use defaults)
-        formula_def = None
-        if dictionary:
-            formula_def = dictionary.get_metric_formula_definition(metric_name)
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
 
         # Use defaults if no formula definition exists
         if formula_def is None:
@@ -793,10 +838,8 @@ class LineItem(BaseModel):
         from decimal import Decimal, InvalidOperation
         from mediaplanpy.models.dictionary import Dictionary
 
-        # Get formula definition from dictionary (or use defaults)
-        formula_def = None
-        if dictionary:
-            formula_def = dictionary.get_metric_formula_definition(metric_name)
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
 
         # Use defaults if no formula definition exists
         if formula_def is None:
@@ -928,10 +971,8 @@ class LineItem(BaseModel):
                 if self.metric_formulas is None:
                     self.metric_formulas = {}
 
-                # Get formula definition (or use defaults)
-                formula_def = None
-                if dictionary:
-                    formula_def = dictionary.get_metric_formula_definition(dependent_metric)
+                # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+                formula_def = self.get_metric_formula_definition(dependent_metric)
 
                 if formula_def:
                     formula_type = formula_def.get("formula_type", "cost_per_unit")
@@ -1095,9 +1136,9 @@ class LineItem(BaseModel):
                 else:
                     # Create new formula with calculated coefficient
                     from mediaplanpy.models.metric_formula import MetricFormula
-                    formula_def = None
-                    if dictionary:
-                        formula_def = dictionary.get_metric_formula_definition(metric_name)
+
+                    # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+                    formula_def = self.get_metric_formula_definition(metric_name)
 
                     # Use formula_def if exists, otherwise use defaults
                     if formula_def:
@@ -1181,10 +1222,8 @@ class LineItem(BaseModel):
                 f"Metric must be a valid LineItem attribute."
             )
 
-        # Get formula definition from dictionary (or use defaults)
-        formula_def = None
-        if dictionary:
-            formula_def = dictionary.get_metric_formula_definition(metric_name)
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
 
         # Extract formula_type and base_metric (or use defaults)
         if formula_def:
@@ -1279,10 +1318,8 @@ class LineItem(BaseModel):
         # Get metric value
         value = getattr(self, metric_name, None)
 
-        # Get formula definition from dictionary (or use defaults)
-        formula_def = None
-        if dictionary:
-            formula_def = dictionary.get_metric_formula_definition(metric_name)
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
 
         # Extract formula_type and base_metric from dictionary or use defaults
         if formula_def:
