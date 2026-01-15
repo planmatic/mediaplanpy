@@ -1168,15 +1168,22 @@ class LineItem(BaseModel):
         parameter1: Optional[Decimal] = None,
         parameter2: Optional[Decimal] = None,
         comments: Optional[str] = None,
+        formula_type: Optional[str] = None,
+        base_metric: Optional[str] = None,
         recalculate_value: bool = True,
         recalculate_dependents: bool = True
     ) -> Dict[str, Decimal]:
         """
-        Configure formula parameters for a metric.
+        Configure formula parameters for a metric, optionally creating a lineitem-level override.
 
-        This method allows configuring the coefficient, parameter1, parameter2, and
-        comments for a metric's formula. The formula_type and base_metric are
-        managed at the dictionary level via mediaplan.select_metric_formula().
+        NEW in v3.0.1: formula_type and base_metric parameters allow creating
+        lineitem-level formula overrides that differ from dictionary defaults.
+
+        This method allows configuring the coefficient, parameter1, parameter2,
+        comments, and optionally formula_type and base_metric for a metric's formula.
+
+        To create a lineitem-level override, provide BOTH formula_type AND base_metric.
+        Providing only one will result in an error.
 
         Args:
             metric_name: Name of the metric to configure formula for
@@ -1184,6 +1191,10 @@ class LineItem(BaseModel):
             parameter1: New parameter1 value (None = no change)
             parameter2: New parameter2 value (None = no change)
             comments: New comments (None = no change)
+            formula_type: Optional formula type to override dictionary definition.
+                         Must provide both formula_type and base_metric together.
+            base_metric: Optional base metric to override dictionary definition.
+                        Must provide both formula_type and base_metric together.
             recalculate_value: If True (default), recalculate this metric's value
                               from the new formula
             recalculate_dependents: If True (default), recalculate metrics that
@@ -1194,20 +1205,32 @@ class LineItem(BaseModel):
 
         Raises:
             ValueError: If metric_name is invalid, LineItem not attached to MediaPlan,
+                       only one of formula_type/base_metric is provided,
                        or circular dependency detected
 
-        Example:
+        Examples:
             >>> mediaplan = MediaPlan(...)
             >>> lineitem = mediaplan.lineitems[0]
             >>>
-            >>> # Configure CPM coefficient for impressions
+            >>> # Create lineitem-level override with both formula_type and base_metric
+            >>> lineitem.configure_metric_formula(
+            ...     "metric_clicks",
+            ...     coefficient=Decimal("0.02"),
+            ...     formula_type="conversion_rate",
+            ...     base_metric="metric_impressions"
+            ... )
+            >>>
+            >>> # Configure CPM coefficient for impressions (uses dictionary formula)
             >>> lineitem.configure_metric_formula("metric_impressions",
             ...                                    coefficient=Decimal("0.010"))
             {"metric_impressions": Decimal("1000000"), "metric_conversions": Decimal("10")}
             >>>
-            >>> # Configure power function parameter
-            >>> lineitem.configure_metric_formula("metric_custom1",
-            ...                                    parameter1=Decimal("0.5"))
+            >>> # ERROR: Providing only one property
+            >>> lineitem.configure_metric_formula(
+            ...     "metric_clicks",
+            ...     formula_type="conversion_rate"  # Missing base_metric!
+            ... )
+            ValueError: Both formula_type and base_metric must be provided together
         """
         from decimal import Decimal
         from mediaplanpy.models.metric_formula import MetricFormula
@@ -1222,17 +1245,12 @@ class LineItem(BaseModel):
                 f"Metric must be a valid LineItem attribute."
             )
 
-        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
-        formula_def = self.get_metric_formula_definition(metric_name)
-
-        # Extract formula_type and base_metric (or use defaults)
-        if formula_def:
-            formula_type = formula_def.get("formula_type", "cost_per_unit")
-            base_metric = formula_def.get("base_metric", "cost_total")
-        else:
-            # Use defaults when no dictionary or no formula definition
-            formula_type = "cost_per_unit"
-            base_metric = "cost_total"
+        # Validate override parameters - both must be provided together or neither
+        if (formula_type is None) != (base_metric is None):
+            raise ValueError(
+                "Both formula_type and base_metric must be provided together to create "
+                "a lineitem-level override. Provide both or neither."
+            )
 
         # Initialize metric_formulas dict if needed
         if self.metric_formulas is None:
@@ -1242,6 +1260,14 @@ class LineItem(BaseModel):
         if metric_name in self.metric_formulas:
             # Update existing formula
             formula = self.metric_formulas[metric_name]
+
+            # Update formula_type and base_metric if provided
+            if formula_type is not None:
+                formula.formula_type = formula_type
+            if base_metric is not None:
+                formula.base_metric = base_metric
+
+            # Update other properties
             if coefficient is not None:
                 formula.coefficient = Decimal(str(coefficient))
             if parameter1 is not None:
@@ -1251,10 +1277,27 @@ class LineItem(BaseModel):
             if comments is not None:
                 formula.comments = comments
         else:
-            # Create new formula with formula_type and base_metric (from dictionary or defaults)
+            # Create new formula
+            # If override provided, use it; otherwise get from dictionary hierarchy
+            if formula_type is not None and base_metric is not None:
+                # Use provided override
+                use_formula_type = formula_type
+                use_base_metric = base_metric
+            else:
+                # Get from dictionary hierarchy (lineitem override → dictionary → defaults)
+                formula_def = self.get_metric_formula_definition(metric_name)
+                if formula_def:
+                    use_formula_type = formula_def.get("formula_type", "cost_per_unit")
+                    use_base_metric = formula_def.get("base_metric", "cost_total")
+                else:
+                    # Use defaults when no formula definition exists
+                    use_formula_type = "cost_per_unit"
+                    use_base_metric = "cost_total"
+
+            # Create new formula with determined or provided formula_type and base_metric
             self.metric_formulas[metric_name] = MetricFormula(
-                formula_type=formula_type,
-                base_metric=base_metric,
+                formula_type=use_formula_type,
+                base_metric=use_base_metric,
                 coefficient=Decimal(str(coefficient)) if coefficient is not None else None,
                 parameter1=Decimal(str(parameter1)) if parameter1 is not None else None,
                 parameter2=Decimal(str(parameter2)) if parameter2 is not None else None,
