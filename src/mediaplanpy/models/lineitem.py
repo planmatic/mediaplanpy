@@ -582,6 +582,21 @@ class LineItem(BaseModel):
 
         # TIER 2 & 3: Delegate to dictionary (which handles defaults)
         dictionary = self.get_dictionary()
+
+        # Handle None dictionary - use defaults for standard metrics, None for custom metrics
+        if dictionary is None:
+            from mediaplanpy.models.dictionary import Dictionary
+            # Check if it's a standard metric
+            if metric_name in Dictionary.VALID_STANDARD_METRIC_FIELDS:
+                # Return default formula definition
+                return {
+                    "formula_type": "cost_per_unit",
+                    "base_metric": "cost_total"
+                }
+            else:
+                # Custom metrics require dictionary configuration
+                return None
+
         return dictionary.get_metric_formula_definition(metric_name)
 
     def _get_relevant_metrics(self) -> Set[str]:
