@@ -7,7 +7,7 @@ supporting only v3.0 schema with target audiences/locations arrays and all new f
 
 import os
 import logging
-from typing import Dict, Any, List, Optional, Union, Tuple
+from typing import Dict, Any, List, Optional, Union, Tuple, TYPE_CHECKING
 from datetime import datetime
 from decimal import Decimal
 
@@ -21,10 +21,15 @@ from openpyxl.cell import Cell
 from mediaplanpy.exceptions import StorageError
 from mediaplanpy.workspace import WorkspaceManager
 
+if TYPE_CHECKING:
+    from mediaplanpy.models.mediaplan import MediaPlan
+    from mediaplanpy.models.lineitem import LineItem
+    from mediaplanpy.models.dictionary import Dictionary
+
 logger = logging.getLogger("mediaplanpy.excel.exporter")
 
 
-def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
+def export_to_excel(media_plan: "MediaPlan", path: Optional[str] = None,
                     template_path: Optional[str] = None,
                     include_documentation: bool = True,
                     workspace_manager: Optional[WorkspaceManager] = None,
@@ -33,7 +38,7 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
     Export a media plan to Excel format using v3.0 schema.
 
     Args:
-        media_plan: The media plan data to export (must be v3.0 schema)
+        media_plan: MediaPlan object to export (must be v3.0 schema)
         path: Optional path for the output file
         template_path: Optional path to an Excel template file
         include_documentation: Whether to include a documentation sheet
@@ -49,12 +54,12 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
     try:
         # Determine the path if not provided
         if not path:
-            media_plan_id = media_plan.get("meta", {}).get("id", "media_plan")
+            media_plan_id = media_plan.meta.id
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"{media_plan_id}_{timestamp}.xlsx"
 
         # Validate schema version - only v3.0 supported
-        schema_version = media_plan.get("meta", {}).get("schema_version", "unknown")
+        schema_version = media_plan.meta.schema_version
         if not _is_v3_schema_version(schema_version):
             raise StorageError(f"Excel export only supports v3.0 schema. Found: {schema_version}")
 
@@ -182,7 +187,7 @@ def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optiona
         return None
 
     # Check standard_metrics first
-    standard_metrics = dictionary.get("standard_metrics", {})
+    standard_metrics = getattr(dictionary,"standard_metrics", {})
     if metric_name in standard_metrics:
         config = standard_metrics[metric_name]
         # Extract formula_type and base_metric
@@ -196,7 +201,7 @@ def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optiona
             }
 
     # Check custom_metrics
-    custom_metrics = dictionary.get("custom_metrics", {})
+    custom_metrics = getattr(dictionary,"custom_metrics", {})
     if metric_name in custom_metrics:
         config = custom_metrics[metric_name]
         # Extract formula_type and base_metric from dict
@@ -369,7 +374,7 @@ def _get_missing_base_metrics(
 
 def _populate_coefficient_column(
     metric_name: str,
-    line_item: Dict[str, Any],
+    line_item: "LineItem",
     formula_config: Optional[Dict[str, str]]
 ) -> Optional[Decimal]:
     """
@@ -380,7 +385,7 @@ def _populate_coefficient_column(
 
     Args:
         metric_name: Name of the metric (e.g., "metric_clicks")
-        line_item: Line item data dictionary
+        line_item: LineItem object
         formula_config: Formula configuration with formula_type and base_metric
 
     Returns:
@@ -407,16 +412,15 @@ def _populate_coefficient_column(
         Decimal("0.02")  # 20000 / 1000000
     """
     # Step 1: Check if formula exists in lineitem with coefficient
-    metric_formulas = line_item.get("metric_formulas", {})
+    metric_formulas = getattr(line_item, "metric_formulas", {})
+    if metric_formulas is None:
+        metric_formulas = {}
+
     if metric_formulas and metric_name in metric_formulas:
         formula = metric_formulas[metric_name]
-        if isinstance(formula, dict):
-            coefficient = formula.get("coefficient")
-            formula_type_from_formula = formula.get("formula_type")
-        else:
-            # MetricFormula object
-            coefficient = getattr(formula, "coefficient", None)
-            formula_type_from_formula = getattr(formula, "formula_type", None)
+        # MetricFormula object (always an object in Pydantic models)
+        coefficient = getattr(formula, "coefficient", None)
+        formula_type_from_formula = getattr(formula, "formula_type", None)
 
         if coefficient is not None:
             # Convert to Decimal if needed
@@ -430,7 +434,7 @@ def _populate_coefficient_column(
             return coefficient
 
     # Step 2: Reverse-calculate from metric and base metric values
-    metric_value = line_item.get(metric_name)
+    metric_value = getattr(line_item, metric_name, None)
     if metric_value is None or metric_value == 0:
         return Decimal("0")
 
@@ -447,7 +451,7 @@ def _populate_coefficient_column(
         base_metric_name = formula_config.get("base_metric", "cost_total")
 
     # Get base metric value
-    base_metric_value = line_item.get(base_metric_name)
+    base_metric_value = getattr(line_item, base_metric_name, None)
     if base_metric_value is None or base_metric_value == 0:
         return Decimal("0")
 
@@ -480,10 +484,8 @@ def _populate_coefficient_column(
             parameter1 = Decimal("1.0")
             if metric_formulas and metric_name in metric_formulas:
                 formula = metric_formulas[metric_name]
-                if isinstance(formula, dict):
-                    param1 = formula.get("parameter1")
-                else:
-                    param1 = getattr(formula, "parameter1", None)
+                # MetricFormula object (always an object in Pydantic models)
+                param1 = getattr(formula, "parameter1", None)
 
                 if param1 is not None:
                     parameter1 = Decimal(str(param1))
@@ -507,25 +509,26 @@ def _populate_coefficient_column(
 
 def _get_parameter1_value(
     metric_name: str,
-    line_item: Dict[str, Any]
+    line_item: "LineItem"
 ) -> Decimal:
     """
     Get parameter1 value for power_function formulas.
 
     Args:
         metric_name: Name of the metric
-        line_item: Line item data dictionary
+        line_item: LineItem object
 
     Returns:
         Decimal parameter1 value, defaults to 1.0 if not found
     """
-    metric_formulas = line_item.get("metric_formulas", {})
+    metric_formulas = getattr(line_item, "metric_formulas", {})
+    if metric_formulas is None:
+        metric_formulas = {}
+
     if metric_formulas and metric_name in metric_formulas:
         formula = metric_formulas[metric_name]
-        if isinstance(formula, dict):
-            param1 = formula.get("parameter1")
-        else:
-            param1 = getattr(formula, "parameter1", None)
+        # MetricFormula object (always an object in Pydantic models)
+        param1 = getattr(formula, "parameter1", None)
 
         if param1 is not None:
             if not isinstance(param1, Decimal):
@@ -539,7 +542,7 @@ def _generate_excel_formula(
     metric_name: str,
     formula_config: Optional[Dict[str, str]],
     column_refs: Dict[str, str],
-    line_item: Dict[str, Any]
+    line_item: "LineItem"
 ) -> str:
     """
     Generate Excel formula string based on formula_type and base_metric.
@@ -702,19 +705,19 @@ def _create_v3_styles(workbook: Workbook) -> None:
     workbook.add_named_style(grey_font_style)
 
 
-def _populate_v3_workbook(workbook: Workbook, media_plan: Dict[str, Any], include_documentation: bool) -> None:
+def _populate_v3_workbook(workbook: Workbook, media_plan: "MediaPlan", include_documentation: bool) -> None:
     """
     Populate a workbook with v3.0 schema data.
 
     Args:
         workbook: The workbook to populate
-        media_plan: The media plan data (v3.0 schema)
+        media_plan: MediaPlan object (v3.0 schema)
         include_documentation: Whether to include a documentation sheet
     """
-    meta = media_plan.get("meta", {})
-    campaign = media_plan.get("campaign", {})
-    line_items = media_plan.get("lineitems", [])
-    dictionary = media_plan.get("dictionary", {})
+    meta = media_plan.meta
+    campaign = media_plan.campaign
+    line_items = media_plan.lineitems  # List[LineItem] objects
+    dictionary = media_plan.dictionary  # Dictionary object
 
     # Populate all sheets
     _populate_v3_metadata_sheet(workbook["Metadata"], media_plan)
@@ -731,15 +734,15 @@ def _populate_v3_workbook(workbook: Workbook, media_plan: Dict[str, Any], includ
         workbook.remove(workbook["Documentation"])
 
 
-def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
+def _populate_v3_metadata_sheet(sheet, media_plan: "MediaPlan") -> None:
     """
     Populate the metadata sheet with v3.0 schema information.
 
     Args:
         sheet: The worksheet to populate
-        media_plan: The media plan data
+        media_plan: MediaPlan object
     """
-    meta = media_plan.get("meta", {})
+    meta = media_plan.meta
 
     # Set column widths
     sheet.column_dimensions["A"].width = 22  # Field
@@ -778,7 +781,7 @@ def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
         if field_key == "schema_version":
             sheet[f'B{row}'] = "3.0"
         else:
-            sheet[f'B{row}'] = meta.get(field_key, "")
+            sheet[f'B{row}'] = getattr(meta, field_key, "")
         sheet[f'C{row}'] = "TRUE" if is_required else ""
         sheet[f'D{row}'] = description
         row += 1
@@ -786,14 +789,14 @@ def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
     # Add custom dimension fields (v3.0)
     for i in range(1, 6):
         sheet[f'A{row}'] = f"Dim Custom {i}:"
-        sheet[f'B{row}'] = meta.get(f"dim_custom{i}", "")
+        sheet[f'B{row}'] = getattr(meta, f"dim_custom{i}", "")
         sheet[f'C{row}'] = ""
         sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
         row += 1
 
     # Add custom properties field (v3.0)
     sheet[f'A{row}'] = "Custom Properties:"
-    custom_props = meta.get("custom_properties")
+    custom_props = getattr(meta, "custom_properties", None)
     if custom_props:
         import json
         sheet[f'B{row}'] = json.dumps(custom_props)
@@ -810,13 +813,13 @@ def _populate_v3_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
     sheet[f'D{row}'] = "Timestamp when this Excel file was exported"
 
 
-def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
+def _populate_v3_campaign_sheet(sheet, campaign) -> None:
     """
     Populate the campaign sheet with v3.0 schema information.
 
     Args:
         sheet: The worksheet to populate
-        campaign: The campaign data
+        campaign: Campaign object
     """
     import json
 
@@ -861,7 +864,7 @@ def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     row = 2
     for label, field_key, is_required, description, style in campaign_fields:
         sheet[f'A{row}'] = label
-        sheet[f'B{row}'] = campaign.get(field_key, "")
+        sheet[f'B{row}'] = getattr(campaign,field_key, "")
         if style:
             sheet[f'B{row}'].style = style
         sheet[f'C{row}'] = "TRUE" if is_required else ""
@@ -871,13 +874,13 @@ def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     # Add KPI fields (v3.0) - alternating name/value pairs
     for i in range(1, 6):
         sheet[f'A{row}'] = f"KPI Name {i}:"
-        sheet[f'B{row}'] = campaign.get(f"kpi_name{i}", "")
+        sheet[f'B{row}'] = getattr(campaign,f"kpi_name{i}", "")
         sheet[f'C{row}'] = ""
         sheet[f'D{row}'] = f"Name of key performance indicator {i}"
         row += 1
 
         sheet[f'A{row}'] = f"KPI Value {i}:"
-        kpi_value = campaign.get(f"kpi_value{i}")
+        kpi_value = getattr(campaign,f"kpi_value{i}")
         sheet[f'B{row}'] = kpi_value if kpi_value is not None else ""
         sheet[f'C{row}'] = ""
         sheet[f'D{row}'] = f"Target value or goal for key performance indicator {i}"
@@ -886,14 +889,14 @@ def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     # Add custom dimension fields (v3.0)
     for i in range(1, 6):
         sheet[f'A{row}'] = f"Dim Custom {i}:"
-        sheet[f'B{row}'] = campaign.get(f"dim_custom{i}", "")
+        sheet[f'B{row}'] = getattr(campaign,f"dim_custom{i}", "")
         sheet[f'C{row}'] = ""
         sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
         row += 1
 
     # Add custom properties field (v3.0)
     sheet[f'A{row}'] = "Custom Properties:"
-    custom_props = campaign.get("custom_properties")
+    custom_props = getattr(campaign,"custom_properties")
     if custom_props:
         sheet[f'B{row}'] = json.dumps(custom_props)
     else:
@@ -902,7 +905,7 @@ def _populate_v3_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
     sheet[f'D{row}'] = "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
 
 
-def _populate_v3_target_audiences_sheet(sheet, campaign: Dict[str, Any]) -> None:
+def _populate_v3_target_audiences_sheet(sheet, campaign) -> None:
     """
     Populate the Target Audiences sheet with v3.0 schema data (NEW for v3.0).
 
@@ -911,7 +914,10 @@ def _populate_v3_target_audiences_sheet(sheet, campaign: Dict[str, Any]) -> None
         campaign: The campaign data containing target_audiences array
     """
     # Get target audiences from campaign
-    target_audiences = campaign.get("target_audiences", [])
+    target_audiences = getattr(campaign, "target_audiences", [])
+    # Handle None value
+    if target_audiences is None:
+        target_audiences = []
 
     # Set column widths
     sheet.column_dimensions["A"].width = 20  # Name
@@ -962,7 +968,7 @@ def _populate_v3_target_audiences_sheet(sheet, campaign: Dict[str, Any]) -> None
     logger.info(f"Exported {len(target_audiences)} target audience(s) to Target Audiences sheet")
 
 
-def _populate_v3_target_locations_sheet(sheet, campaign: Dict[str, Any]) -> None:
+def _populate_v3_target_locations_sheet(sheet, campaign) -> None:
     """
     Populate the Target Locations sheet with v3.0 schema data (NEW for v3.0).
 
@@ -973,7 +979,10 @@ def _populate_v3_target_locations_sheet(sheet, campaign: Dict[str, Any]) -> None
     import json
 
     # Get target locations from campaign
-    target_locations = campaign.get("target_locations", [])
+    target_locations = getattr(campaign, "target_locations", [])
+    # Handle None value
+    if target_locations is None:
+        target_locations = []
 
     # Set column widths
     sheet.column_dimensions["A"].width = 25  # Name
@@ -1026,7 +1035,7 @@ def _populate_v3_target_locations_sheet(sheet, campaign: Dict[str, Any]) -> None
     logger.info(f"Exported {len(target_locations)} target location(s) to Target Locations sheet")
 
 
-def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictionary: Dict[str, Any]) -> None:
+def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary: "Dictionary") -> None:
     """
     Populate the line items sheet with v3.0 schema data including formula-aware calculated columns.
 
@@ -1036,13 +1045,14 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
 
     Args:
         sheet: The worksheet to populate
-        line_items: List of line item data
-        dictionary: Dictionary configuration with formula definitions
+        line_items: List of LineItem objects
+        dictionary: Dictionary object with formula definitions
     """
     # Determine which fields are actually present in line items
     fields_present = set()
     for line_item in line_items:
-        fields_present.update(line_item.keys())
+        # For Pydantic models, use model_dump() to get dict representation
+        fields_present.update(line_item.model_dump(exclude_none=False).keys())
 
     # Define base field order for v3.0 schema
     base_field_order = [
@@ -1251,7 +1261,8 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
                 cost_total_col = col_idx
 
             if field_type == "base":
-                value = line_item.get(field_name)
+                # Access LineItem object attribute
+                value = getattr(line_item, field_name, None)
                 if value is None:
                     continue
 
@@ -1270,7 +1281,7 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
                     sheet.cell(row=row_idx, column=col_idx, value=value)
 
         # Second pass: populate calculated columns and formulas (FORMULA-AWARE)
-        cost_total_value = line_item.get("cost_total", 0)
+        cost_total_value = getattr(line_item, "cost_total", 0)
         cost_total_cell_ref = f"{get_column_letter(cost_total_col)}{row_idx}" if cost_total_col else "0"
 
         # Build column reference map for formula generation
@@ -1283,7 +1294,10 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
                 if field_name.endswith("_pct"):
                     # Cost percentage calculation (unchanged)
                     base_field = field_name.replace("_pct", "")
-                    cost_value = line_item.get(base_field, 0)
+                    cost_value = getattr(line_item, base_field, 0)
+                    # Handle None values
+                    if cost_value is None:
+                        cost_value = 0
 
                     if cost_total_value and cost_total_value != 0:
                         percentage = (cost_value / cost_total_value)
@@ -1363,24 +1377,30 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List[Dict[str, Any]], dictio
                         cell.number_format = "#,##0"  # Thousand comma separator, no decimals
                     else:
                         # Formula generation failed - show metric value directly
-                        metric_value = line_item.get(field_name, 0)
+                        metric_value = getattr(line_item, field_name, 0)
                         cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
                         cell.number_format = "#,##0"
 
             elif field_type == "json":
                 # NEW v3.0: Handle JSON fields (metric_formulas, custom_properties)
-                value = line_item.get(field_name)
+                value = getattr(line_item, field_name, None)
                 if value is not None:
                     import json
-                    # Convert dict to JSON string
-                    json_string = json.dumps(value) if isinstance(value, dict) else str(value)
+                    # Convert to dict if it's a Pydantic model, then to JSON string
+                    if hasattr(value, 'model_dump'):
+                        # Pydantic model - convert to dict first
+                        json_string = json.dumps(value.model_dump(exclude_none=True))
+                    elif isinstance(value, dict):
+                        json_string = json.dumps(value)
+                    else:
+                        json_string = str(value)
                     sheet.cell(row=row_idx, column=col_idx, value=json_string)
 
     logger.info(
         f"Created {len(dynamic_field_order)} columns with {len(present_cost_fields)} cost calculations and {len(present_performance_fields)} performance calculations")
 
 
-def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
+def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
     """
     Populate the dictionary configuration sheet with v3.0 structure.
 
@@ -1428,7 +1448,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
     row = 3
 
     # Section 1: Meta custom dimensions (5 fields)
-    meta_custom_dimensions = dictionary.get("meta_custom_dimensions", {})
+    meta_custom_dimensions = getattr(dictionary,"meta_custom_dimensions", {})
     grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
     for i in range(1, 6):
         field_name = f"dim_custom{i}"
@@ -1448,7 +1468,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         row += 1
 
     # Section 2: Campaign custom dimensions (5 fields)
-    campaign_custom_dimensions = dictionary.get("campaign_custom_dimensions", {})
+    campaign_custom_dimensions = getattr(dictionary,"campaign_custom_dimensions", {})
     for i in range(1, 6):
         field_name = f"dim_custom{i}"
         config = campaign_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
@@ -1467,7 +1487,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         row += 1
 
     # Section 3: LineItem custom dimensions (10 fields)
-    lineitem_custom_dimensions = dictionary.get("lineitem_custom_dimensions", {})
+    lineitem_custom_dimensions = getattr(dictionary,"lineitem_custom_dimensions", {})
     for i in range(1, 11):
         field_name = f"dim_custom{i}"
         config = lineitem_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
@@ -1486,7 +1506,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         row += 1
 
     # Section 4: Standard metrics (25 fields) - NEW in v3.0
-    standard_metrics = dictionary.get("standard_metrics", {})
+    standard_metrics = getattr(dictionary,"standard_metrics", {})
     standard_metric_list = [
         ("metric_impressions", "Impressions"),
         ("metric_clicks", "Clicks"),
@@ -1531,7 +1551,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         row += 1
 
     # Section 5: Custom metrics (10 fields) - Updated in v3.0 to include formula support
-    custom_metrics = dictionary.get("custom_metrics", {})
+    custom_metrics = getattr(dictionary,"custom_metrics", {})
     for i in range(1, 11):
         field_name = f"metric_custom{i}"
         config = custom_metrics.get(field_name, {"status": "disabled", "caption": ""})
@@ -1547,7 +1567,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
         row += 1
 
     # Section 6: Custom costs (10 fields)
-    custom_costs = dictionary.get("custom_costs", {})
+    custom_costs = getattr(dictionary,"custom_costs", {})
     for i in range(1, 11):
         field_name = f"cost_custom{i}"
         config = custom_costs.get(field_name, {"status": "disabled", "caption": ""})

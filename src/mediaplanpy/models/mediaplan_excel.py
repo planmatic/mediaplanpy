@@ -112,8 +112,8 @@ class ExcelMixin:
             media_plan_id = self.meta.id
             file_name = f"{media_plan_id}.xlsx"
 
-        # Convert model to dictionary
-        data = self.to_dict()
+        # Pass MediaPlan object directly (no dict conversion)
+        data = self
 
         if workspace_manager is not None:
             # Use workspace storage (takes precedence)
