@@ -487,8 +487,8 @@ class Dictionary(BaseModel):
             # Process all standard metrics (default behavior)
             metrics_to_process = self.VALID_STANDARD_METRIC_FIELDS
 
-        # Process standard metrics
-        for metric_name in metrics_to_process:
+        # Process standard metrics (sorted for deterministic order)
+        for metric_name in sorted(metrics_to_process):
             # Check if this metric is explicitly defined in dictionary
             if self.standard_metrics and metric_name in self.standard_metrics:
                 config = self.standard_metrics[metric_name]
@@ -505,8 +505,9 @@ class Dictionary(BaseModel):
             graph[base_metric].add(metric_name)
 
         # Process custom metrics (only if enabled and relevant)
+        # Sort for deterministic order
         if self.custom_metrics:
-            for metric_name, config in self.custom_metrics.items():
+            for metric_name, config in sorted(self.custom_metrics.items()):
                 # Only include enabled custom metrics
                 if config.status == "enabled":
                     # Only include if in relevant_metrics (or if no filter)

@@ -719,8 +719,9 @@ class LineItem(BaseModel):
             visiting.add(metric)
 
             # Visit all dependents of this metric
+            # Sort dependents to ensure deterministic order
             dependents = dependency_graph.get(metric, set())
-            for dependent in dependents:
+            for dependent in sorted(dependents):
                 visit(dependent)
 
             # Done visiting this metric and its dependents
@@ -731,8 +732,9 @@ class LineItem(BaseModel):
         # Start DFS from each starting metric
         for metric in start_metrics:
             # Visit each dependent of the starting metric
+            # Sort dependents to ensure deterministic order
             dependents = dependency_graph.get(metric, set())
-            for dependent in dependents:
+            for dependent in sorted(dependents):
                 visit(dependent)
 
         # Reverse the result to get correct topological order
