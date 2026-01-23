@@ -662,6 +662,78 @@ class LineItem(BaseModel):
 
         return relevant
 
+    def _build_dependency_graph(self) -> Dict[str, Set[str]]:
+        """
+        Build dependency graph from this lineitem's metric formulas.
+
+        This method respects the 3-tier hierarchy:
+        1. Lineitem-level overrides (metric_formulas on this lineitem)
+        2. Dictionary-level definitions (from parent MediaPlan)
+        3. Defaults (cost_per_unit from cost_total)
+
+        Unlike dictionary.get_dependency_graph(), this method sees lineitem-specific
+        formula overrides and produces the correct chained graph structure.
+
+        Built fresh each time (no caching) to ensure accurate dependency tracking.
+
+        Returns:
+            Dict mapping base_metric -> set of dependent metric names.
+
+        Example:
+            >>> # Lineitem with override: sales depends on impressions (not cost_total)
+            >>> lineitem.metric_formulas = {
+            ...     "metric_sales": MetricFormula(
+            ...         formula_type="conversion_rate",
+            ...         base_metric="metric_impressions"
+            ...     )
+            ... }
+            >>> lineitem.metric_impressions = Decimal("1000000")
+            >>> lineitem.metric_sales = Decimal("5000")
+            >>>
+            >>> graph = lineitem._build_dependency_graph()
+            >>> graph
+            {
+                "cost_total": {"metric_impressions"},        # cost → impressions
+                "metric_impressions": {"metric_sales"}       # impressions → sales (CHAINED!)
+            }
+
+            >>> # Without override, both metrics depend on cost_total (flat graph)
+            >>> lineitem2 = LineItem(...)
+            >>> lineitem2.metric_impressions = Decimal("1000000")
+            >>> lineitem2.metric_sales = Decimal("5000")
+            >>> graph2 = lineitem2._build_dependency_graph()
+            >>> graph2
+            {
+                "cost_total": {"metric_impressions", "metric_sales"}  # Both depend on cost
+            }
+        """
+        graph: Dict[str, Set[str]] = {}
+
+        # Get relevant metrics for this lineitem
+        relevant_metrics = self._get_relevant_metrics()
+
+        # Build graph for each relevant metric using 3-tier hierarchy
+        for metric_name in sorted(relevant_metrics):  # Sort for deterministic order
+            # Get formula definition (respects 3-tier hierarchy)
+            # This is the KEY difference from dictionary.get_dependency_graph()
+            formula_def = self.get_metric_formula_definition(metric_name)
+
+            if formula_def:
+                formula_type = formula_def.get("formula_type")
+                base_metric = formula_def.get("base_metric")
+
+                # Skip constant formulas (they have no base metric)
+                if formula_type == "constant":
+                    continue
+
+                # Add edge: base_metric → metric_name
+                if base_metric:
+                    if base_metric not in graph:
+                        graph[base_metric] = set()
+                    graph[base_metric].add(metric_name)
+
+        return graph
+
     def _topological_sort(
         self,
         dependency_graph: Dict[str, Set[str]],
@@ -964,14 +1036,8 @@ class LineItem(BaseModel):
         """
         from mediaplanpy.models.metric_formula import MetricFormula
 
-        # Get dependency graph
-        relevant_metrics = self._get_relevant_metrics()
-        if dictionary is None:
-            dependency_graph = {}
-            if relevant_metrics:
-                dependency_graph["cost_total"] = relevant_metrics
-        else:
-            dependency_graph = dictionary.get_dependency_graph(relevant_metrics=relevant_metrics)
+        # Build dependency graph for this lineitem (respects lineitem-level overrides)
+        dependency_graph = self._build_dependency_graph()
 
         # Find metrics that depend on the one being changed
         dependent_metrics = dependency_graph.get(metric_name, set())
@@ -1044,18 +1110,8 @@ class LineItem(BaseModel):
         from decimal import Decimal
         from mediaplanpy.models.dictionary import Dictionary
 
-        # Get relevant metrics for this lineitem (only process metrics that are used)
-        relevant_metrics = self._get_relevant_metrics()
-
-        # Get dependency graph from dictionary, filtered by relevant metrics
-        # If no dictionary, use default: all metrics depend on cost_total with cost_per_unit
-        if dictionary is None:
-            # Build default dependency graph: cost_total -> all relevant metrics
-            dependency_graph = {}
-            if relevant_metrics:
-                dependency_graph["cost_total"] = relevant_metrics
-        else:
-            dependency_graph = dictionary.get_dependency_graph(relevant_metrics=relevant_metrics)
+        # Build dependency graph for this lineitem (respects lineitem-level overrides)
+        dependency_graph = self._build_dependency_graph()
 
         # Perform topological sort to determine calculation order
         try:
