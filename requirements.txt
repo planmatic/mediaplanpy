@@ -22,7 +22,7 @@ iniconfig==2.1.0
 jmespath==1.0.1
 jsonschema==4.23.0
 jsonschema-specifications==2025.4.1
--e git+https://github.com/laurent-colard-l5i/mediaplanpy.git@6beb6a7bbad1715071ea2032751db958def677d8#egg=mediaplanpy
+# -e git+https://github.com/laurent-colard-l5i/mediaplanpy.git@6beb6a7bbad1715071ea2032751db958def677d8#egg=mediaplanpy
 numpy==2.2.5
 oauthlib==3.2.2
 openpyxl==3.1.5
