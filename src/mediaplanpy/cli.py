@@ -780,7 +780,19 @@ def handle_workspace_upgrade(args) -> int:
                 if records_before == records_after:
                     print(f"   Data integrity verified ({records_after} records preserved)")
             else:
-                print(f"   Database not enabled or already upgraded")
+                # Check if database is enabled
+                db_config = manager.config.get('database', {})
+                db_enabled = db_config.get('enabled', False)
+
+                if db_enabled:
+                    # Database is enabled but wasn't upgraded = already v3.0
+                    db_result = result.get('database_result', {})
+                    records_after = db_result.get('records_after', 0)
+                    print(f"   Database schema already upgraded to v3.0")
+                    if records_after > 0:
+                        print(f"   {records_after} workspace records updated to v3.0 schema version")
+                else:
+                    print(f"   Database not enabled")
 
             print(f"\nStep 5/5: Updating workspace settings...")
             print(f"   Workspace settings updated to v3.0")
