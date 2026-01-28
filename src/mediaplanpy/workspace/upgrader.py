@@ -118,7 +118,7 @@ class WorkspaceUpgrader:
 
             # Map validation results to expected fields for CLI display
             result["files_to_migrate"] = validation_result["v2_files_found"]
-            result["database_upgrade_needed"] = self._should_upgrade_database()
+            result["database_upgrade_needed"] = self._needs_database_upgrade()
 
             # Provide backup info for dry-run preview
             if dry_run:
@@ -1034,3 +1034,30 @@ class WorkspaceUpgrader:
             return 'database' in config and config['database'] is not None
         except Exception:
             return False
+
+    def _needs_database_upgrade(self) -> bool:
+        """
+        Check if database actually needs upgrading (checks current version).
+
+        Returns:
+            True if database is enabled AND not already at v3.0
+        """
+        if not self._should_upgrade_database():
+            return False
+
+        try:
+            from mediaplanpy.storage.database import PostgreSQLBackend
+
+            db_backend = PostgreSQLBackend(self.workspace_manager.get_resolved_config())
+
+            # If table doesn't exist yet, it will be created with v3.0
+            if not db_backend.table_exists():
+                return False
+
+            # Check current version
+            current_version = db_backend.get_table_version()
+            return current_version != "3.0"
+
+        except Exception as e:
+            logger.warning(f"Could not determine database version: {e}")
+            return False  # Assume no upgrade needed if can't determine

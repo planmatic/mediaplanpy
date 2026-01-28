@@ -708,8 +708,15 @@ def handle_workspace_upgrade(args) -> int:
             print(f"   JSON files: {result.get('files_to_migrate', 0)}")
             print(f"   Parquet files: {result.get('files_to_migrate', 0)}")
 
-            if result.get('database_upgrade_needed'):
-                print(f"   Database: Enabled (v{current_schema} schema)")
+            # Check if database is enabled
+            db_config = manager.config.get('database', {})
+            db_enabled = db_config.get('enabled', False)
+
+            if db_enabled:
+                if result.get('database_upgrade_needed'):
+                    print(f"   Database: Enabled (v{current_schema} schema)")
+                else:
+                    print(f"   Database: Enabled (already v3.0)")
 
             print(f"\nPlanned Changes:")
             print(f"   Target schema: v3.0")
@@ -720,8 +727,12 @@ def handle_workspace_upgrade(args) -> int:
 
             if result.get('database_upgrade_needed'):
                 print(f"\n   Database changes:")
-                print(f"   - Add 42 new columns (Campaign, LineItem, Meta)")
+                print(f"   - Add new v3.0 columns (Campaign, LineItem, Meta)")
                 print(f"   - Preserve all existing data")
+            elif db_enabled:
+                print(f"\n   Database changes:")
+                print(f"   - No schema changes needed (already v3.0)")
+                print(f"   - Will update workspace records to v3.0 format")
 
             print(f"\n   Backups to create:")
             if result.get('backup_info'):
@@ -755,7 +766,7 @@ def handle_workspace_upgrade(args) -> int:
             print(f"\nStep 4/5: Upgrading database schema...")
             if result.get('database_upgraded'):
                 db_result = result.get('database_result', {})
-                print(f"   Added {db_result.get('columns_added', 42)} new columns")
+                print(f"   Added {db_result.get('columns_added', 0)} new columns")
                 records_before = db_result.get('records_before', 0)
                 records_after = db_result.get('records_after', 0)
                 if records_before == records_after:
