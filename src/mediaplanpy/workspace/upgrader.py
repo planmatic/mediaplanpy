@@ -132,7 +132,9 @@ class WorkspaceUpgrader:
                     s3_config = storage_config.get("s3", {})
                     bucket = s3_config.get("bucket", "")
                     prefix = s3_config.get("prefix", "")
-                    backup_base = f"s3://{bucket}/{prefix}backups/[timestamp]_upgrade_v3.0" if prefix else f"s3://{bucket}/backups/[timestamp]_upgrade_v3.0"
+                    # Ensure proper path separator between prefix and backups
+                    prefix_with_slash = prefix.rstrip('/') + '/' if prefix else ''
+                    backup_base = f"s3://{bucket}/{prefix_with_slash}backups/[timestamp]_upgrade_v3.0"
                 else:
                     backup_base = "[backup location]"
 
