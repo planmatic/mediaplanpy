@@ -387,8 +387,6 @@ def validate_schema() -> None:
         if py_type not in valid_types:
             raise ValueError(f"Invalid type {py_type} for column {col_name}")
 
-    print(f"chema validation passed: {len(column_names)} columns defined")
-
 
 # Run validation on import
 validate_schema()
