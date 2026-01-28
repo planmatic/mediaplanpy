@@ -728,11 +728,19 @@ def handle_workspace_upgrade(args) -> int:
             if result.get('database_upgrade_needed'):
                 print(f"\n   Database changes:")
                 print(f"   - Add new v3.0 columns (Campaign, LineItem, Meta)")
-                print(f"   - Preserve all existing data")
+                record_count = result.get('database_record_count')
+                if record_count is not None:
+                    print(f"   - Preserve all existing data ({record_count} workspace records)")
+                else:
+                    print(f"   - Preserve all existing data")
             elif db_enabled:
                 print(f"\n   Database changes:")
                 print(f"   - No schema changes needed (already v3.0)")
-                print(f"   - Will update workspace records to v3.0 format")
+                record_count = result.get('database_record_count')
+                if record_count is not None:
+                    print(f"   - Will update {record_count} workspace records to v3.0 format")
+                else:
+                    print(f"   - Will update workspace records to v3.0 format")
 
             print(f"\n   Backups to create:")
             if result.get('backup_info'):

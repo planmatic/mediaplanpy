@@ -120,6 +120,17 @@ class WorkspaceUpgrader:
             result["files_to_migrate"] = validation_result["v2_files_found"]
             result["database_upgrade_needed"] = self._needs_database_upgrade()
 
+            # Get database record count for this workspace (if database enabled)
+            if dry_run and self._should_upgrade_database():
+                try:
+                    from mediaplanpy.storage.database import PostgreSQLBackend
+                    db_backend = PostgreSQLBackend(self.workspace_manager.get_resolved_config())
+                    if db_backend.table_exists():
+                        result["database_record_count"] = self._get_workspace_record_count(db_backend)
+                except Exception as e:
+                    logger.warning(f"Could not get database record count: {e}")
+                    result["database_record_count"] = None
+
             # Provide backup info for dry-run preview
             if dry_run:
                 storage_config = self.workspace_manager.config.get("storage", {})
