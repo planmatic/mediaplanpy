@@ -471,12 +471,33 @@ class WorkspaceUpgrader:
                 result["backup_table_name"] = backup_table_name
 
                 # Write backup metadata to file
-                metadata_path = os.path.join(backup_dir, "database_backup_info.txt")
-                with open(metadata_path, 'w') as f:
-                    f.write(f"Backup Table: {backup_table_name}\n")
-                    f.write(f"Records Backed Up: {result['records_backed_up']}\n")
-                    f.write(f"Timestamp: {timestamp}\n")
-                    f.write(f"Database: {db_backend.database}\n")
+                try:
+                    storage_config = self.workspace_manager.config.get("storage", {})
+                    storage_mode = storage_config.get("mode", "local")
+
+                    metadata_content = (
+                        f"Backup Table: {backup_table_name}\n"
+                        f"Records Backed Up: {result['records_backed_up']}\n"
+                        f"Timestamp: {timestamp}\n"
+                        f"Database: {db_backend.database}\n"
+                    )
+
+                    if storage_mode == "local":
+                        # For local storage, ensure directory exists and write file
+                        metadata_path = os.path.join(backup_dir, "database_backup_info.txt")
+                        os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+                        with open(metadata_path, 'w') as f:
+                            f.write(metadata_content)
+                    elif storage_mode == "s3":
+                        # For S3 storage, write metadata using storage backend
+                        storage_backend = self.workspace_manager.get_storage_backend()
+                        metadata_s3_path = f"{backup_dir}/database_backup_info.txt"
+                        storage_backend.write_file(metadata_s3_path, metadata_content)
+
+                    logger.debug(f"Backup metadata written successfully")
+                except Exception as metadata_error:
+                    # Non-critical error - backup table was created successfully
+                    logger.warning(f"Could not write backup metadata file: {metadata_error}")
 
                 logger.info(f"Database backup complete: {result['records_backed_up']} records backed up to table '{backup_table_name}'")
 
