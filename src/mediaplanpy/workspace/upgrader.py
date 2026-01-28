@@ -116,6 +116,36 @@ class WorkspaceUpgrader:
             result["version_validation_errors"].extend(validation_result["errors"])
             result["errors"].extend(validation_result["errors"])
 
+            # Map validation results to expected fields for CLI display
+            result["files_to_migrate"] = validation_result["v2_files_found"]
+            result["database_upgrade_needed"] = self._should_upgrade_database()
+
+            # Provide backup info for dry-run preview
+            if dry_run:
+                storage_config = self.workspace_manager.config.get("storage", {})
+                storage_mode = storage_config.get("mode", "local")
+
+                if storage_mode == "local":
+                    workspace_dir = storage_config.get("local", {}).get("base_path", "./mediaplans")
+                    backup_base = f"{workspace_dir}/backups/[timestamp]_upgrade_v3.0"
+                elif storage_mode == "s3":
+                    s3_config = storage_config.get("s3", {})
+                    bucket = s3_config.get("bucket", "")
+                    prefix = s3_config.get("prefix", "")
+                    backup_base = f"s3://{bucket}/{prefix}backups/[timestamp]_upgrade_v3.0" if prefix else f"s3://{bucket}/backups/[timestamp]_upgrade_v3.0"
+                else:
+                    backup_base = "[backup location]"
+
+                result["backup_info"] = {
+                    "JSON files": f"{backup_base}/mediaplans/",
+                    "Parquet files": f"{backup_base}/mediaplans/",
+                }
+
+                if result["database_upgrade_needed"]:
+                    db_config = self.workspace_manager.config.get("database", {})
+                    table_name = db_config.get("table", "mediaplans")
+                    result["backup_info"]["Database table"] = f"[timestamp]_backup_{table_name}"
+
             # If we found v1.0 or below files, this is a blocking error
             if validation_result["v1_files_rejected"] > 0:
                 error_msg = (
