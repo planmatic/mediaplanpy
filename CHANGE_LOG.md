@@ -1,20 +1,23 @@
 # Changelog
 
+## [v3.0.0] - 2026-01-30
 
-## [v3.0.0] - 2025-12-10
+### Major Release - Schema v3.0 Support
+
+This is a major release with comprehensive enhancements across schema support, formula systems, Excel integration, CLI capabilities, and developer documentation.
 
 ### Added
-- **Schema v3.0 Support**
+- **Schema v3.0 Support** (40% more fields: 155 vs 116 in v2.0)
   - Target audiences and locations now support arrays with 13+ attributes each
-  - Metric formulas for calculated metrics (power functions, conversion rates, cost-per-unit)
-  - 42+ new fields across Meta, Campaign, and LineItem schemas
+  - Metric formulas for calculated metrics (power functions, conversion rates, cost-per-unit, constant)
   - Campaign KPI tracking fields (kpi_name1-5, kpi_value1-5)
   - Custom dimension fields at Meta and Campaign levels (dim_custom1-5)
   - Custom properties objects for extensibility at all levels
-  - 11 new metrics (video completions, reach, units, page views, likes, shares, comments, conversions, etc.)
+  - 11 new standard metrics (view_starts, view_completions, reach, units, impression_share, page_views, likes, shares, comments, conversions)
   - Buy information fields (buy_type, buy_commitment)
   - Multi-currency support (cost_currency_exchange_rate)
-  - Budget constraints (cost_minimum, cost_maximum)
+  - Budget constraints for optimization (cost_minimum, cost_maximum)
+  - Aggregation support (is_aggregate, aggregation_level)
 
 - **3-Tier Formula Hierarchy System**
   - LineItem-level formula overrides for flexible metric calculations
@@ -23,35 +26,120 @@
   - New `LineItem.get_metric_formula_definition()` method for hierarchy resolution
   - Enhanced `LineItem.configure_metric_formula()` with formula_type and base_metric override support
   - Support for all formula types: cost_per_unit, conversion_rate, power_function, constant
-  - Excel export generates appropriate coefficient columns based on detected formula types
-  - Excel import preserves lineitem-level overrides through Metric Formulas JSON column
-  - Full round-trip support: export → import → export maintains formula integrity
+  - Automatic dependency resolution and topological sorting for formula calculations
+  - Formula recalculation engine with support for complex dependency chains
+
+- **Enhanced CLI for Workspace Management**
+  - New `mediaplanpy workspace upgrade` command for v2.0 → v3.0 migration
+  - Interactive upgrade process with automatic backup creation
+  - Workspace validation and version enforcement
+  - Improved command structure and help documentation
+  - Better error handling and user feedback
+
+- **Revamped Examples Library**
+  - Comprehensive examples demonstrating all key SDK functionality
+  - Formula system examples (hierarchy, calculation, dependency chains)
+  - Excel import/export workflows with formula preservation
+  - Database integration patterns
+  - Advanced querying and analytics examples
+  - Migration and workspace management examples
+  - All examples updated for v3.0 schema
 
 ### Improved
-- **Migration System**
+- **Migration System** (CLI-based)
+  - **Use CLI command `mediaplanpy workspace upgrade` for migration** (recommended approach)
   - v2.0 → v3.0 migration with automatic audience/location name generation
-  - Removed v0.0 and v1.0 support (breaking change)
+  - Systematic name generation rules for target_audiences and target_locations arrays
   - Dictionary field renamed: custom_dimensions → lineitem_custom_dimensions
   - Workspace upgrade requires explicit user action (strict version enforcement)
+  - Automatic validation before and after migration
+  - Comprehensive backup system before any destructive operations
+  - Removed v0.0 and v1.0 support (breaking change)
+
+- **Excel Integration - Formula-Aware Import/Export**
+  - **Export**: Smart column generation based on dictionary formula configurations
+    - Creates appropriate columns (CPU, CVR, Constant, Coefficient) based on formula_type
+    - Excel formulas match actual formula types (not hardcoded to cost_per_unit)
+    - Coefficient values exported from metric_formulas when available
+    - Reverse-calculated coefficients when formulas don't exist
+    - Parameter columns for power_function formulas
+    - Separate Target Audiences and Target Locations worksheets
+  - **Import**: Automatic coefficient updates from edited values
+    - Reads coefficient/parameter columns based on dictionary configuration
+    - Updates metric_formulas coefficients when users edit metric values
+    - Processes dependencies in topological order (handles chains)
+    - Formula-aware: respects formula_type when calculating coefficients
+    - Preserves lineitem-level formula overrides through JSON column
+  - Full round-trip integrity: export → edit → import → export maintains all formula configurations
+
 - **Database & Storage**
-  - Database schema migration with ALTER TABLE support for existing v2.0 tables
+  - Enhanced database schema migration with ALTER TABLE support for v2.0 → v3.0 upgrades
+  - New columns for target_audiences, target_locations, metric_formulas (JSONB)
   - Automatic backups created before workspace upgrades
-  - Excel export with separate Target Audiences and Target Locations worksheets
-  - Comprehensive validation for new array structures
-- **Excel Integration**
-  - Smart column generation: creates columns for all formula types actually used across lineitems
-  - Unused coefficient cells display as empty (not 0) for better clarity
-  - Parameter 1 column only populated for lineitems using power_function
-  - Constant formulas generate direct value formulas (e.g., =1000) without base metric references
-  - Formula-aware import uses hierarchy to determine correct coefficients from appropriate columns
+  - Comprehensive validation for new array and formula structures
+  - Improved PostgreSQL performance with optimized indexing
+
+- **Workspace Management**
+  - Strict version enforcement: v3.0 SDK only loads v3.0 workspaces
+  - Enhanced workspace settings validation
+  - Improved error messages for version mismatches
+  - Better logging and diagnostic information
 
 ### Breaking Changes
-- SDK v3.0 only loads v3.0 workspaces (v2.0 workspaces must be explicitly upgraded)
-- Schema v0.0 and v1.0 no longer supported (removed from codebase)
-- Campaign audience/location fields restructured to arrays (migration handles this automatically)
-- Excel format changed with new worksheets for audiences/locations
-- Removed deprecated from_v0_* conversion methods from model classes
+- **SDK v3.0.x only loads v3.0 workspaces**
+  - v2.0 workspaces must be explicitly upgraded using `mediaplanpy workspace upgrade`
+  - SDK v2.0.7 must be used to continue working with v2.0 workspaces
+  - No backward compatibility - strict version enforcement
+- **Schema v0.0 and v1.0 no longer supported** (removed from codebase)
+- **Campaign schema restructuring** (handled automatically by migration):
+  - Audience fields (audience_name, audience_age_*, audience_gender, audience_interests) → target_audiences array
+  - Location fields (location_type, locations) → target_locations array
+- **Dictionary schema changes**:
+  - custom_dimensions renamed to lineitem_custom_dimensions
+  - New groups added: meta_custom_dimensions, campaign_custom_dimensions, standard_metrics
+- **Excel format changes**:
+  - Separate worksheets for Target Audiences and Target Locations
+  - Formula-specific columns (CPU/CVR/Constant/Coefficient) based on dictionary configuration
+  - Metric Formulas JSON column for lineitem-level overrides
+- **API changes**:
+  - Removed deprecated from_v0_* and from_v1_* conversion methods
+  - 47 methods updated to support new v3.0 schema structures
 
+### Migration Guide
+**For v2.0 Users**: To upgrade existing v2.0 workspaces to v3.0:
+```bash
+# Upgrade using CLI (recommended)
+mediaplanpy workspace upgrade
+
+# Or continue using SDK v2.0.7
+pip install mediaplanpy==2.0.7
+```
+
+See detailed migration guide: [docs/migration_guide_v2_to_v3.md](docs/migration_guide_v2_to_v3.md)
+
+### Documentation
+- Updated README.md with v3.0 installation instructions and version guidance
+- Updated GET_STARTED.md with v3.0 examples and migration paths
+- New cloud_storage_configuration.md guide for S3 setup with workspace isolation best practices
+- New database_configuration.md guide for PostgreSQL setup
+- Revamped SDK_REFERENCE.md with v3.0 API documentation
+- Complete examples library demonstrating all v3.0 features
+- Migration guide with systematic rules for v2.0 → v3.0 transformation
+
+### Technical Improvements
+- Enhanced schema validation with comprehensive v3.0 field validation
+- Improved error messages and logging throughout the SDK
+- Better performance for formula calculations with optimized dependency resolution
+- Memory optimization for large media plans with formulas
+- Type hints and documentation improvements across codebase
+- Enhanced test coverage for v3.0 features
+
+### Version Compatibility
+- **Python**: 3.8, 3.9, 3.10, 3.11, 3.12
+- **Schema**: v3.0 (v2.0 migration support via CLI)
+- **PyPI Package**: Available as `pip install mediaplanpy`
+
+---
 
 ## [v2.0.7] - 2025-10-18
 
