@@ -15,16 +15,16 @@ MediaPlanPy handles schema validation, versioning, and migration to ensure full 
 
 ## Key Features
 
-- **Schema v3.0 Support** - Full implementation of the latest schema with enhanced targeting, formulas, and 40% more fields
+- **Schema v3.0 Support** - Full implementation of the latest schema with enhanced targeting, formulas, and 40 more fields
 - **Multi-Format Support** - Work with JSON, Excel, and Parquet files seamlessly
-- **Formula System** - Dynamic metric calculations with multiple formula types (cost_per_unit, conversion_rate, power_function, constant)
+- **Formula System** - Dynamic metric calculations with multiple formula types and support for dependencies
 - **Schema Versioning & Migration** - Automatic version detection and v2.0 → v3.0 workspace upgrade utility
-- **Flexible Storage** - Local filesystem, S3, Google Drive, and PostgreSQL backends
+- **Flexible Storage** - Local filesystem, S3 and PostgreSQL backends
 - **Workspace Management** - Multi-environment support with isolated configurations and strict version enforcement
-- **Enhanced Excel Integration** - Formula-aware import/export with automatic coefficient calculation
+- **Excel Integration** - Formula-aware import/export with automatic coefficient calculation
 - **CLI Interface** - Comprehensive command-line tools for workspace management and operations
 - **Validation Framework** - Schema-based validation with detailed error reporting
-- **Analytics Ready** - Built-in Parquet generation and SQL query capabilities with DuckDB support
+- **Analytics Ready** - Built-in Parquet generation and SQL query capabilities
 - **Database Integration** - Automatic PostgreSQL synchronization for analytics with enhanced schema migration
 
 ## Documentation
@@ -38,7 +38,7 @@ MediaPlanPy handles schema validation, versioning, and migration to ensure full 
 
 MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic/mediaplanschema) standard:
 
-- **Schema v3.0** - Full support for current production specification with target audiences/locations arrays, metric formulas, and 40% more fields (155 vs 116)
+- **Schema v3.0** - Full support for current production specification with target audiences/locations arrays, metric formulas, and 40 more fields
 - **Validation** - Comprehensive schema validation with detailed error reporting
 - **Extensibility** - Support for custom fields, dimensions, and properties at meta, campaign, and lineitem levels
 
@@ -54,7 +54,7 @@ MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic
 - ✅ Continue using this version to work with existing v2.0 workspaces
 - ⚠️ Does not support v3.0 schema features
 
-**Migration Path**: Use SDK v3.0.x's `workspace upgrade` command to migrate v2.0 workspaces. See [GET_STARTED.md](GET_STARTED.md) for details.
+**Migration Path**: Use the CLI command `mediaplanpy workspace upgrade` to migrate v2.0 workspaces to v3.0. See [GET_STARTED.md](GET_STARTED.md) for details.
 
 ## Requirements
 
