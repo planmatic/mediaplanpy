@@ -285,58 +285,6 @@ Or view your files through the [AWS S3 Console](https://console.aws.amazon.com/s
 
 ---
 
-## Switching Between Storage Backends
-
-You can switch between local and S3 storage by updating the workspace settings file.
-
-### Finding Your Workspace ID
-
-Your workspace_id is in the workspace settings file and typically looks like `workspace_abc123`. You can also find it programmatically:
-
-```python
-from mediaplanpy import WorkspaceManager
-
-workspace = WorkspaceManager()
-workspace.load(workspace_id="your_workspace_id")
-print(f"Workspace ID: {workspace.workspace_id}")
-```
-
-### Switch from Local to S3
-
-Update workspace settings (replace bucket name with your environment-specific bucket and `workspace_abc123` with your actual workspace_id):
-
-```json
-"storage": {
-  "mode": "s3",
-  "s3": {
-    "bucket": "my-company-mediaplan-prod",
-    "region": "us-east-1",
-    "prefix": "workspace_abc123",
-    "profile": "",
-    "endpoint_url": "",
-    "use_ssl": true
-  }
-}
-```
-
-The SDK will automatically detect the change on the next workspace load.
-
-### Switch from S3 to Local
-
-Update workspace settings:
-
-```json
-"storage": {
-  "mode": "local",
-  "local": {
-    "base_path": "C:\\mediaplanpy\\workspace_abc123",
-    "create_if_missing": true
-  }
-}
-```
-
----
-
 ## Advanced Configuration
 
 ### Multi-Workspace Deployments
