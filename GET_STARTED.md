@@ -413,3 +413,133 @@ psql -U postgres -d mediaplanpy -c "SELECT * FROM public.media_plans;"
 ```
 
 If you see your newly created plan listed in the table, the connection is working correctly.
+
+---
+
+## Configure Cloud Storage (Optional)
+
+By default, MediaPlanPy stores media plans locally in your workspace directory. You can optionally configure cloud storage to store media plans in **Amazon S3** for team collaboration, backup, or cloud-based workflows.
+
+### Amazon S3 Configuration
+
+#### Step 1: Install AWS Dependencies
+
+Install the required dependencies for S3 support:
+
+```bash
+pip install boto3
+```
+
+#### Step 2: Set Up AWS Credentials
+
+You can configure AWS credentials using one of these methods:
+
+**Method 1: AWS CLI (Recommended)**
+
+Install the AWS CLI and configure your credentials:
+
+```bash
+# Install AWS CLI
+pip install awscli
+
+# Configure credentials
+aws configure
+```
+
+This will prompt you for:
+- AWS Access Key ID
+- AWS Secret Access Key
+- Default region (e.g., `us-east-1`)
+- Default output format (e.g., `json`)
+
+**Method 2: Environment Variables**
+
+Set AWS credentials as environment variables:
+
+- **Windows (PowerShell)**
+  ```powershell
+  setx AWS_ACCESS_KEY_ID "your_access_key"
+  setx AWS_SECRET_ACCESS_KEY "your_secret_key"
+  setx AWS_DEFAULT_REGION "us-east-1"
+  ```
+
+- **macOS/Linux (bash/zsh)**
+  ```bash
+  export AWS_ACCESS_KEY_ID="your_access_key"
+  export AWS_SECRET_ACCESS_KEY="your_secret_key"
+  export AWS_DEFAULT_REGION="us-east-1"
+  ```
+
+#### Step 3: Create or Use an S3 Bucket
+
+Create a new S3 bucket for MediaPlanPy or use an existing one:
+
+```bash
+# Using AWS CLI
+aws s3 mb s3://my-mediaplan-bucket --region us-east-1
+```
+
+Or create a bucket through the [AWS S3 Console](https://console.aws.amazon.com/s3/).
+
+#### Step 4: Update Workspace Settings for S3
+
+Locate your workspace settings file and update the **storage** section:
+
+```json
+"storage": {
+  "type": "s3",
+  "bucket": "my-mediaplan-bucket",
+  "prefix": "mediaplans/",
+  "region": "us-east-1"
+}
+```
+
+#### Step 5: Test S3 Connection
+
+```python
+from mediaplanpy import WorkspaceManager, MediaPlan
+
+# Load workspace with S3 storage
+workspace = WorkspaceManager()
+workspace.load(workspace_id="your_workspace_id")
+
+# Create and save a media plan (will be saved to S3)
+plan = MediaPlan.create(
+    created_by="you@example.com",
+    campaign_name="S3 Test Campaign",
+    campaign_objective="Awareness",
+    campaign_start_date="2025-09-01",
+    campaign_end_date="2025-11-30",
+    campaign_budget=10000,
+    workspace_manager=workspace
+)
+
+# Save to S3
+plan.save(workspace)
+print(f"Media plan saved to S3: s3://my-mediaplan-bucket/mediaplans/{plan.meta.id}.json")
+```
+
+#### Step 6: Verify S3 Storage
+
+You can verify your media plans are stored in S3 using the AWS CLI:
+
+```bash
+# List media plans in S3
+aws s3 ls s3://my-mediaplan-bucket/mediaplans/
+
+# Download a specific media plan
+aws s3 cp s3://my-mediaplan-bucket/mediaplans/mp_12345.json ./
+```
+
+Or view your files through the [AWS S3 Console](https://console.aws.amazon.com/s3/).
+
+**Note**: You can switch between local and S3 storage by updating the workspace settings file. The SDK will automatically detect the change on the next workspace load.
+
+---
+
+## Contact & Support
+
+For questions, support, or to learn more about commercial offerings:
+- Visit our [website](https://www.planmatic.io)
+- Follow us on [LinkedIn](https://www.linkedin.com/company/planmatic)
+- Email us at [contact@planmatic.io](mailto:contact@planmatic.io)
