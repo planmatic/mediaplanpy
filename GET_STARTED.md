@@ -38,24 +38,6 @@ pip install mediaplanpy==2.0.7
 
 ⚠️ **Note**: SDK v3.0.x cannot load v2.0 workspaces directly. To upgrade your v2.0 workspaces to v3.0, see the [Migration Guide](docs/migration_guide_v2_to_v3.md).
 
-#### Optional Dependencies
-
-MediaPlanPy has optional dependencies for specific features:
-
-```bash
-# Excel support
-pip install mediaplanpy[excel]
-
-# PostgreSQL support
-pip install mediaplanpy[postgres]
-
-# Parquet and analytics support
-pip install mediaplanpy[analytics]
-
-# All optional dependencies
-pip install mediaplanpy[all]
-```
-
 ### Option 2: Clone the Repo for Local Development
 
 This approach is useful if you’d like to:
@@ -269,24 +251,23 @@ This creates a new media plan from the Excel file placed in the `imports` subdir
 
 Now that you've completed the basic workflow, explore these resources to learn more:
 
-### 📚 Additional Documentation
+### Additional Resources
 
-- **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
 - **[Examples Library](examples/)** - Comprehensive collection of examples demonstrating all key SDK functionality:
   - Creating and editing media plans
   - Working with formulas and calculated metrics
   - Excel import/export workflows
   - Database integration
   - Advanced querying and analytics
+- **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
 - **[Migration Guide](docs/migration_guide_v2_to_v3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
-- **[Change Log](CHANGE_LOG.md)** - Version history and release notes
 
-### 🆕 What's New in v3.0
+### What's New in v3.0
 
 MediaPlanPy v3.0 introduces significant enhancements:
 - **Enhanced Targeting**: `target_audiences` and `target_locations` arrays with rich attributes
 - **Formula System**: Dynamic metric calculations with multiple formula types
-- **40% More Fields**: 155 fields (vs 116 in v2.0) for comprehensive media planning
+- **Additional Fields**: 155 fields (vs 116 in v2.0) for comprehensive media planning
 - **Excel Formula Integration**: Automatic coefficient calculation and dependency management
 - **Strict Version Control**: Workspace version enforcement with migration utilities
 
