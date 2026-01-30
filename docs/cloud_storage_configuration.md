@@ -6,6 +6,58 @@ This guide explains how to configure Amazon S3 cloud storage for MediaPlanPy. Cl
 
 By default, MediaPlanPy stores media plans locally in your workspace directory. You can optionally configure cloud storage to store media plans in **Amazon S3** for team collaboration, backup, or cloud-based workflows.
 
+### Complete Workspace Settings Example
+
+Here's a complete example of workspace settings with S3 storage configured:
+
+```json
+{
+  "workspace_id": "workspace_abc123",
+  "workspace_name": "Client A Production Workspace",
+  "workspace_status": "active",
+  "environment": "production",
+  "storage": {
+    "mode": "s3",
+    "local": {
+      "base_path": "/opt/planmatic/data",
+      "create_if_missing": true
+    },
+    "s3": {
+      "bucket": "my-company-mediaplan-prod",
+      "region": "us-east-1",
+      "prefix": "workspace_abc123",
+      "profile": "",
+      "endpoint_url": "",
+      "use_ssl": true
+    }
+  },
+  "workspace_settings": {
+    "schema_version": "3.0",
+    "last_upgraded": "2026-01-28",
+    "sdk_version_required": "3.0.0"
+  },
+  "database": {
+    "enabled": true,
+    "host": "localhost",
+    "port": 5432,
+    "database": "mediaplanpy",
+    "schema": "public",
+    "table_name": "media_plans",
+    "username": "postgres",
+    "password_env_var": "MEDIAPLAN_DB_PASSWORD",
+    "ssl": false,
+    "connection_timeout": 30,
+    "auto_create_table": true
+  }
+}
+```
+
+**Key Points:**
+- The `bucket` name includes the environment (`-prod`) for environment isolation
+- The `prefix` matches the `workspace_id` for proper workspace isolation
+- Both `local` and `s3` configurations can coexist; `mode` determines which is active
+- The workspace automatically creates subdirectories (mediaplans, exports, imports, backups) within the prefix
+
 ---
 
 ## Amazon S3 Configuration
@@ -70,24 +122,33 @@ To make this permanent on macOS/Linux, add the `export` lines to your `~/.bashrc
 
 Create a new S3 bucket for MediaPlanPy or use an existing one.
 
-#### Create Bucket Using AWS CLI
+**Best Practice**: Create separate buckets for each environment (production, staging, development).
+
+#### Create Buckets Using AWS CLI
 
 ```bash
-# Create a new bucket
-aws s3 mb s3://my-mediaplan-bucket --region us-east-1
+# Create production bucket
+aws s3 mb s3://my-company-mediaplan-prod --region us-east-1
 
-# Verify bucket was created
-aws s3 ls
+# Create staging bucket
+aws s3 mb s3://my-company-mediaplan-stage --region us-east-1
+
+# Create development bucket
+aws s3 mb s3://my-company-mediaplan-dev --region us-east-1
+
+# Verify buckets were created
+aws s3 ls | grep mediaplan
 ```
 
 #### Create Bucket Using AWS Console
 
 1. Go to the [AWS S3 Console](https://console.aws.amazon.com/s3/)
 2. Click "Create bucket"
-3. Enter bucket name (e.g., `my-mediaplan-bucket`)
+3. Enter bucket name with environment suffix (e.g., `my-company-mediaplan-prod`)
 4. Select region (e.g., `us-east-1`)
-5. Configure bucket settings as needed
+5. Configure bucket settings (enable versioning and encryption recommended)
 6. Click "Create bucket"
+7. Repeat for each environment (stage, dev)
 
 ---
 
@@ -99,19 +160,58 @@ Open the JSON file and update the **storage** section:
 
 ```json
 "storage": {
-  "type": "s3",
-  "bucket": "my-mediaplan-bucket",
-  "prefix": "mediaplans/",
-  "region": "us-east-1"
+  "mode": "s3",
+  "s3": {
+    "bucket": "my-company-mediaplan-prod",
+    "region": "us-east-1",
+    "prefix": "workspace_abc123",
+    "profile": "",
+    "endpoint_url": "",
+    "use_ssl": true
+  }
 }
 ```
 
 **Configuration Options:**
 
-- **type**: Set to `"s3"` to use S3 storage
-- **bucket**: Your S3 bucket name
-- **prefix**: Optional folder prefix within the bucket (e.g., `"mediaplans/"`)
+- **mode**: Set to `"s3"` to use S3 storage
+- **bucket**: Your S3 bucket name with environment suffix (e.g., `"my-company-mediaplan-prod"`)
 - **region**: AWS region where your bucket is located (e.g., `"us-east-1"`)
+- **prefix**: **Important**: Set this to your `workspace_id` to isolate files per workspace within the environment (e.g., `"workspace_abc123"`)
+- **profile**: AWS profile name (leave empty `""` to use default credentials)
+- **endpoint_url**: Custom S3 endpoint (leave empty `""` for standard AWS S3)
+- **use_ssl**: Enable SSL/TLS connections (recommended: `true`)
+
+**Best Practice - Environment and Workspace Isolation:**
+
+**1. Separate buckets per environment**: Use different buckets for prod, stage, and dev
+**2. Workspace ID as prefix**: Always set the `prefix` to match your `workspace_id`
+
+This two-level isolation ensures:
+- **Environment isolation**: Production is completely separated from dev/stage
+- **Workspace isolation**: Multiple workspaces can coexist within same environment bucket
+- **No file conflicts**: Each workspace has its own namespace
+- **Granular access control**: Control access by environment and workspace
+- **Clear organization**: Easy to manage and audit
+
+The SDK automatically creates subdirectories within the workspace prefix:
+
+```
+# Production bucket (environment isolation)
+s3://my-company-mediaplan-prod/
+  ├── workspace_client_a/          # Workspace isolation
+  │   ├── mediaplans/              # Media plan JSON files
+  │   │   ├── mp_001.json
+  │   │   └── mp_002.json
+  │   ├── exports/                 # Exported files (Excel, etc.)
+  │   ├── imports/                 # Files staged for import
+  │   └── backups/                 # Backup files
+  └── workspace_client_b/          # Another workspace
+      ├── mediaplans/
+      ├── exports/
+      ├── imports/
+      └── backups/
+```
 
 ---
 
@@ -155,7 +255,7 @@ lineitem = plan.create_lineitem({
 
 # Save to S3
 plan.save(workspace)
-print(f"Media plan saved to S3: s3://my-mediaplan-bucket/mediaplans/{plan.meta.id}.json")
+print(f"Media plan saved to S3: s3://my-company-mediaplan-prod/{workspace.workspace_id}/mediaplans/{plan.meta.id}.json")
 ```
 
 ---
@@ -165,14 +265,20 @@ print(f"Media plan saved to S3: s3://my-mediaplan-bucket/mediaplans/{plan.meta.i
 You can verify your media plans are stored in S3 using the AWS CLI:
 
 ```bash
-# List media plans in S3
-aws s3 ls s3://my-mediaplan-bucket/mediaplans/
+# List workspaces in the production bucket
+aws s3 ls s3://my-company-mediaplan-prod/
+
+# List media plans for a specific workspace
+aws s3 ls s3://my-company-mediaplan-prod/workspace_abc123/mediaplans/
 
 # Download a specific media plan
-aws s3 cp s3://my-mediaplan-bucket/mediaplans/mp_12345.json ./
+aws s3 cp s3://my-company-mediaplan-prod/workspace_abc123/mediaplans/mp_12345.json ./
 
 # View media plan content
 cat mp_12345.json
+
+# List all subdirectories for a workspace
+aws s3 ls s3://my-company-mediaplan-prod/workspace_abc123/
 ```
 
 Or view your files through the [AWS S3 Console](https://console.aws.amazon.com/s3/).
@@ -183,16 +289,33 @@ Or view your files through the [AWS S3 Console](https://console.aws.amazon.com/s
 
 You can switch between local and S3 storage by updating the workspace settings file.
 
+### Finding Your Workspace ID
+
+Your workspace_id is in the workspace settings file and typically looks like `workspace_abc123`. You can also find it programmatically:
+
+```python
+from mediaplanpy import WorkspaceManager
+
+workspace = WorkspaceManager()
+workspace.load(workspace_id="your_workspace_id")
+print(f"Workspace ID: {workspace.workspace_id}")
+```
+
 ### Switch from Local to S3
 
-Update workspace settings:
+Update workspace settings (replace bucket name with your environment-specific bucket and `workspace_abc123` with your actual workspace_id):
 
 ```json
 "storage": {
-  "type": "s3",
-  "bucket": "my-mediaplan-bucket",
-  "prefix": "mediaplans/",
-  "region": "us-east-1"
+  "mode": "s3",
+  "s3": {
+    "bucket": "my-company-mediaplan-prod",
+    "region": "us-east-1",
+    "prefix": "workspace_abc123",
+    "profile": "",
+    "endpoint_url": "",
+    "use_ssl": true
+  }
 }
 ```
 
@@ -204,14 +327,95 @@ Update workspace settings:
 
 ```json
 "storage": {
-  "type": "local",
-  "base_path": "C:\\mediaplanpy\\workspace_abc123"
+  "mode": "local",
+  "local": {
+    "base_path": "C:\\mediaplanpy\\workspace_abc123",
+    "create_if_missing": true
+  }
 }
 ```
 
 ---
 
 ## Advanced Configuration
+
+### Multi-Workspace Deployments
+
+When deploying multiple workspaces, follow these best practices:
+
+**1. Separate Buckets Per Environment**
+
+**Best Practice**: Use a separate S3 bucket for each environment (dev, stage, prod). This provides:
+- **Environment Isolation**: Development changes don't affect production
+- **Security**: Different access controls and encryption keys per environment
+- **Cost Tracking**: Clear separation of costs by environment
+- **Compliance**: Easier to meet audit and regulatory requirements
+
+Example bucket naming:
+- Production: `my-company-mediaplan-prod`
+- Staging: `my-company-mediaplan-stage`
+- Development: `my-company-mediaplan-dev`
+
+**2. Use Workspace ID as Prefix Within Each Bucket**
+
+Always set the S3 prefix to the workspace_id:
+
+```json
+"storage": {
+  "mode": "s3",
+  "s3": {
+    "bucket": "my-company-mediaplan-prod",  // Environment-specific bucket
+    "prefix": "workspace_abc123",           // Must match workspace_id
+    "region": "us-east-1"
+  }
+}
+```
+
+**3. Benefits of This Approach**
+
+- **Environment Isolation**: Clear separation between dev/stage/prod
+- **Workspace Isolation**: Multiple workspaces can coexist within same environment
+- **No File Conflicts**: Each workspace has its own namespace
+- **Granular Access Control**: Grant users access to specific environments and workspaces
+- **Independent Operations**: One workspace's operations don't affect others
+
+**4. Example Production Multi-Workspace Structure**
+
+```
+# Production Environment
+s3://my-company-mediaplan-prod/
+  ├── workspace_client_a/
+  │   ├── mediaplans/
+  │   ├── exports/
+  │   ├── imports/
+  │   └── backups/
+  └── workspace_client_b/
+      ├── mediaplans/
+      ├── exports/
+      ├── imports/
+      └── backups/
+
+# Staging Environment (separate bucket)
+s3://my-company-mediaplan-stage/
+  ├── workspace_test_001/
+  │   ├── mediaplans/
+  │   ├── exports/
+  │   ├── imports/
+  │   └── backups/
+  └── workspace_test_002/
+      ├── mediaplans/
+      ├── exports/
+      ├── imports/
+      └── backups/
+
+# Development Environment (separate bucket)
+s3://my-company-mediaplan-dev/
+  └── workspace_dev_sandbox/
+      ├── mediaplans/
+      ├── exports/
+      ├── imports/
+      └── backups/
+```
 
 ### Cross-Region Replication
 
@@ -248,7 +452,9 @@ aws s3api put-bucket-encryption \
 
 ### Access Control
 
-Configure bucket policies for team access:
+Configure bucket policies for team access. You can grant access to specific environments, specific workspaces, or both.
+
+**Policy for environment-specific access (production only):**
 
 ```json
 {
@@ -257,13 +463,47 @@ Configure bucket policies for team access:
     {
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::123456789012:user/teammember"
+        "AWS": "arn:aws:iam::123456789012:user/prod-user"
       },
       "Action": [
         "s3:GetObject",
-        "s3:PutObject"
+        "s3:PutObject",
+        "s3:ListBucket"
       ],
-      "Resource": "arn:aws:s3:::my-mediaplan-bucket/mediaplans/*"
+      "Resource": [
+        "arn:aws:s3:::my-company-mediaplan-prod/*",
+        "arn:aws:s3:::my-company-mediaplan-prod"
+      ]
+    }
+  ]
+}
+```
+
+**Policy for specific workspace within production environment:**
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "AWS": "arn:aws:iam::123456789012:user/client-a-user"
+      },
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::my-company-mediaplan-prod/workspace_client_a/*",
+        "arn:aws:s3:::my-company-mediaplan-prod"
+      ],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "workspace_client_a/*"
+        }
+      }
     }
   ]
 }
@@ -271,12 +511,49 @@ Configure bucket policies for team access:
 
 ### Lifecycle Policies
 
-Configure S3 lifecycle policies to manage storage costs:
+Configure S3 lifecycle policies to manage storage costs. Example lifecycle policy (`lifecycle.json`):
+
+```json
+{
+  "Rules": [
+    {
+      "Id": "MoveOldMediaPlansToGlacier",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Transitions": [
+        {
+          "Days": 90,
+          "StorageClass": "GLACIER"
+        }
+      ]
+    },
+    {
+      "Id": "DeleteOldBackups",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "/backups/"
+      },
+      "Expiration": {
+        "Days": 365
+      }
+    }
+  ]
+}
+```
+
+Apply the lifecycle policy:
 
 ```bash
-# Example: Move old media plans to Glacier after 90 days
+# Apply lifecycle policy to production bucket
 aws s3api put-bucket-lifecycle-configuration \
-  --bucket my-mediaplan-bucket \
+  --bucket my-company-mediaplan-prod \
+  --lifecycle-configuration file://lifecycle.json
+
+# Apply to other environments as needed
+aws s3api put-bucket-lifecycle-configuration \
+  --bucket my-company-mediaplan-stage \
   --lifecycle-configuration file://lifecycle.json
 ```
 
@@ -315,6 +592,16 @@ If you see permission errors:
 - Check IAM policy allows required S3 actions
 - Verify bucket policy doesn't block access
 - Ensure credentials belong to correct AWS account
+- Verify the S3 prefix (workspace_id) is correctly configured
+
+### Files Not Found / Wrong Location
+
+If files are saved to unexpected locations:
+
+- Verify `prefix` in storage configuration matches your `workspace_id`
+- Check that you're not using a hardcoded prefix like `"mediaplans/"`
+- Confirm the workspace settings file is correct: `prefix` should be `workspace_abc123` not `workspace_abc123/mediaplans/`
+- The SDK automatically appends subdirectories (mediaplans, exports, imports, backups) to the prefix
 
 ---
 

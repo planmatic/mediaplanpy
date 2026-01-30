@@ -269,8 +269,8 @@ Now that you've completed the basic workflow, explore these resources to learn m
   - Database integration
   - Advanced querying and analytics
 - **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
-- **[Database Configuration](docs/database_configuration.md)** - PostgreSQL integration for analytics and multi-user scenarios
-- **[Cloud Storage Configuration](docs/cloud_storage_configuration.md)** - Amazon S3 setup for cloud-based workflows and team collaboration
+- **[Database Configuration](docs/database_configuration.md)** - PostgreSQL integration for analytics and multi-user scenarios (Optional)
+- **[Cloud Storage Configuration](docs/cloud_storage_configuration.md)** - Amazon S3 setup for cloud-based workflows and team collaboration (Optional)
 - **[Migration Guide](docs/migration_guide_v2_to_v3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
 
 ### What's New in v3.0
