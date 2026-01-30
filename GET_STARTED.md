@@ -50,8 +50,17 @@ This approach is useful if you’d like to:
 
 1. **Clone the repository**
 
+**For v3.0 (current version):**
+
 ```bash
 git clone https://github.com/planmatic/mediaplanpy
+cd mediaplanpy
+```
+
+**For v2.0.7 (if working with v2.0 workspaces):**
+
+```bash
+git clone -b maintenance/v2.0.7 https://github.com/planmatic/mediaplanpy
 cd mediaplanpy
 ```
 
