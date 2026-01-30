@@ -36,7 +36,7 @@ This will install the latest version of the package and all its core dependencie
 pip install mediaplanpy==2.0.7
 ```
 
-⚠️ **Note**: SDK v3.0.x cannot load v2.0 workspaces directly. To upgrade your v2.0 workspaces to v3.0, see the [Migration Guide](docs/migration_guide_v2_to_v3.md).
+⚠️ **Note**: SDK v3.0.x cannot load v2.0 workspaces directly. To upgrade your v2.0 workspaces to v3.0, see the [Migration Guide](docs/MIGRATION_V2_TO_V3.md).
 
 ### Option 2: Clone the Repo for Local Development
 
@@ -271,7 +271,7 @@ Now that you've completed the basic workflow, explore these resources to learn m
 - **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
 - **[Database Configuration](docs/database_configuration.md)** - PostgreSQL integration for analytics and multi-user scenarios (Optional)
 - **[Cloud Storage Configuration](docs/cloud_storage_configuration.md)** - Amazon S3 setup for cloud-based workflows and team collaboration (Optional)
-- **[Migration Guide](docs/migration_guide_v2_to_v3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
+- **[Migration Guide](docs/MIGRATION_V2_TO_V3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
 
 ### What's New in v3.0
 

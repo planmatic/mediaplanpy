@@ -115,7 +115,7 @@ mediaplanpy workspace upgrade
 pip install mediaplanpy==2.0.7
 ```
 
-See detailed migration guide: [docs/migration_guide_v2_to_v3.md](docs/migration_guide_v2_to_v3.md)
+See detailed migration guide: [docs/MIGRATION_V2_TO_V3.md](docs/MIGRATION_V2_TO_V3.md)
 
 ### Documentation
 - Updated README.md with v3.0 installation instructions and version guidance

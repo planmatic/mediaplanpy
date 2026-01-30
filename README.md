@@ -54,7 +54,7 @@ MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic
 - ✅ Continue using this version to work with existing v2.0 workspaces
 - ⚠️ Does not support v3.0 schema features
 
-**Migration Path**: Use the CLI command `mediaplanpy workspace upgrade` to migrate v2.0 workspaces to v3.0. See the [Migration Guide](docs/migration_guide_v2_to_v3.md) for step-by-step instructions.
+**Migration Path**: Use the CLI command `mediaplanpy workspace upgrade` to migrate v2.0 workspaces to v3.0. See the [Migration Guide](docs/MIGRATION_V2_TO_V3.md) for step-by-step instructions.
 
 ## Requirements
 

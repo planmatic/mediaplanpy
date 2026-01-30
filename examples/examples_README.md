@@ -284,7 +284,7 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 - All existing fields preserved
 - New fields available for editing
 
-**Note:** These examples don't cover migration workflows. For migration guidance, see `docs/migration_guide_v2_to_v3.md`.
+**Note:** These examples don't cover migration workflows. For migration guidance, see `docs/MIGRATION_V2_TO_V3.md`.
 
 ---
 
@@ -379,8 +379,7 @@ pip install "mediaplanpy[parquet]>=3.0.0"
 ### Getting Help
 
 - **SDK Documentation:** See `SDK_REFERENCE.md` for complete API reference
-- **Migration Guide:** See `docs/migration_guide_v2_to_v3.md` for v2.0 → v3.0 migration
-- **Technical Architecture:** See `MediaPlanPy-Technical-Architecture-Summary.md`
+- **Migration Guide:** See `docs/MIGRATION_V2_TO_V3.md` for v2.0 → v3.0 migration
 - **Storage Guide:** See `docs/storage.md` for storage backend configuration
 - **Workspace Guide:** See `docs/workspace_query.md` for workspace management
 
