@@ -1,32 +1,60 @@
-# Get Started with Mediaplanpy
+# Get Started with MediaPlanPy
 
-Welcome! This guide will walk you through how to start using **mediaplanpy** in your own projects.
+Welcome! This guide will walk you through how to start using **MediaPlanPy v3.0.0** in your own projects.
 
 ## Package Installation
 
 We support **two primary approaches**:
 
-- Installing the package using `pip` (recommended for most users)
+- Installing the package using `pip` from PyPI (recommended for most users)
 - Cloning the repository for local development or contributions
 
-### Option 1: Install with `pip` (from GitHub)
+### Option 1: Install with `pip` (from PyPI)
 
-This is the simplest way to get started using the package in your project without cloning the source code.
+This is the simplest way to get started using the package in your project.
 
-### Requirements
+#### Requirements
 
 - Python 3.8+
 - `pip` installed
 
-### Installation
+#### Installation for v3.0 (Current)
 
-You can install the package directly from GitHub using:
+To install the latest version (v3.0.0) which supports **schema v3.0 only**:
 
 ```bash
-pip install git+https://github.com/planmatic/mediaplanpy
+pip install mediaplanpy
 ```
 
-This will install the latest version of the package and all its dependencies.
+This will install the latest version of the package and all its core dependencies.
+
+#### Installation for v2.0 Workspaces
+
+**Important**: If you need to continue working with existing v2.0 workspaces, install SDK v2.0.7:
+
+```bash
+pip install mediaplanpy==2.0.7
+```
+
+⚠️ **Note**: SDK v3.0.x cannot load v2.0 workspaces directly. To upgrade your v2.0 workspaces to v3.0, see the [Migration Guide](docs/migration_guide_v2_to_v3.md).
+
+#### Optional Dependencies
+
+MediaPlanPy has optional dependencies for specific features:
+
+```bash
+# Excel support
+pip install mediaplanpy[excel]
+
+# PostgreSQL support
+pip install mediaplanpy[postgres]
+
+# Parquet and analytics support
+pip install mediaplanpy[analytics]
+
+# All optional dependencies
+pip install mediaplanpy[all]
+```
 
 ### Option 2: Clone the Repo for Local Development
 
@@ -64,7 +92,9 @@ This allows you to make changes to the code and use them immediately without rei
 
 ## Sample Workflow
 
-Follow these steps to create and save a basic media plan using `mediaplanpy`.
+Follow these steps to create and save a basic media plan using MediaPlanPy v3.0.
+
+**Note**: This workflow uses the v3.0 schema. For more examples, see the [examples library](examples/) and [SDK Reference](SDK_REFERENCE.md).
 
 ### Step 1: Import the Package
 
@@ -101,7 +131,7 @@ This creates a new workspace and loads it into memory. All subsequent operations
 ### Step 4: Create a Media Plan
 
 ```python
-# Create a Media Plan
+# Create a Media Plan (v3.0 schema)
 media_plan = MediaPlan.create(
     created_by="you@example.com",
     campaign_name="Summer 2025 Campaign",
@@ -117,13 +147,20 @@ media_plan = MediaPlan.create(
     product_name="Sample Product",
     campaign_type_id="C1",
     campaign_type_name="Awareness",
-    audience_name="Adults 18-54",
-    audience_age_start=18,
-    audience_age_end=54,
-    audience_gender="Any",
-    audience_interests=["Tech Enthusiasts"],
-    location_type="Country",
-    locations=["USA"],
+    # v3.0: Use target_audiences array
+    target_audiences=[{
+        "name": "Adults 18-54",
+        "demo_age_start": 18,
+        "demo_age_end": 54,
+        "demo_gender": "Any",
+        "interest_attributes": "Tech Enthusiasts"
+    }],
+    # v3.0: Use target_locations array
+    target_locations=[{
+        "name": "United States",
+        "location_type": "Country",
+        "location_list": ["USA"]
+    }],
     workflow_status_id="1",
     workflow_status_name="Planning",
     media_plan_name="Test Plan",
@@ -137,7 +174,7 @@ media_plan = MediaPlan.create(
 print(f"Media Plan Created: {media_plan.meta.id}")
 ```
 
-This creates a media plan with required campaign and metadata fields.
+This creates a media plan with required campaign and metadata fields using the v3.0 schema with `target_audiences` and `target_locations` arrays.
 
 ### Step 5: Add Line Items
 
@@ -226,12 +263,41 @@ print(f"Imported plan: {imported_plan.meta.id}")
 
 This creates a new media plan from the Excel file placed in the `imports` subdirectory of your workspace.
 
+---
 
+## Next Steps
+
+Now that you've completed the basic workflow, explore these resources to learn more:
+
+### 📚 Additional Documentation
+
+- **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
+- **[Examples Library](examples/)** - Comprehensive collection of examples demonstrating all key SDK functionality:
+  - Creating and editing media plans
+  - Working with formulas and calculated metrics
+  - Excel import/export workflows
+  - Database integration
+  - Advanced querying and analytics
+- **[Migration Guide](docs/migration_guide_v2_to_v3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
+- **[Change Log](CHANGE_LOG.md)** - Version history and release notes
+
+### 🆕 What's New in v3.0
+
+MediaPlanPy v3.0 introduces significant enhancements:
+- **Enhanced Targeting**: `target_audiences` and `target_locations` arrays with rich attributes
+- **Formula System**: Dynamic metric calculations with multiple formula types
+- **40% More Fields**: 155 fields (vs 116 in v2.0) for comprehensive media planning
+- **Excel Formula Integration**: Automatic coefficient calculation and dependency management
+- **Strict Version Control**: Workspace version enforcement with migration utilities
+
+See the [Change Log](CHANGE_LOG.md) for complete details.
+
+---
 
 ## Configure Database Connection (Optional)
 
-By default, `mediaplanpy` stores media plans as JSON and Parquet files in your workspace.  
-If you would like to **push media plans in PostgreSQL** for anlaytics of visualization purpose, follow these steps.
+By default, MediaPlanPy stores media plans as JSON and Parquet files in your workspace.
+If you would like to **push media plans to PostgreSQL** for analytics or visualization purposes, follow these steps.
 
 ### Step 1: Install PostgreSQL (if required)
 
@@ -261,7 +327,7 @@ psql --version
 
 ### Step 2: Create or Reuse a Database
 
-You may either create a new database dedicated to `mediaplanpy` or use an existing PostgreSQL database.
+You may either create a new database dedicated to MediaPlanPy or use an existing PostgreSQL database.
 
 To create a new database you can use the PGAdmin user interface or:
 
