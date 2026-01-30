@@ -7,7 +7,7 @@
 This is a major release with comprehensive enhancements across schema support, formula systems, Excel integration, CLI capabilities, and developer documentation.
 
 ### Added
-- **Schema v3.0 Support** (40% more fields: 155 vs 116 in v2.0)
+- **Schema v3.0 Support** (40+ more fields: 155 vs 116 in v2.0)
   - Target audiences and locations now support arrays with 13+ attributes each
   - Metric formulas for calculated metrics (power functions, conversion rates, cost-per-unit, constant)
   - Campaign KPI tracking fields (kpi_name1-5, kpi_value1-5)
