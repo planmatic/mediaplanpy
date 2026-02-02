@@ -168,128 +168,16 @@ class PostgreSQLBackend:
     def get_table_schema(self) -> List[Tuple[str, str]]:
         """
         Define the table schema matching Parquet export format plus workspace fields.
-        Updated to properly handle 2-digit schema versions and new v2.0 fields.
+        Updated for v3.0 schema support using shared schema definition.
 
         Returns:
             List of (column_name, column_type) tuples.
         """
-        # Base schema matching ParquetFormatHandler._get_all_columns()
-        schema = [
-            # Workspace identification (added fields)
-            ('workspace_id', 'VARCHAR(255) NOT NULL'),
-            ('workspace_name', 'VARCHAR(255) NOT NULL'),
+        # Use shared schema definition for v3.0 fields
+        from mediaplanpy.storage.schema_columns import get_database_schema
 
-            # Meta fields - updated for v2.0 support
-            ('meta_id', 'VARCHAR(255) NOT NULL'),
-            ('meta_schema_version', 'VARCHAR(10)'),  # Reduced size for 2-digit versions (e.g., "1.0")
-            ('meta_created_by', 'VARCHAR(255)'),  # Legacy field for backward compatibility
-            ('meta_created_at', 'TIMESTAMP'),
-            ('meta_name', 'VARCHAR(255)'),
-            ('meta_comments', 'TEXT'),
-
-            # NEW v2.0 meta fields
-            ('meta_created_by_id', 'VARCHAR(255)'),
-            ('meta_created_by_name', 'VARCHAR(255)'),  # Required in v2.0
-            ('meta_is_current', 'BOOLEAN'),
-            ('meta_is_archived', 'BOOLEAN'),
-            ('meta_parent_id', 'VARCHAR(255)'),
-
-            # Campaign fields - existing v1.0 fields
-            ('campaign_id', 'VARCHAR(255) NOT NULL'),
-            ('campaign_name', 'VARCHAR(255)'),
-            ('campaign_objective', 'TEXT'),
-            ('campaign_start_date', 'DATE'),
-            ('campaign_end_date', 'DATE'),
-            ('campaign_budget_total', 'DECIMAL(15,2)'),
-            ('campaign_product_name', 'VARCHAR(255)'),
-            ('campaign_product_description', 'TEXT'),
-            ('campaign_audience_name', 'VARCHAR(255)'),
-            ('campaign_audience_age_start', 'INTEGER'),
-            ('campaign_audience_age_end', 'INTEGER'),
-            ('campaign_audience_gender', 'VARCHAR(50)'),
-            ('campaign_audience_interests', 'TEXT'),  # JSON string
-            ('campaign_location_type', 'VARCHAR(50)'),
-            ('campaign_locations', 'TEXT'),  # JSON string
-
-            # NEW v2.0 Campaign fields
-            ('campaign_budget_currency', 'VARCHAR(10)'),
-            ('campaign_agency_id', 'VARCHAR(255)'),
-            ('campaign_agency_name', 'VARCHAR(255)'),
-            ('campaign_advertiser_id', 'VARCHAR(255)'),
-            ('campaign_advertiser_name', 'VARCHAR(255)'),
-            ('campaign_product_id', 'VARCHAR(255)'),
-            ('campaign_campaign_type_id', 'VARCHAR(255)'),
-            ('campaign_campaign_type_name', 'VARCHAR(255)'),
-            ('campaign_workflow_status_id', 'VARCHAR(255)'),
-            ('campaign_workflow_status_name', 'VARCHAR(255)'),
-
-            # Line item fields - existing v1.0 fields
-            ('lineitem_id', 'VARCHAR(255) NOT NULL DEFAULT \'placeholder\''),
-            ('lineitem_name', 'VARCHAR(255)'),
-            ('lineitem_start_date', 'DATE'),
-            ('lineitem_end_date', 'DATE'),
-            ('lineitem_cost_total', 'DECIMAL(15,2)'),
-            ('lineitem_channel', 'VARCHAR(100)'),
-            ('lineitem_channel_custom', 'VARCHAR(255)'),
-            ('lineitem_vehicle', 'VARCHAR(255)'),
-            ('lineitem_vehicle_custom', 'VARCHAR(255)'),
-            ('lineitem_partner', 'VARCHAR(255)'),
-            ('lineitem_partner_custom', 'VARCHAR(255)'),
-            ('lineitem_media_product', 'VARCHAR(255)'),
-            ('lineitem_media_product_custom', 'VARCHAR(255)'),
-            ('lineitem_location_type', 'VARCHAR(50)'),
-            ('lineitem_location_name', 'VARCHAR(255)'),
-            ('lineitem_target_audience', 'VARCHAR(255)'),
-            ('lineitem_adformat', 'VARCHAR(100)'),
-            ('lineitem_adformat_custom', 'VARCHAR(255)'),
-            ('lineitem_kpi', 'VARCHAR(100)'),
-            ('lineitem_kpi_custom', 'VARCHAR(255)'),
-
-            # NEW v2.0 Line item fields
-            ('lineitem_cost_currency', 'VARCHAR(10)'),
-            ('lineitem_dayparts', 'VARCHAR(255)'),
-            ('lineitem_dayparts_custom', 'VARCHAR(255)'),
-            ('lineitem_inventory', 'VARCHAR(255)'),
-            ('lineitem_inventory_custom', 'VARCHAR(255)'),
-        ]
-
-        # Add custom dimension fields
-        for i in range(1, 11):
-            schema.append((f'lineitem_dim_custom{i}', 'VARCHAR(255)'))
-
-        # Add existing v1.0 cost fields
-        cost_fields = [
-            'lineitem_cost_media', 'lineitem_cost_buying', 'lineitem_cost_platform',
-            'lineitem_cost_data', 'lineitem_cost_creative'
-        ]
-        for field in cost_fields:
-            schema.append((field, 'DECIMAL(15,2)'))
-
-        # Add custom cost fields
-        for i in range(1, 11):
-            schema.append((f'lineitem_cost_custom{i}', 'DECIMAL(15,2)'))
-
-        # Add existing v1.0 metric fields
-        existing_metric_fields = [
-            'lineitem_metric_impressions', 'lineitem_metric_clicks', 'lineitem_metric_views'
-        ]
-        for field in existing_metric_fields:
-            schema.append((field, 'DECIMAL(15,2)'))
-
-        # Add NEW v2.0 standard metric fields (17 new metrics)
-        new_metric_fields = [
-            'lineitem_metric_engagements', 'lineitem_metric_followers', 'lineitem_metric_visits',
-            'lineitem_metric_leads', 'lineitem_metric_sales', 'lineitem_metric_add_to_cart',
-            'lineitem_metric_app_install', 'lineitem_metric_application_start', 'lineitem_metric_application_complete',
-            'lineitem_metric_contact_us', 'lineitem_metric_download', 'lineitem_metric_signup',
-            'lineitem_metric_max_daily_spend', 'lineitem_metric_max_daily_impressions', 'lineitem_metric_audience_size'
-        ]
-        for field in new_metric_fields:
-            schema.append((field, 'DECIMAL(15,2)'))
-
-        # Add custom metric fields
-        for i in range(1, 11):
-            schema.append((f'lineitem_metric_custom{i}', 'DECIMAL(15,2)'))
+        # Get base schema from shared definition (includes workspace fields)
+        schema = get_database_schema(include_workspace_fields=True)
 
         # Add placeholder indicator and version tracking
         schema.append(('is_placeholder', 'BOOLEAN DEFAULT FALSE'))
@@ -571,6 +459,151 @@ class PostgreSQLBackend:
 
         except Exception as e:
             raise DatabaseError(f"Failed to create table: {e}")
+
+    def get_table_version(self) -> Optional[str]:
+        """
+        Detect the current schema version of the database table.
+
+        Checks for version-specific columns to determine which schema the table uses:
+        - v3.0: Has campaign_kpi_name1, lineitem_buy_type columns
+        - v2.0: Has campaign_agency_id, lineitem_metric_engagements but not v3.0 columns
+        - v1.0 or unknown: Missing both v2.0 and v3.0 columns
+
+        Returns:
+            Version string ("3.0", "2.0", "1.0") or None if table doesn't exist
+        """
+        if not self.table_exists():
+            return None
+
+        try:
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    # Query information_schema for column names
+                    cursor.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s AND table_name = %s
+                    """, (self.schema, self.table_name))
+
+                    columns = {row[0] for row in cursor.fetchall()}
+
+                    # Check for v3.0 signature columns (must be actual DB columns, not arrays)
+                    v3_columns = {
+                        'campaign_kpi_name1',        # New in v3.0
+                        'campaign_dim_custom1',      # New in v3.0
+                        'lineitem_buy_type',         # New in v3.0
+                        'lineitem_metric_reach'      # New in v3.0
+                    }
+
+                    if v3_columns.issubset(columns):
+                        return "3.0"
+
+                    # Check for v2.0 columns
+                    v2_columns = {
+                        'campaign_agency_id',
+                        'campaign_audience_name',
+                        'lineitem_metric_engagements'
+                    }
+
+                    if v2_columns.issubset(columns):
+                        return "2.0"
+
+                    # Older version or unknown
+                    return "1.0"
+
+        except Exception as e:
+            logger.warning(f"Could not determine table version: {e}")
+            return None
+
+    def migrate_schema_v2_to_v3(self) -> Dict[str, Any]:
+        """
+        Migrate database schema from v2.0 to v3.0 using ALTER TABLE.
+
+        Adds new v3.0 columns while keeping deprecated v2.0 columns for backward compatibility.
+        This allows existing BI tools and dashboards to continue working.
+
+        New v3.0 columns added:
+        - Meta: dim_custom1-5, custom_properties (JSONB)
+        - Campaign: target_audiences (JSONB), target_locations (JSONB), kpi_name1-5,
+                   kpi_value1-5, dim_custom1-5, custom_properties (JSONB)
+        - LineItem: buy_type, buy_model, buy_commitment, buy_objective, is_aggregate,
+                   aggregation_level, cost_currency_exchange_rate, cost_minimum, cost_maximum,
+                   kpi_value, new metrics (11 fields), metric_formulas (JSONB),
+                   custom_properties (JSONB)
+
+        Deprecated v2.0 columns kept:
+        - campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end,
+          campaign_audience_gender, campaign_audience_interests
+        - campaign_location_type, campaign_locations
+
+        Returns:
+            Dictionary with migration results including columns_added, errors
+        """
+        result = {
+            "success": False,
+            "columns_added": 0,
+            "columns_skipped": 0,
+            "errors": []
+        }
+
+        try:
+            # Check current version
+            current_version = self.get_table_version()
+
+            if current_version == "3.0":
+                logger.info("Database schema is already v3.0, no migration needed")
+                result["success"] = True
+                return result
+
+            logger.info(f"Migrating database schema from v{current_version} to v3.0")
+
+            # Get v3.0 schema definition from shared schema
+            from mediaplanpy.storage.schema_columns import get_database_schema
+
+            v3_schema = get_database_schema(include_workspace_fields=False)
+
+            # Get existing columns
+            with self.connect() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_schema = %s AND table_name = %s
+                    """, (self.schema, self.table_name))
+
+                    existing_columns = {row[0] for row in cursor.fetchall()}
+
+                    # Add missing columns one by one
+                    for col_name, col_type in v3_schema:
+                        if col_name in existing_columns:
+                            result["columns_skipped"] += 1
+                            logger.debug(f"Column {col_name} already exists, skipping")
+                            continue
+
+                        try:
+                            alter_sql = f"ALTER TABLE {self.schema}.{self.table_name} ADD COLUMN {col_name} {col_type}"
+                            cursor.execute(alter_sql)
+                            result["columns_added"] += 1
+                            logger.debug(f"Added column: {col_name} {col_type}")
+
+                        except Exception as e:
+                            error_msg = f"Failed to add column {col_name}: {str(e)}"
+                            result["errors"].append(error_msg)
+                            logger.warning(error_msg)
+                            # Continue with other columns
+
+                    conn.commit()
+
+            result["success"] = True
+            logger.info(f"Database schema migration complete: {result['columns_added']} columns added, "
+                       f"{result['columns_skipped']} already existed")
+
+        except Exception as e:
+            error_msg = f"Database schema migration failed: {str(e)}"
+            result["errors"].append(error_msg)
+            logger.error(error_msg)
+
+        return result
 
     def ensure_table_exists(self) -> None:
         """

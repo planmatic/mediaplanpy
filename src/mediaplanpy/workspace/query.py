@@ -210,10 +210,17 @@ def _apply_filters(self, df, filters):
 
 def list_campaigns(self, filters=None, include_stats=True, return_dataframe=False):
     """
-    Retrieve a list of unique campaigns with metadata and statistics.
+    Retrieve a list of unique campaigns with metadata and statistics (v3.0).
 
     Returns one row per campaign_id with current settings and statistics from the
     current/latest media plan.
+
+    v3.0 Changes:
+        - Removed deprecated fields: audience_name, audience_age_start/end, audience_gender,
+          audience_interests, location_type, locations
+        - Added KPI fields: kpi_name1-5, kpi_value1-5 (10 new columns)
+        - Added custom dimensions: campaign_dim_custom1-5, meta_dim_custom1-5 (10 new columns)
+        - Target audiences/locations are not included (stored as nested arrays)
 
     Args:
         filters (dict, optional): Filters to apply. Keys are field names, values are
@@ -234,6 +241,7 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
     # Step 1: Build simple SQL query to get all campaign data with line item aggregations
     # The workspace_id filter will be automatically injected by sql_query
     # Filter out archived plans at SQL level
+    # v3.0: Removed deprecated audience/location fields, added KPIs and custom dimensions
     if include_stats:
         query = """
         SELECT
@@ -245,13 +253,6 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             campaign_budget_total,
             campaign_product_name,
             campaign_product_description,
-            campaign_audience_name,
-            campaign_audience_age_start,
-            campaign_audience_age_end,
-            campaign_audience_gender,
-            campaign_audience_interests,
-            campaign_location_type,
-            campaign_locations,
             campaign_budget_currency,
             campaign_agency_id,
             campaign_agency_name,
@@ -262,6 +263,29 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             campaign_campaign_type_name,
             campaign_workflow_status_id,
             campaign_workflow_status_name,
+            -- v3.0: Campaign KPI fields
+            campaign_kpi_name1,
+            campaign_kpi_value1,
+            campaign_kpi_name2,
+            campaign_kpi_value2,
+            campaign_kpi_name3,
+            campaign_kpi_value3,
+            campaign_kpi_name4,
+            campaign_kpi_value4,
+            campaign_kpi_name5,
+            campaign_kpi_value5,
+            -- v3.0: Campaign custom dimension fields
+            campaign_dim_custom1,
+            campaign_dim_custom2,
+            campaign_dim_custom3,
+            campaign_dim_custom4,
+            campaign_dim_custom5,
+            -- v3.0: Meta custom dimension fields
+            meta_dim_custom1,
+            meta_dim_custom2,
+            meta_dim_custom3,
+            meta_dim_custom4,
+            meta_dim_custom5,
             meta_id,
             meta_is_current,
             meta_created_at,
@@ -282,12 +306,17 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
         GROUP BY campaign_id, campaign_name, campaign_objective,
                  campaign_start_date, campaign_end_date, campaign_budget_total,
                  campaign_product_name, campaign_product_description,
-                 campaign_audience_name, campaign_audience_age_start, campaign_audience_age_end,
-                 campaign_audience_gender, campaign_audience_interests, campaign_location_type, campaign_locations,
                  campaign_budget_currency, campaign_agency_id, campaign_agency_name,
                  campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
                  campaign_campaign_type_id, campaign_campaign_type_name,
                  campaign_workflow_status_id, campaign_workflow_status_name,
+                 campaign_kpi_name1, campaign_kpi_value1, campaign_kpi_name2, campaign_kpi_value2,
+                 campaign_kpi_name3, campaign_kpi_value3, campaign_kpi_name4, campaign_kpi_value4,
+                 campaign_kpi_name5, campaign_kpi_value5,
+                 campaign_dim_custom1, campaign_dim_custom2, campaign_dim_custom3,
+                 campaign_dim_custom4, campaign_dim_custom5,
+                 meta_dim_custom1, meta_dim_custom2, meta_dim_custom3,
+                 meta_dim_custom4, meta_dim_custom5,
                  meta_id, meta_is_current, meta_created_at
         ORDER BY campaign_id,
                  CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END,
@@ -304,13 +333,6 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             campaign_budget_total,
             campaign_product_name,
             campaign_product_description,
-            campaign_audience_name,
-            campaign_audience_age_start,
-            campaign_audience_age_end,
-            campaign_audience_gender,
-            campaign_audience_interests,
-            campaign_location_type,
-            campaign_locations,
             campaign_budget_currency,
             campaign_agency_id,
             campaign_agency_name,
@@ -321,6 +343,29 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             campaign_campaign_type_name,
             campaign_workflow_status_id,
             campaign_workflow_status_name,
+            -- v3.0: Campaign KPI fields
+            campaign_kpi_name1,
+            campaign_kpi_value1,
+            campaign_kpi_name2,
+            campaign_kpi_value2,
+            campaign_kpi_name3,
+            campaign_kpi_value3,
+            campaign_kpi_name4,
+            campaign_kpi_value4,
+            campaign_kpi_name5,
+            campaign_kpi_value5,
+            -- v3.0: Campaign custom dimension fields
+            campaign_dim_custom1,
+            campaign_dim_custom2,
+            campaign_dim_custom3,
+            campaign_dim_custom4,
+            campaign_dim_custom5,
+            -- v3.0: Meta custom dimension fields
+            meta_dim_custom1,
+            meta_dim_custom2,
+            meta_dim_custom3,
+            meta_dim_custom4,
+            meta_dim_custom5,
             meta_id,
             meta_is_current,
             meta_created_at
@@ -369,7 +414,11 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
 
 def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=False):
     """
-    Retrieve a list of media plans with metadata and statistics.
+    Retrieve a list of media plans with metadata and statistics (v3.0).
+
+    v3.0 Changes:
+        - Added KPI fields: kpi_name1-5, kpi_value1-5 (10 new columns)
+        - Added custom dimensions: campaign_dim_custom1-5, meta_dim_custom1-5 (10 new columns)
 
     Args:
         filters (dict, optional): Filters to apply. Keys are field names, values are
@@ -414,7 +463,30 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
         campaign_campaign_type_id,
         campaign_campaign_type_name,
         campaign_workflow_status_id,
-        campaign_workflow_status_name"""
+        campaign_workflow_status_name,
+        -- v3.0: Campaign KPI fields
+        campaign_kpi_name1,
+        campaign_kpi_value1,
+        campaign_kpi_name2,
+        campaign_kpi_value2,
+        campaign_kpi_name3,
+        campaign_kpi_value3,
+        campaign_kpi_name4,
+        campaign_kpi_value4,
+        campaign_kpi_name5,
+        campaign_kpi_value5,
+        -- v3.0: Campaign custom dimension fields
+        campaign_dim_custom1,
+        campaign_dim_custom2,
+        campaign_dim_custom3,
+        campaign_dim_custom4,
+        campaign_dim_custom5,
+        -- v3.0: Meta custom dimension fields
+        meta_dim_custom1,
+        meta_dim_custom2,
+        meta_dim_custom3,
+        meta_dim_custom4,
+        meta_dim_custom5"""
 
     if include_stats:
         query += """,
@@ -443,12 +515,19 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
     FROM {*}
     GROUP BY meta_id, meta_schema_version, meta_created_at, meta_name, meta_comments,
              meta_created_by_id, meta_created_by_name, meta_is_current, meta_is_archived, meta_parent_id,
-             campaign_id, campaign_name, campaign_objective, 
+             campaign_id, campaign_name, campaign_objective,
              campaign_start_date, campaign_end_date, campaign_budget_total, campaign_product_name,
              campaign_budget_currency, campaign_agency_id, campaign_agency_name,
              campaign_advertiser_id, campaign_advertiser_name, campaign_product_id,
              campaign_campaign_type_id, campaign_campaign_type_name,
-             campaign_workflow_status_id, campaign_workflow_status_name
+             campaign_workflow_status_id, campaign_workflow_status_name,
+             campaign_kpi_name1, campaign_kpi_value1, campaign_kpi_name2, campaign_kpi_value2,
+             campaign_kpi_name3, campaign_kpi_value3, campaign_kpi_name4, campaign_kpi_value4,
+             campaign_kpi_name5, campaign_kpi_value5,
+             campaign_dim_custom1, campaign_dim_custom2, campaign_dim_custom3,
+             campaign_dim_custom4, campaign_dim_custom5,
+             meta_dim_custom1, meta_dim_custom2, meta_dim_custom3,
+             meta_dim_custom4, meta_dim_custom5
     ORDER BY meta_created_at DESC"""
 
     # Add filters if provided
@@ -461,7 +540,19 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
 
 def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
     """
-    Retrieve a list of line items across all media plans.
+    Retrieve a list of line items across all media plans (v3.0).
+
+    v3.0 New Fields Available:
+        - KPI tracking: kpi_value (target value for KPI)
+        - Buy details: buy_type, buy_commitment
+        - Aggregation: is_aggregate, aggregation_level
+        - Cost extensions: cost_minimum, cost_maximum, cost_currency_exchange_rate
+        - Custom dimensions: dim_custom1-10 (10 new columns)
+        - Custom costs: cost_custom1-10 (10 new columns)
+        - Extended metrics: engagements, followers, visits, leads, sales, add_to_cart,
+          app_install, contact_us, download, signup, view_starts, view_completions,
+          reach, units, impression_share, page_views, likes, shares, comments, conversions
+        - Custom metrics: metric_custom1-10 (10 new columns)
 
     Args:
         filters (dict, optional): Filters to apply. Keys are field names, values are
@@ -480,7 +571,7 @@ def list_lineitems(self, filters=None, limit=None, return_dataframe=False):
     # Build SQL query - select all columns, filter out placeholders
     query = """
     SELECT * FROM {*}
-    WHERE is_placeholder = FALSE OR is_placeholder IS NULL"""
+    WHERE (is_placeholder = FALSE OR is_placeholder IS NULL)"""
 
     # Add filters if provided
     if filters:
@@ -550,7 +641,7 @@ def _add_sql_filters(self, base_query, filters):
 
 def _build_sql_filter_conditions(self, filters):
     """
-    Convert filter dictionary to SQL WHERE conditions.
+    Convert filter dictionary to SQL WHERE conditions (v3.0).
 
     Handles:
     - List values (IN operator)
@@ -559,6 +650,11 @@ def _build_sql_filter_conditions(self, filters):
     - Date field detection and conversion
     - SQL injection prevention through proper escaping
 
+    v3.0 Note:
+        - Deprecated v2.0 fields (audience_*, location_type, locations) are no longer
+          in the schema. Filtering on these fields will cause SQL errors.
+        - New v3.0 fields can be used for filtering (kpi_name*, kpi_value*, dim_custom*, etc.)
+
     Args:
         filters: Dictionary of field names and filter values
 
@@ -566,7 +662,7 @@ def _build_sql_filter_conditions(self, filters):
         String of SQL WHERE conditions joined with AND
 
     Raises:
-        SQLQueryError: If filter cannot be converted safely
+        SQLQueryError: If filter cannot be converted safely or field doesn't exist
     """
     if not filters:
         return ""
@@ -835,7 +931,18 @@ def _sql_query_duckdb(self, query: str, return_dataframe: bool = True,
         )
 
     # Resolve file patterns in the query (handles S3 URLs)
-    resolved_query = _resolve_sql_file_patterns(self, query)
+    try:
+        resolved_query = _resolve_sql_file_patterns(self, query)
+    except SQLQueryError as e:
+        # If no parquet files found (empty workspace), return empty results gracefully
+        if "No parquet files found" in str(e):
+            logger.debug(f"No parquet files found for query - returning empty result: {e}")
+            if return_dataframe:
+                return pd.DataFrame()
+            else:
+                return []
+        # Re-raise other SQLQueryErrors
+        raise
 
     # Apply limit if specified
     if limit is not None and limit > 0:

@@ -1,0 +1,254 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "campaign.schema.json",
+  "title": "Campaign",
+  "type": "object",
+  "required": ["id", "name", "start_date", "end_date", "budget_total"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique identifier for the campaign"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the campaign"
+    },
+    "objective": {
+      "type": "string",
+      "description": "Primary marketing objective for the campaign (e.g., awareness, conversion, engagement)"
+    },
+    "start_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Campaign start date in YYYY-MM-DD format"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Campaign end date in YYYY-MM-DD format"
+    },
+    "budget_currency": {
+      "type": "string",
+      "description": "Currency in which the budget of this campaign is expressed"
+    },
+    "budget_total": {
+      "type": "number",
+      "description": "Total budget allocated for the campaign in the base currency"
+    },
+    "agency_id": {
+      "type": "string",
+      "description": "Unique identifier for the agency managing the campaign"
+    },
+    "agency_name": {
+      "type": "string",
+      "description": "Name of the agency managing the campaign"
+    },
+    "advertiser_id": {
+      "type": "string",
+      "description": "Unique identifier for the advertiser/client"
+    },
+    "advertiser_name": {
+      "type": "string",
+      "description": "Name of the advertiser/client organization"
+    },
+    "product_id": {
+      "type": "string",
+      "description": "Unique identifier for the product being advertised"
+    },
+    "product_name": {
+      "type": "string",
+      "description": "Name of the product being advertised"
+    },
+    "product_description": {
+      "type": "string",
+      "description": "Detailed description of the product being advertised"
+    },
+    "campaign_type_id": {
+      "type": "string",
+      "description": "Unique identifier for the campaign type classification"
+    },
+    "campaign_type_name": {
+      "type": "string",
+      "description": "Name of the campaign type (e.g., Brand Awareness, Performance, Retargeting)"
+    },
+	"target_audiences": {
+      "type": "array",
+      "description": "List of target audiences for the campaign",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the target audience"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the target audience"
+          },
+          "demo_age_start": {
+            "type": "integer",
+            "description": "Minimum age of the target audience (inclusive)"
+          },
+          "demo_age_end": {
+            "type": "integer",
+            "description": "Maximum age of the target audience (inclusive)"
+          },
+          "demo_gender": {
+            "type": "string",
+            "enum": ["Male", "Female", "Any"],
+            "description": "Target gender for the audience"
+          },
+          "demo_attributes": {
+            "type": "string",
+            "description": "Additional demographic attributes (e.g., income level, education, occupation)"
+          },
+          "interest_attributes": {
+            "type": "string",
+            "description": "Interest-based attributes and behaviors that define the audience"
+          },
+          "intent_attributes": {
+            "type": "string",
+            "description": "Purchase intent and behavioral intent signals"
+          },
+          "purchase_attributes": {
+            "type": "string",
+            "description": "Purchase behavior and transaction history attributes"
+          },
+          "content_attributes": {
+            "type": "string",
+            "description": "Content consumption and engagement attributes"
+          },
+          "exclusion_list": {
+            "type": "string",
+            "description": "List of segments or attributes to exclude from the audience"
+          },
+          "extension_approach": {
+            "type": "string",
+            "description": "Approach for audience extension (e.g., lookalike, similar audiences)"
+          },
+          "population_size": {
+            "type": "integer",
+            "description": "Estimated size of the target audience population"
+          }
+        }
+      }
+    },
+	"target_locations": {
+      "type": "array",
+      "description": "List of target locations for the campaign",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the target location"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the target location"
+          },
+          "location_type": {
+            "type": "string",
+            "enum": ["Country", "State", "DMA", "County", "Postcode", "Radius", "POI"],
+            "description": "Type of geographic targeting"
+          },
+          "location_list": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of specific locations to target (based on location_type)"
+          },
+          "exclusion_type": {
+            "type": "string",
+            "enum": ["Country", "State", "DMA", "County", "Postcode", "Radius", "POI"],
+            "description": "Type of geographic exclusion"
+          },
+          "exclusion_list": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of specific locations to exclude (based on exclusion_type)"
+          },
+          "population_percent": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Estimated percentage of the total target population that can be targeted in this target location, expressed as a decimal between 0 and 1 (e.g., 0.452 for 45.2%)"
+          }
+        }
+      }
+    },
+    "workflow_status_id": {
+      "type": "string",
+      "description": "Unique identifier for the current workflow status"
+    },
+    "workflow_status_name": {
+      "type": "string",
+      "description": "Human-readable name of the current workflow status (e.g., Draft, Approved, Live, Paused, Completed)"
+    },
+	"kpi_name1": {
+      "type": "string",
+      "description": "Name of the first key performance indicator. Should reference a standard metric (e.g., metric_impressions, metric_clicks, metric_leads) or custom metric (e.g., metric_custom1) from the lineitem schema."
+    },
+	"kpi_value1": {
+      "type": "number",
+      "description": "Target value for the first key performance indicator"
+    },
+	"kpi_name2": {
+      "type": "string",
+      "description": "Name of the second key performance indicator. Should reference a standard metric (e.g., metric_impressions, metric_clicks, metric_leads) or custom metric (e.g., metric_custom1) from the lineitem schema."
+    },
+	"kpi_value2": {
+      "type": "number",
+      "description": "Target value for the second key performance indicator"
+    },
+	"kpi_name3": {
+      "type": "string",
+      "description": "Name of the third key performance indicator. Should reference a standard metric (e.g., metric_impressions, metric_clicks, metric_leads) or custom metric (e.g., metric_custom1) from the lineitem schema."
+    },
+	"kpi_value3": {
+      "type": "number",
+      "description": "Target value for the third key performance indicator"
+    },
+	"kpi_name4": {
+      "type": "string",
+      "description": "Name of the fourth key performance indicator. Should reference a standard metric (e.g., metric_impressions, metric_clicks, metric_leads) or custom metric (e.g., metric_custom1) from the lineitem schema."
+    },
+	"kpi_value4": {
+      "type": "number",
+      "description": "Target value for the fourth key performance indicator"
+    },
+	"kpi_name5": {
+      "type": "string",
+      "description": "Name of the fifth key performance indicator. Should reference a standard metric (e.g., metric_impressions, metric_clicks, metric_leads) or custom metric (e.g., metric_custom1) from the lineitem schema."
+    },
+	"kpi_value5": {
+      "type": "number",
+      "description": "Target value for the fifth key performance indicator"
+    },
+	"dim_custom1": {
+      "type": "string",
+      "description": "Custom dimension field 1 - configuration defined in dictionary schema"
+    },
+	"dim_custom2": {
+      "type": "string",
+      "description": "Custom dimension field 2 - configuration defined in dictionary schema"
+    },
+	"dim_custom3": {
+      "type": "string",
+      "description": "Custom dimension field 3 - configuration defined in dictionary schema"
+    },
+	"dim_custom4": {
+      "type": "string",
+      "description": "Custom dimension field 4 - configuration defined in dictionary schema"
+    },
+	"dim_custom5": {
+      "type": "string",
+      "description": "Custom dimension field 5 - configuration defined in dictionary schema"
+    },
+	"custom_properties": {
+      "type": "object",
+      "description": "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
+    }
+  }
+}

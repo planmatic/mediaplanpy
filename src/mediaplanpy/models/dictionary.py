@@ -2,10 +2,11 @@
 Dictionary model for mediaplanpy.
 
 This module provides the Dictionary model class for configuring custom fields
-in media plan line items, following the Media Plan Open Data Standard v2.0.
+and formula settings across meta, campaign, and line item levels, following
+the Media Plan Open Data Standard v3.0.
 """
 
-from typing import Dict, Any, List, Optional, ClassVar
+from typing import Dict, Any, List, Optional, ClassVar, Set
 
 from pydantic import Field, field_validator, model_validator
 
@@ -14,9 +15,10 @@ from mediaplanpy.models.base import BaseModel
 
 class CustomFieldConfig(BaseModel):
     """
-    Configuration for a single custom field.
+    Configuration for a single custom field (dimensions and costs).
 
     Defines whether a custom field is enabled and what caption to display.
+    Used for dim_custom and cost_custom fields.
     """
 
     status: str = Field(..., description="Whether this custom field is enabled or disabled")
@@ -46,64 +48,222 @@ class CustomFieldConfig(BaseModel):
         return self
 
 
+class MetricFormulaConfig(BaseModel):
+    """
+    Formula configuration for standard metrics that support formula-based calculations.
+
+    NEW in v3.0: Allows standard metrics to use formulas for calculation.
+    """
+
+    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function)")
+    base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation")
+
+    @field_validator("formula_type")
+    @classmethod
+    def validate_formula_type(cls, v: Optional[str]) -> Optional[str]:
+        """Validate formula_type if provided."""
+        if v is not None and len(v.strip()) == 0:
+            raise ValueError("formula_type cannot be empty string")
+        return v.strip() if v else v
+
+    @field_validator("base_metric")
+    @classmethod
+    def validate_base_metric(cls, v: Optional[str]) -> Optional[str]:
+        """Validate base_metric if provided."""
+        if v is not None and len(v.strip()) == 0:
+            raise ValueError("base_metric cannot be empty string")
+        return v.strip() if v else v
+
+
+class CustomMetricConfig(BaseModel):
+    """
+    Configuration for custom metric fields including status, caption, and optional formula support.
+
+    ENHANCED in v3.0: Adds formula_type and base_metric fields to support formula-based calculations.
+    Combines CustomFieldConfig fields with MetricFormulaConfig fields.
+    """
+
+    status: str = Field(..., description="Whether this custom metric field is enabled or disabled")
+    caption: Optional[str] = Field(None, description="Display caption for this custom metric")
+    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function)")
+    base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation")
+
+    @field_validator("status")
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        """Validate status is either 'enabled' or 'disabled'."""
+        if v not in ["enabled", "disabled"]:
+            raise ValueError("Status must be either 'enabled' or 'disabled'")
+        return v
+
+    @field_validator("caption")
+    @classmethod
+    def validate_caption(cls, v: Optional[str]) -> Optional[str]:
+        """Validate caption length if provided."""
+        if v is not None and len(v.strip()) > 100:
+            raise ValueError("Caption must be 100 characters or less")
+        return v.strip() if v else v
+
+    @field_validator("formula_type")
+    @classmethod
+    def validate_formula_type(cls, v: Optional[str]) -> Optional[str]:
+        """Validate formula_type if provided."""
+        if v is not None and len(v.strip()) == 0:
+            raise ValueError("formula_type cannot be empty string")
+        return v.strip() if v else v
+
+    @field_validator("base_metric")
+    @classmethod
+    def validate_base_metric(cls, v: Optional[str]) -> Optional[str]:
+        """Validate base_metric if provided."""
+        if v is not None and len(v.strip()) == 0:
+            raise ValueError("base_metric cannot be empty string")
+        return v.strip() if v else v
+
+    @model_validator(mode="after")
+    def validate_caption_required_when_enabled(self) -> "CustomMetricConfig":
+        """Validate that caption is required when status is enabled."""
+        if self.status == "enabled" and not self.caption:
+            raise ValueError("Caption is required when status is 'enabled'")
+        return self
+
+
 class Dictionary(BaseModel):
     """
-    Configuration dictionary for custom fields in media plan line items.
+    Configuration dictionary for custom fields and formula settings across
+    meta, campaign, and line item levels.
 
-    Defines which custom fields are enabled and their display captions.
-    Following the Media Plan Open Data Standard v2.0.
+    Defines which custom fields are enabled, their display captions, and
+    formula configurations for metrics. Following the Media Plan Open Data Standard v3.0.
     """
 
-    custom_dimensions: Optional[Dict[str, CustomFieldConfig]] = Field(
+    # NEW v3.0: Meta-level custom dimensions
+    meta_custom_dimensions: Optional[Dict[str, CustomFieldConfig]] = Field(
         None,
-        description="Configuration for custom dimension fields (dim_custom1-10)"
+        description="Configuration for meta-level custom dimension fields (dim_custom1-5)"
     )
-    custom_metrics: Optional[Dict[str, CustomFieldConfig]] = Field(
+
+    # NEW v3.0: Campaign-level custom dimensions
+    campaign_custom_dimensions: Optional[Dict[str, CustomFieldConfig]] = Field(
         None,
-        description="Configuration for custom metric fields (metric_custom1-10)"
+        description="Configuration for campaign-level custom dimension fields (dim_custom1-5)"
     )
+
+    # RENAMED v3.0: custom_dimensions → lineitem_custom_dimensions
+    lineitem_custom_dimensions: Optional[Dict[str, CustomFieldConfig]] = Field(
+        None,
+        description="Configuration for line item-level custom dimension fields (dim_custom1-10)"
+    )
+
+    # NEW v3.0: Standard metrics with formula support
+    standard_metrics: Optional[Dict[str, MetricFormulaConfig]] = Field(
+        None,
+        description="Formula configuration for standard metrics that support formula-based calculations"
+    )
+
+    # ENHANCED v3.0: Custom metrics now include formula support
+    custom_metrics: Optional[Dict[str, CustomMetricConfig]] = Field(
+        None,
+        description="Configuration for custom metric fields (metric_custom1-10) including formula support"
+    )
+
+    # UNCHANGED: Custom costs
     custom_costs: Optional[Dict[str, CustomFieldConfig]] = Field(
         None,
         description="Configuration for custom cost fields (cost_custom1-10)"
     )
 
     # Valid custom field names
-    VALID_DIMENSION_FIELDS: ClassVar[set] = {
-        f"dim_custom{i}" for i in range(1, 11)
+    VALID_META_DIMENSION_FIELDS: ClassVar[set] = {
+        f"dim_custom{i}" for i in range(1, 6)  # dim_custom1-5 for meta
     }
-    VALID_METRIC_FIELDS: ClassVar[set] = {
-        f"metric_custom{i}" for i in range(1, 11)
+    VALID_CAMPAIGN_DIMENSION_FIELDS: ClassVar[set] = {
+        f"dim_custom{i}" for i in range(1, 6)  # dim_custom1-5 for campaign
+    }
+    VALID_LINEITEM_DIMENSION_FIELDS: ClassVar[set] = {
+        f"dim_custom{i}" for i in range(1, 11)  # dim_custom1-10 for line items
+    }
+    VALID_STANDARD_METRIC_FIELDS: ClassVar[set] = {
+        # v1.0 and v2.0 metrics
+        "metric_impressions", "metric_clicks", "metric_views",
+        "metric_engagements", "metric_followers", "metric_visits", "metric_leads", "metric_sales",
+        "metric_add_to_cart", "metric_app_install", "metric_application_start", "metric_application_complete",
+        "metric_contact_us", "metric_download", "metric_signup",
+        # NEW v3.0 metrics
+        "metric_view_starts", "metric_view_completions", "metric_reach", "metric_units",
+        "metric_impression_share", "metric_page_views", "metric_likes", "metric_shares",
+        "metric_comments", "metric_conversions"
+    }
+    VALID_CUSTOM_METRIC_FIELDS: ClassVar[set] = {
+        f"metric_custom{i}" for i in range(1, 11)  # metric_custom1-10
     }
     VALID_COST_FIELDS: ClassVar[set] = {
-        f"cost_custom{i}" for i in range(1, 11)
+        f"cost_custom{i}" for i in range(1, 11)  # cost_custom1-10
     }
 
-    @field_validator("custom_dimensions")
+    @field_validator("meta_custom_dimensions")
     @classmethod
-    def validate_custom_dimensions(cls, v: Optional[Dict[str, CustomFieldConfig]]) -> Optional[
-        Dict[str, CustomFieldConfig]]:
-        """Validate custom dimensions field names."""
+    def validate_meta_custom_dimensions(cls, v: Optional[Dict[str, CustomFieldConfig]]) -> Optional[Dict[str, CustomFieldConfig]]:
+        """Validate meta custom dimensions field names."""
         if v is None:
             return v
 
         for field_name in v.keys():
-            if field_name not in cls.VALID_DIMENSION_FIELDS:
+            if field_name not in cls.VALID_META_DIMENSION_FIELDS:
                 raise ValueError(
-                    f"Invalid custom dimension field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_DIMENSION_FIELDS))}")
+                    f"Invalid meta custom dimension field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_META_DIMENSION_FIELDS))}")
+        return v
+
+    @field_validator("campaign_custom_dimensions")
+    @classmethod
+    def validate_campaign_custom_dimensions(cls, v: Optional[Dict[str, CustomFieldConfig]]) -> Optional[Dict[str, CustomFieldConfig]]:
+        """Validate campaign custom dimensions field names."""
+        if v is None:
+            return v
+
+        for field_name in v.keys():
+            if field_name not in cls.VALID_CAMPAIGN_DIMENSION_FIELDS:
+                raise ValueError(
+                    f"Invalid campaign custom dimension field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_CAMPAIGN_DIMENSION_FIELDS))}")
+        return v
+
+    @field_validator("lineitem_custom_dimensions")
+    @classmethod
+    def validate_lineitem_custom_dimensions(cls, v: Optional[Dict[str, CustomFieldConfig]]) -> Optional[Dict[str, CustomFieldConfig]]:
+        """Validate line item custom dimensions field names."""
+        if v is None:
+            return v
+
+        for field_name in v.keys():
+            if field_name not in cls.VALID_LINEITEM_DIMENSION_FIELDS:
+                raise ValueError(
+                    f"Invalid line item custom dimension field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_LINEITEM_DIMENSION_FIELDS))}")
+        return v
+
+    @field_validator("standard_metrics")
+    @classmethod
+    def validate_standard_metrics(cls, v: Optional[Dict[str, MetricFormulaConfig]]) -> Optional[Dict[str, MetricFormulaConfig]]:
+        """Validate standard metrics field names."""
+        if v is None:
+            return v
+
+        for field_name in v.keys():
+            if field_name not in cls.VALID_STANDARD_METRIC_FIELDS:
+                raise ValueError(
+                    f"Invalid standard metric field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_STANDARD_METRIC_FIELDS))}")
         return v
 
     @field_validator("custom_metrics")
     @classmethod
-    def validate_custom_metrics(cls, v: Optional[Dict[str, CustomFieldConfig]]) -> Optional[
-        Dict[str, CustomFieldConfig]]:
+    def validate_custom_metrics(cls, v: Optional[Dict[str, CustomMetricConfig]]) -> Optional[Dict[str, CustomMetricConfig]]:
         """Validate custom metrics field names."""
         if v is None:
             return v
 
         for field_name in v.keys():
-            if field_name not in cls.VALID_METRIC_FIELDS:
+            if field_name not in cls.VALID_CUSTOM_METRIC_FIELDS:
                 raise ValueError(
-                    f"Invalid custom metric field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_METRIC_FIELDS))}")
+                    f"Invalid custom metric field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_CUSTOM_METRIC_FIELDS))}")
         return v
 
     @field_validator("custom_costs")
@@ -119,6 +279,22 @@ class Dictionary(BaseModel):
                     f"Invalid custom cost field name: {field_name}. Must be one of: {', '.join(sorted(cls.VALID_COST_FIELDS))}")
         return v
 
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_custom_dimensions_field(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-migrate v2.0 'custom_dimensions' field to v3.0 'lineitem_custom_dimensions'.
+
+        This validator runs before field validation and renames the field if it exists.
+        """
+        if isinstance(values, dict) and "custom_dimensions" in values:
+            # Only migrate if lineitem_custom_dimensions is not already set
+            if "lineitem_custom_dimensions" not in values:
+                values["lineitem_custom_dimensions"] = values["custom_dimensions"]
+            # Remove the old field name
+            del values["custom_dimensions"]
+        return values
+
     def validate_model(self) -> List[str]:
         """
         Perform additional validation beyond what Pydantic provides.
@@ -133,82 +309,274 @@ class Dictionary(BaseModel):
 
         return errors
 
-    def is_field_enabled(self, field_name: str) -> bool:
+    def is_field_enabled(self, field_name: str, scope: Optional[str] = None) -> bool:
         """
         Check if a custom field is enabled.
 
         Args:
-            field_name: Name of the custom field (e.g., 'dim_custom1')
+            field_name: Name of the custom field (e.g., 'dim_custom1', 'metric_custom1')
+            scope: Optional scope to limit search ('meta', 'campaign', 'lineitem').
+                   If None, searches all scopes for dimension fields.
 
         Returns:
             True if the field is enabled, False otherwise.
         """
-        if field_name in self.VALID_DIMENSION_FIELDS:
-            return (self.custom_dimensions and
-                    field_name in self.custom_dimensions and
-                    self.custom_dimensions[field_name].status == "enabled")
-        elif field_name in self.VALID_METRIC_FIELDS:
+        # Handle dimension fields with scope
+        if field_name in self.VALID_META_DIMENSION_FIELDS or field_name in self.VALID_CAMPAIGN_DIMENSION_FIELDS or field_name in self.VALID_LINEITEM_DIMENSION_FIELDS:
+            # Check meta scope
+            if (scope is None or scope == "meta") and self.meta_custom_dimensions:
+                if field_name in self.meta_custom_dimensions and self.meta_custom_dimensions[field_name].status == "enabled":
+                    return True
+
+            # Check campaign scope
+            if (scope is None or scope == "campaign") and self.campaign_custom_dimensions:
+                if field_name in self.campaign_custom_dimensions and self.campaign_custom_dimensions[field_name].status == "enabled":
+                    return True
+
+            # Check lineitem scope
+            if (scope is None or scope == "lineitem") and self.lineitem_custom_dimensions:
+                if field_name in self.lineitem_custom_dimensions and self.lineitem_custom_dimensions[field_name].status == "enabled":
+                    return True
+
+        # Handle custom metric fields
+        elif field_name in self.VALID_CUSTOM_METRIC_FIELDS:
             return (self.custom_metrics and
                     field_name in self.custom_metrics and
                     self.custom_metrics[field_name].status == "enabled")
+
+        # Handle cost fields
         elif field_name in self.VALID_COST_FIELDS:
             return (self.custom_costs and
                     field_name in self.custom_costs and
                     self.custom_costs[field_name].status == "enabled")
+
         return False
 
-    def get_field_caption(self, field_name: str) -> Optional[str]:
+    def get_field_caption(self, field_name: str, scope: Optional[str] = None) -> Optional[str]:
         """
         Get the caption for a custom field.
 
         Args:
             field_name: Name of the custom field (e.g., 'dim_custom1')
+            scope: Optional scope to limit search ('meta', 'campaign', 'lineitem').
+                   If None, searches all scopes for dimension fields.
 
         Returns:
             The field caption if enabled, None otherwise.
         """
-        if field_name in self.VALID_DIMENSION_FIELDS:
-            if (self.custom_dimensions and
-                    field_name in self.custom_dimensions and
-                    self.custom_dimensions[field_name].status == "enabled"):
-                return self.custom_dimensions[field_name].caption
-        elif field_name in self.VALID_METRIC_FIELDS:
+        # Handle dimension fields with scope
+        if field_name in self.VALID_META_DIMENSION_FIELDS or field_name in self.VALID_CAMPAIGN_DIMENSION_FIELDS or field_name in self.VALID_LINEITEM_DIMENSION_FIELDS:
+            # Check meta scope
+            if (scope is None or scope == "meta") and self.meta_custom_dimensions:
+                if field_name in self.meta_custom_dimensions and self.meta_custom_dimensions[field_name].status == "enabled":
+                    return self.meta_custom_dimensions[field_name].caption
+
+            # Check campaign scope
+            if (scope is None or scope == "campaign") and self.campaign_custom_dimensions:
+                if field_name in self.campaign_custom_dimensions and self.campaign_custom_dimensions[field_name].status == "enabled":
+                    return self.campaign_custom_dimensions[field_name].caption
+
+            # Check lineitem scope
+            if (scope is None or scope == "lineitem") and self.lineitem_custom_dimensions:
+                if field_name in self.lineitem_custom_dimensions and self.lineitem_custom_dimensions[field_name].status == "enabled":
+                    return self.lineitem_custom_dimensions[field_name].caption
+
+        # Handle custom metric fields
+        elif field_name in self.VALID_CUSTOM_METRIC_FIELDS:
             if (self.custom_metrics and
                     field_name in self.custom_metrics and
                     self.custom_metrics[field_name].status == "enabled"):
                 return self.custom_metrics[field_name].caption
+
+        # Handle cost fields
         elif field_name in self.VALID_COST_FIELDS:
             if (self.custom_costs and
                     field_name in self.custom_costs and
                     self.custom_costs[field_name].status == "enabled"):
                 return self.custom_costs[field_name].caption
+
         return None
 
-    def get_enabled_fields(self) -> Dict[str, str]:
+    def get_enabled_fields(self, scope: Optional[str] = None) -> Dict[str, str]:
         """
         Get all enabled custom fields and their captions.
+
+        Args:
+            scope: Optional scope to filter results ('meta', 'campaign', 'lineitem', 'all').
+                   If None or 'all', returns all enabled fields from all scopes.
 
         Returns:
             Dictionary mapping field names to captions for all enabled fields.
         """
         enabled_fields = {}
 
-        # Add enabled dimension fields
-        if self.custom_dimensions:
-            for field_name, config in self.custom_dimensions.items():
+        # Add enabled meta dimension fields
+        if (scope is None or scope == "all" or scope == "meta") and self.meta_custom_dimensions:
+            for field_name, config in self.meta_custom_dimensions.items():
                 if config.status == "enabled":
-                    enabled_fields[field_name] = config.caption
+                    enabled_fields[f"meta.{field_name}"] = config.caption
 
-        # Add enabled metric fields
-        if self.custom_metrics:
+        # Add enabled campaign dimension fields
+        if (scope is None or scope == "all" or scope == "campaign") and self.campaign_custom_dimensions:
+            for field_name, config in self.campaign_custom_dimensions.items():
+                if config.status == "enabled":
+                    enabled_fields[f"campaign.{field_name}"] = config.caption
+
+        # Add enabled lineitem dimension fields
+        if (scope is None or scope == "all" or scope == "lineitem") and self.lineitem_custom_dimensions:
+            for field_name, config in self.lineitem_custom_dimensions.items():
+                if config.status == "enabled":
+                    enabled_fields[f"lineitem.{field_name}"] = config.caption
+
+        # Add enabled custom metric fields
+        if (scope is None or scope == "all" or scope == "lineitem") and self.custom_metrics:
             for field_name, config in self.custom_metrics.items():
                 if config.status == "enabled":
                     enabled_fields[field_name] = config.caption
 
         # Add enabled cost fields
-        if self.custom_costs:
+        if (scope is None or scope == "all" or scope == "lineitem") and self.custom_costs:
             for field_name, config in self.custom_costs.items():
                 if config.status == "enabled":
                     enabled_fields[field_name] = config.caption
 
         return enabled_fields
+
+    # ========================================================================
+    # Formula Dependency Methods (v3.0 - NEW)
+    # ========================================================================
+
+    def get_dependency_graph(self, relevant_metrics: Optional[Set[str]] = None) -> Dict[str, set]:
+        """
+        Build dependency graph from dictionary's metric formula definitions.
+
+        This method is the source of truth for all formula dependencies. It maps
+        base metrics to sets of metrics that depend on them, enabling proper
+        recalculation order determination.
+
+        The dependency graph can be filtered to only relevant metrics to improve
+        performance when a mediaplan/lineitem only uses a subset of standard metrics.
+
+        Args:
+            relevant_metrics: Optional set of metric names to include in the graph.
+                            If None, includes all standard metrics (default).
+                            If provided, only includes metrics in this set.
+                            Should be built using LineItem._get_relevant_metrics() or
+                            MediaPlan._get_plan_relevant_metrics().
+
+        Returns:
+            Dict mapping base_metric -> set of dependent metric names.
+
+        Example:
+            # All metrics (default)
+            >>> dictionary.get_dependency_graph()
+            {"cost_total": {"metric_impressions", "metric_clicks", ...}}
+
+            # Filtered to relevant metrics
+            >>> relevant = {"metric_impressions", "metric_clicks"}
+            >>> dictionary.get_dependency_graph(relevant_metrics=relevant)
+            {"cost_total": {"metric_impressions", "metric_clicks"}}
+        """
+        graph: Dict[str, set] = {}
+
+        # Determine which standard metrics to process
+        if relevant_metrics is not None:
+            # Filter to only relevant standard metrics
+            metrics_to_process = relevant_metrics & self.VALID_STANDARD_METRIC_FIELDS
+        else:
+            # Process all standard metrics (default behavior)
+            metrics_to_process = self.VALID_STANDARD_METRIC_FIELDS
+
+        # Process standard metrics (sorted for deterministic order)
+        for metric_name in sorted(metrics_to_process):
+            # Check if this metric is explicitly defined in dictionary
+            if self.standard_metrics and metric_name in self.standard_metrics:
+                config = self.standard_metrics[metric_name]
+                formula_type = config.formula_type if config.formula_type else "cost_per_unit"
+                base_metric = config.base_metric if config.base_metric else "cost_total"
+            else:
+                # Use defaults for standard metrics not explicitly defined
+                formula_type = "cost_per_unit"
+                base_metric = "cost_total"
+
+            # Add to graph
+            if base_metric not in graph:
+                graph[base_metric] = set()
+            graph[base_metric].add(metric_name)
+
+        # Process custom metrics (only if enabled and relevant)
+        # Sort for deterministic order
+        if self.custom_metrics:
+            for metric_name, config in sorted(self.custom_metrics.items()):
+                # Only include enabled custom metrics
+                if config.status == "enabled":
+                    # Only include if in relevant_metrics (or if no filter)
+                    if relevant_metrics is None or metric_name in relevant_metrics:
+                        # Get formula properties with defaults
+                        formula_type = config.formula_type if config.formula_type else "cost_per_unit"
+                        base_metric = config.base_metric if config.base_metric else "cost_total"
+
+                        # Add to graph
+                        if base_metric not in graph:
+                            graph[base_metric] = set()
+                        graph[base_metric].add(metric_name)
+
+        return graph
+
+    def get_metric_formula_definition(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula definition (formula_type and base_metric) for a specific metric.
+
+        This method retrieves the formula definition from the dictionary, which is
+        the source of truth for formula_type and base_metric. LineItems only store
+        coefficient and parameters.
+
+        For standard metrics: Returns definition from dictionary if present, otherwise
+        returns defaults (formula_type='cost_per_unit', base_metric='cost_total').
+
+        For custom metrics: Only returns definition if metric is enabled. Returns None
+        if metric is disabled or not found.
+
+        Args:
+            metric_name: Name of the metric (e.g., "metric_impressions", "metric_custom1")
+
+        Returns:
+            Dict with formula_type and base_metric, or None if custom metric is disabled.
+            Standard metrics always return a definition (defaults if not specified).
+
+        Example:
+            >>> dictionary.get_metric_formula_definition("metric_impressions")
+            {"formula_type": "cost_per_unit", "base_metric": "cost_total"}
+
+            >>> dictionary.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        """
+        # Check if it's a standard metric
+        if metric_name in self.VALID_STANDARD_METRIC_FIELDS:
+            # If explicitly defined in dictionary, use that (with defaults for missing properties)
+            if self.standard_metrics and metric_name in self.standard_metrics:
+                config = self.standard_metrics[metric_name]
+                return {
+                    "formula_type": config.formula_type if config.formula_type else "cost_per_unit",
+                    "base_metric": config.base_metric if config.base_metric else "cost_total"
+                }
+            else:
+                # Use defaults for standard metrics not explicitly defined
+                return {
+                    "formula_type": "cost_per_unit",
+                    "base_metric": "cost_total"
+                }
+
+        # Check if it's a custom metric
+        if self.custom_metrics and metric_name in self.custom_metrics:
+            config = self.custom_metrics[metric_name]
+
+            # Only return formula for enabled custom metrics
+            if config.status == "enabled":
+                return {
+                    "formula_type": config.formula_type if config.formula_type else "cost_per_unit",
+                    "base_metric": config.base_metric if config.base_metric else "cost_total"
+                }
+
+        # Custom metric not found, disabled, or unknown metric name
+        return None

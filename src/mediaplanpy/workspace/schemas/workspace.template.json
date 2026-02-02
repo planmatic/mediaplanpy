@@ -1,0 +1,48 @@
+{
+  "workspace_id": "{{WORKSPACE_ID}}",
+  "workspace_name": "{{WORKSPACE_NAME}}",
+  "workspace_status": "active",
+  "environment": "development",
+  "storage": {
+    "mode": "local",
+    "local": {
+      "base_path": "{{STORAGE_PATH}}",
+      "create_if_missing": true
+    },
+    "s3": {
+      "bucket": "",
+      "region": "",
+      "prefix": "{{WORKSPACE_ID}}",
+      "profile": "",
+      "endpoint_url": "",
+      "use_ssl": true
+    }
+  },
+  "workspace_settings": {
+    "schema_version": "{{SCHEMA_VERSION}}",
+    "last_upgraded": "{{LAST_UPGRADED}}",
+    "sdk_version_required": "{{SDK_VERSION_REQUIRED}}"
+  },
+  "database": {
+    "enabled": false,
+    "host": "localhost",
+    "port": 5432,
+    "database": "mediaplanpy",
+    "schema": "public",
+    "table_name": "media_plans",
+    "username": "postgres",
+    "password_env_var": "MEDIAPLAN_DB_PASSWORD",
+    "ssl": false,
+    "connection_timeout": 30,
+    "auto_create_table": true
+  },
+  "excel": {
+    "enabled": true
+  },
+  "google_sheets": {
+    "enabled": false
+  },
+  "logging": {
+    "level": "INFO"
+  }
+}

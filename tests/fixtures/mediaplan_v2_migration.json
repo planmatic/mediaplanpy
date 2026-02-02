@@ -1,0 +1,46 @@
+{
+  "meta": {
+    "id": "MP_V2_001",
+    "schema_version": "v2.0",
+    "name": "v2.0 Media Plan for Migration Testing",
+    "created_by_name": "Test User",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_current": true,
+    "is_archived": false
+  },
+  "campaign": {
+    "id": "CAM_V2_001",
+    "name": "v2.0 Campaign with Deprecated Fields",
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "budget_total": 100000,
+    "budget_currency": "USD",
+    "audience_name": "Adults 25-54",
+    "audience_age_start": 25,
+    "audience_age_end": 54,
+    "audience_gender": "Any",
+    "audience_interests": ["Technology", "Travel"],
+    "location_type": "State",
+    "locations": ["California", "New York"]
+  },
+  "lineitems": [
+    {
+      "id": "LI_V2_001",
+      "name": "v2.0 Line Item",
+      "start_date": "2025-01-01",
+      "end_date": "2025-03-31",
+      "cost_total": 10000,
+      "cost_currency": "USD",
+      "channel": "display",
+      "vehicle": "Programmatic",
+      "partner": "DSP Partner",
+      "metric_impressions": 1000000,
+      "metric_clicks": 25000
+    }
+  ],
+  "dictionary": {
+    "custom_dimensions": {
+      "dim_custom1": {"status": "enabled", "caption": "Placement Type"}
+    }
+  }
+}

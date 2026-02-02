@@ -15,9 +15,15 @@ from typing import Any, Dict, List, Optional, Set, Union, ClassVar
 from pydantic import Field, field_validator, model_validator
 
 from mediaplanpy.models.base import BaseModel
-from mediaplanpy.models.campaign import Campaign, Budget, TargetAudience
+from mediaplanpy.models.campaign import Campaign
+from mediaplanpy.models.target_audience import TargetAudience
 from mediaplanpy.models.lineitem import LineItem
 from mediaplanpy.models.dictionary import Dictionary
+from mediaplanpy.models.mediaplan_json import JsonMixin
+from mediaplanpy.models.mediaplan_storage import StorageMixin
+from mediaplanpy.models.mediaplan_excel import ExcelMixin
+from mediaplanpy.models.mediaplan_database import DatabaseMixin
+from mediaplanpy.models.mediaplan_formulas import FormulasMixin
 from mediaplanpy.exceptions import ValidationError, SchemaVersionError, SchemaError, MediaPlanError, StorageError
 from mediaplanpy.schema import get_current_version, SchemaValidator, SchemaMigrator
 
@@ -36,9 +42,9 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan")
 
 class Meta(BaseModel):
     """
-    Metadata for a media plan following v2.0 schema.
+    Metadata for a media plan following v3.0 schema.
 
-    Updated from v1.0 to include new identification and status fields.
+    Updated from v2.0 to include custom dimensions and properties.
     """
     id: str = Field(..., description="Unique identifier for the media plan")
     schema_version: str = Field(..., description="Version of the schema being used")
@@ -56,6 +62,14 @@ class Meta(BaseModel):
     is_current: Optional[bool] = Field(None, description="Whether this is the current/active version of the media plan")
     is_archived: Optional[bool] = Field(None, description="Whether this media plan has been archived")
     parent_id: Optional[str] = Field(None, description="Identifier of the parent media plan if this is a revision or copy")
+
+    # NEW v3.0 FIELDS - All optional for backward compatibility
+    dim_custom1: Optional[str] = Field(None, description="Custom dimension 1 for meta")
+    dim_custom2: Optional[str] = Field(None, description="Custom dimension 2 for meta")
+    dim_custom3: Optional[str] = Field(None, description="Custom dimension 3 for meta")
+    dim_custom4: Optional[str] = Field(None, description="Custom dimension 4 for meta")
+    dim_custom5: Optional[str] = Field(None, description="Custom dimension 5 for meta")
+    custom_properties: Optional[Dict[str, Any]] = Field(None, description="Additional custom properties as key-value pairs")
 
     def validate_model(self) -> List[str]:
         """
@@ -89,12 +103,15 @@ class Meta(BaseModel):
         return errors
 
 
-class MediaPlan(BaseModel):
+class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixin, BaseModel):
     """
-    Represents a complete media plan following the Media Plan Open Data Standard v2.0.
+    Represents a complete media plan following the Media Plan Open Data Standard v3.0.
 
     A media plan contains metadata, a campaign, line items, and optionally a
     dictionary for custom field configuration.
+
+    Note: BaseModel is placed last in the inheritance order to allow mixin methods
+    (like export_to_json) to take precedence over BaseModel's simple implementations.
     """
 
     # Meta information (updated for v2.0)
@@ -108,6 +125,20 @@ class MediaPlan(BaseModel):
 
     # NEW v2.0 FIELD: Dictionary for custom field configuration
     dictionary: Optional[Dictionary] = Field(None, description="Configuration dictionary defining custom field settings and captions")
+
+    def model_post_init(self, __context: Any) -> None:
+        """
+        Post-initialization hook to set parent references on child objects.
+
+        This ensures that lineitems have a reference to their parent MediaPlan,
+        enabling smart metric methods to access the dictionary automatically.
+
+        Note: This creates a circular reference (MediaPlan ↔ LineItem), but it's
+        safe because _mediaplan is excluded from serialization.
+        """
+        # Set parent reference on all lineitems
+        for lineitem in self.lineitems:
+            lineitem._mediaplan = self
 
     @classmethod
     def check_schema_version(cls, data: Dict[str, Any]) -> None:
@@ -216,30 +247,25 @@ class MediaPlan(BaseModel):
 
         # Validate line items
         if self.lineitems:
-            # Check that line item dates are within campaign dates
+            # INFORMATIONAL: Check that line item dates are within campaign dates
+            # Log warnings but don't block creation
             for i, line_item in enumerate(self.lineitems):
                 if line_item.start_date < self.campaign.start_date:
-                    errors.append(
+                    logger.warning(
                         f"Line item {i} ({line_item.id}) starts before campaign: "
                         f"{line_item.start_date} < {self.campaign.start_date}"
                     )
 
                 if line_item.end_date > self.campaign.end_date:
-                    errors.append(
+                    logger.warning(
                         f"Line item {i} ({line_item.id}) ends after campaign: "
                         f"{line_item.end_date} > {self.campaign.end_date}"
                     )
 
-            # Check if total cost of line items matches campaign budget_total
-            total_cost = sum(item.cost_total for item in self.lineitems)
-            # Allow a small difference for rounding errors (0.01)
-            if abs(total_cost - self.campaign.budget_total) > Decimal('0.01'):
-                errors.append(
-                    f"Sum of line item costs ({total_cost}) does not match "
-                    f"campaign budget_total ({self.campaign.budget_total})"
-                )
+            # Budget matching validation removed - it's valid to have unallocated/over-allocated budget
 
-        # NEW v2.0 VALIDATION: Dictionary consistency
+        # INFORMATIONAL: Dictionary consistency check
+        # Log warnings but don't block creation
         if self.dictionary:
             # Validate that enabled custom fields in dictionary have corresponding data in line items
             enabled_fields = self.dictionary.get_enabled_fields()
@@ -254,10 +280,10 @@ class MediaPlan(BaseModel):
                         if field_value is not None and str(field_value).strip():
                             unused_fields.discard(field_name)
 
-                # Issue warnings for enabled fields that aren't used
+                # Log informational warnings for enabled fields that aren't used
                 for unused_field in unused_fields:
-                    errors.append(
-                        f"Warning: Custom field '{unused_field}' is enabled in dictionary "
+                    logger.info(
+                        f"Custom field '{unused_field}' is enabled in dictionary "
                         f"but not used in any line items"
                     )
 
@@ -268,11 +294,24 @@ class MediaPlan(BaseModel):
         """
         Create one or more line items for this media plan.
 
+        Automatically inherits start_date, end_date from campaign if not provided.
+        All v3.0 LineItem fields are supported.
+
         Args:
             line_items: Single line item or list of line items to create.
                        Each item can be a LineItem object or dictionary.
             validate: Whether to validate line items before creation.
             **kwargs: Additional line item parameters (applied to all items if line_items is a list).
+
+                      Common v3.0 kwargs examples:
+                      - kpi_value: Target KPI value
+                      - buy_type, buy_commitment: Buy information
+                      - is_aggregate, aggregation_level: Aggregation settings
+                      - cost_currency_exchange_rate: Multi-currency support
+                      - cost_minimum, cost_maximum: Budget constraints
+                      - metric_view_starts, metric_reach, etc.: New v3.0 metrics
+                      - metric_formulas: Dict[str, MetricFormula] for calculated metrics
+                      - custom_properties: Dict for extensibility
 
         Returns:
             Single LineItem object if input was single item, or List[LineItem]
@@ -282,11 +321,25 @@ class MediaPlan(BaseModel):
             ValidationError: If line item data is invalid
             MediaPlanError: If creation fails
 
-        Example:
+        Examples:
             # Single line item (backward compatible)
-            item = plan.create_lineitem({"name": "Campaign", "cost_total": 5000})
+            item = plan.create_lineitem({
+                "name": "Social Campaign",
+                "cost_total": 5000,
+                "channel": "social"
+            })
 
-            # Multiple line items (new capability)
+            # v3.0 line item with new fields
+            item = plan.create_lineitem({
+                "name": "Display Campaign",
+                "cost_total": 10000,
+                "buy_type": "Programmatic",
+                "kpi_value": 2.5,
+                "metric_reach": 100000,
+                "custom_properties": {"audience_segment": "premium"}
+            })
+
+            # Multiple line items
             items = plan.create_lineitem([item1_dict, item2_dict])
         """
         from datetime import date
@@ -316,7 +369,7 @@ class MediaPlan(BaseModel):
 
                     # Generate ID if not provided
                     if 'id' not in line_item_data or not line_item_data['id']:
-                        line_item_data['id'] = f"li_{uuid.uuid4().hex[:8]}"
+                        line_item_data['id'] = f"pli_{uuid.uuid4().hex[:8]}"
 
                     # Inherit start date from campaign if not provided
                     if 'start_date' not in line_item_data or not line_item_data['start_date']:
@@ -352,7 +405,7 @@ class MediaPlan(BaseModel):
 
                     # Generate ID if missing
                     if not processed_item.id:
-                        processed_item.id = f"li_{uuid.uuid4().hex[:8]}"
+                        processed_item.id = f"pli_{uuid.uuid4().hex[:8]}"
 
                 # Validate the individual item if requested
                 if validate:
@@ -362,17 +415,24 @@ class MediaPlan(BaseModel):
                         validation_errors.extend([f"Item {i}: {error}" for error in item_validation_errors])
                         continue
 
-                    # Validate line item dates against campaign
+                    # Check line item dates against campaign (warnings only)
+                    # Users may have legitimate reasons for dates outside campaign bounds
+                    import warnings
+
                     if processed_item.start_date < self.campaign.start_date:
-                        validation_errors.append(
-                            f"Item {i}: Line item starts before campaign: "
-                            f"{processed_item.start_date} < {self.campaign.start_date}"
+                        warnings.warn(
+                            f"Line item '{processed_item.name}' starts before campaign: "
+                            f"{processed_item.start_date} < {self.campaign.start_date}",
+                            UserWarning,
+                            stacklevel=2
                         )
 
                     if processed_item.end_date > self.campaign.end_date:
-                        validation_errors.append(
-                            f"Item {i}: Line item ends after campaign: "
-                            f"{processed_item.end_date} > {self.campaign.end_date}"
+                        warnings.warn(
+                            f"Line item '{processed_item.name}' ends after campaign: "
+                            f"{processed_item.end_date} > {self.campaign.end_date}",
+                            UserWarning,
+                            stacklevel=2
                         )
 
                 processed_items.append(processed_item)
@@ -449,17 +509,24 @@ class MediaPlan(BaseModel):
             if validation_errors:
                 raise ValidationError(f"Invalid line item: {'; '.join(validation_errors)}")
 
-            # Validate line item dates against campaign
+            # Check line item dates against campaign (warnings only)
+            # Users may have legitimate reasons for dates outside campaign bounds
+            import warnings
+
             if line_item.start_date < self.campaign.start_date:
-                raise ValidationError(
-                    f"Line item starts before campaign: "
-                    f"{line_item.start_date} < {self.campaign.start_date}"
+                warnings.warn(
+                    f"Line item '{line_item.name}' starts before campaign: "
+                    f"{line_item.start_date} < {self.campaign.start_date}",
+                    UserWarning,
+                    stacklevel=2
                 )
 
             if line_item.end_date > self.campaign.end_date:
-                raise ValidationError(
-                    f"Line item ends after campaign: "
-                    f"{line_item.end_date} > {self.campaign.end_date}"
+                warnings.warn(
+                    f"Line item '{line_item.name}' ends after campaign: "
+                    f"{line_item.end_date} > {self.campaign.end_date}",
+                    UserWarning,
+                    stacklevel=2
                 )
 
         # Replace the existing line item (only if validation passed)
@@ -506,6 +573,96 @@ class MediaPlan(BaseModel):
                 return True
 
         return False
+
+    def copy_lineitem(
+        self,
+        source_id: str,
+        modifications: Optional[Dict[str, Any]] = None,
+        new_name: Optional[str] = None,
+        validate: bool = True
+    ) -> LineItem:
+        """
+        Copy an existing line item with optional modifications.
+
+        Use Case:
+            Duplicate a line item and modify specific fields without manually
+            copying all fields. Useful for creating similar campaigns with
+            different dates, budgets, or targeting.
+
+        Pattern: Load source → deepcopy → modify → create new
+
+        Args:
+            source_id: ID of the line item to copy
+            modifications: Dictionary of fields to modify (optional)
+            new_name: New name for the copied line item (optional, defaults to "Original Name (Copy)")
+            validate: Whether to validate the copied line item (default: True)
+
+        Returns:
+            Newly created LineItem (copy)
+
+        Raises:
+            ValueError: If source line item not found
+            ValidationError: If validation fails
+
+        Example:
+            # Simple copy with new name
+            copied = plan.copy_lineitem("pli_12345", new_name="Q2 Campaign")
+
+            # Copy with multiple modifications
+            copied = plan.copy_lineitem(
+                "pli_12345",
+                modifications={
+                    "name": "Q2 Campaign",
+                    "start_date": date(2025, 4, 1),
+                    "end_date": date(2025, 6, 30),
+                    "cost_total": Decimal("8000")
+                }
+            )
+
+            # Copy and scale down
+            copied = plan.copy_lineitem(
+                "pli_12345",
+                modifications={
+                    "cost_total": source.cost_total * 0.8,
+                    "metric_impressions": source.metric_impressions * 0.8
+                }
+            )
+        """
+        import copy as copy_module
+
+        # Load source line item
+        source_li = self.load_lineitem(source_id)
+        if not source_li:
+            raise ValueError(f"Source line item '{source_id}' not found in media plan")
+
+        # Deep copy to dictionary
+        copied_dict = copy_module.deepcopy(source_li.to_dict())
+
+        # Remove ID (will auto-generate new one)
+        copied_dict.pop('id', None)
+
+        # Set name
+        if new_name:
+            copied_dict['name'] = new_name
+        elif modifications and 'name' in modifications:
+            # Name will be set via modifications
+            pass
+        else:
+            # Default: append " (Copy)"
+            copied_dict['name'] = f"{source_li.name} (Copy)"
+
+        # Apply modifications
+        if modifications:
+            for key, value in modifications.items():
+                # Convert special types to serializable format
+                if isinstance(value, (Decimal, date)):
+                    copied_dict[key] = str(value) if isinstance(value, date) else float(value)
+                else:
+                    copied_dict[key] = value
+
+        # Create the copy
+        # Note: Date validation warnings may be issued if dates extend beyond campaign
+        return self.create_lineitem(copied_dict, validate=validate)
 
     def archive(self, workspace_manager: 'WorkspaceManager') -> None:
         """
@@ -851,78 +1008,304 @@ class MediaPlan(BaseModel):
         return MediaPlan.from_dict(migrated_data)
 
     # NEW v2.0 METHODS: Dictionary management
+    # ENHANCED v3.0: Added support for standard_metrics and scoped dimensions
 
-    def get_custom_field_config(self, field_name: str) -> Optional[Dict[str, Any]]:
+    def get_custom_field_config(self, field_name: str, scope: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get configuration for a custom field.
 
         Args:
-            field_name: Name of the custom field (e.g., 'dim_custom1')
+            field_name: Name of the custom field (e.g., 'dim_custom1', 'metric_custom1')
+            scope: Optional scope for dimension fields ('meta', 'campaign', 'lineitem')
 
         Returns:
             Dictionary with field configuration or None if not configured.
+
+        Example:
+            # Get lineitem dimension config
+            config = mp.get_custom_field_config("dim_custom1", scope="lineitem")
+            # {'enabled': True, 'caption': 'Brand Category'}
+
+            # Get custom metric config
+            config = mp.get_custom_field_config("metric_custom1")
+            # {'enabled': True, 'caption': 'Brand Lift %', 'formula_type': None, 'base_metric': None}
         """
         if not self.dictionary:
             return None
 
-        if self.dictionary.is_field_enabled(field_name):
+        if self.dictionary.is_field_enabled(field_name, scope=scope):
+            caption = self.dictionary.get_field_caption(field_name, scope=scope)
+
+            # For custom metrics, include formula info if available
+            if field_name in Dictionary.VALID_CUSTOM_METRIC_FIELDS:
+                if self.dictionary.custom_metrics and field_name in self.dictionary.custom_metrics:
+                    config = self.dictionary.custom_metrics[field_name]
+                    return {
+                        "enabled": True,
+                        "caption": caption,
+                        "formula_type": config.formula_type,
+                        "base_metric": config.base_metric
+                    }
+
             return {
                 "enabled": True,
-                "caption": self.dictionary.get_field_caption(field_name)
+                "caption": caption
             }
         return None
 
-    def set_custom_field_config(self, field_name: str, enabled: bool, caption: Optional[str] = None):
+    def set_custom_field_config(
+        self,
+        field_name: str,
+        enabled: bool,
+        caption: Optional[str] = None,
+        scope: Optional[str] = "lineitem",
+        formula_type: Optional[str] = None,
+        base_metric: Optional[str] = None
+    ):
         """
-        Configure a custom field.
+        Configure a custom field (dimensions, costs, or custom metrics).
+
+        ENHANCED v3.0: Now supports scoped dimensions and custom metrics with formulas.
 
         Args:
-            field_name: Name of the custom field (e.g., 'dim_custom1')
+            field_name: Name of the custom field (e.g., 'dim_custom1', 'metric_custom1', 'cost_custom1')
             enabled: Whether the field should be enabled
             caption: Display caption for the field (required if enabled)
+            scope: Scope for dimension fields ('meta', 'campaign', 'lineitem'). Default: 'lineitem'
+            formula_type: Optional formula type for custom metrics (e.g., 'cost_per_unit')
+            base_metric: Optional base metric for custom metrics (e.g., 'cost_total')
 
         Raises:
             ValueError: If field name is invalid or caption is missing for enabled field
+
+        Examples:
+            # Enable lineitem dimension (default scope)
+            mp.set_custom_field_config("dim_custom1", enabled=True, caption="Brand Category")
+
+            # Enable meta dimension
+            mp.set_custom_field_config("dim_custom1", enabled=True, caption="Region", scope="meta")
+
+            # Enable campaign dimension
+            mp.set_custom_field_config("dim_custom2", enabled=True, caption="Segment", scope="campaign")
+
+            # Enable custom metric with formula
+            mp.set_custom_field_config(
+                "metric_custom1",
+                enabled=True,
+                caption="Custom CPM",
+                formula_type="cost_per_unit",
+                base_metric="cost_total"
+            )
+
+            # Enable custom cost
+            mp.set_custom_field_config("cost_custom1", enabled=True, caption="Vendor Fee")
         """
-        from mediaplanpy.models.dictionary import CustomFieldConfig
+        from mediaplanpy.models.dictionary import CustomFieldConfig, CustomMetricConfig
 
         # Create dictionary if it doesn't exist
         if not self.dictionary:
             self.dictionary = Dictionary()
 
-        # Validate field name and determine category
-        if field_name in Dictionary.VALID_DIMENSION_FIELDS:
-            category = "custom_dimensions"
-        elif field_name in Dictionary.VALID_METRIC_FIELDS:
+        # Determine field type and category
+        is_dimension = (field_name in Dictionary.VALID_META_DIMENSION_FIELDS or
+                       field_name in Dictionary.VALID_CAMPAIGN_DIMENSION_FIELDS or
+                       field_name in Dictionary.VALID_LINEITEM_DIMENSION_FIELDS)
+        is_custom_metric = field_name in Dictionary.VALID_CUSTOM_METRIC_FIELDS
+        is_cost = field_name in Dictionary.VALID_COST_FIELDS
+
+        if not (is_dimension or is_custom_metric or is_cost):
+            raise ValueError(
+                f"Invalid custom field name: {field_name}. "
+                f"Must be dim_custom1-10, metric_custom1-10, or cost_custom1-10"
+            )
+
+        # Handle dimension fields with scope
+        if is_dimension:
+            if scope == "meta":
+                category = "meta_custom_dimensions"
+            elif scope == "campaign":
+                category = "campaign_custom_dimensions"
+            elif scope == "lineitem":
+                category = "lineitem_custom_dimensions"
+            else:
+                raise ValueError(f"Invalid scope: {scope}. Must be 'meta', 'campaign', or 'lineitem'")
+
+            # Create the category dict if it doesn't exist
+            category_dict = getattr(self.dictionary, category) or {}
+
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
+            else:
+                category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
+
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
+
+        # Handle custom metric fields (may have formula)
+        elif is_custom_metric:
             category = "custom_metrics"
-        elif field_name in Dictionary.VALID_COST_FIELDS:
+            category_dict = getattr(self.dictionary, category) or {}
+
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomMetricConfig(
+                    status="enabled",
+                    caption=caption,
+                    formula_type=formula_type,
+                    base_metric=base_metric
+                )
+            else:
+                category_dict[field_name] = CustomMetricConfig(
+                    status="disabled",
+                    caption=caption,
+                    formula_type=formula_type,
+                    base_metric=base_metric
+                )
+
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
+
+        # Handle cost fields
+        elif is_cost:
             category = "custom_costs"
-        else:
-            raise ValueError(f"Invalid custom field name: {field_name}")
+            category_dict = getattr(self.dictionary, category) or {}
 
-        # Create the category dict if it doesn't exist
-        category_dict = getattr(self.dictionary, category) or {}
+            if enabled:
+                if not caption:
+                    raise ValueError("Caption is required when enabling a custom field")
+                category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
+            else:
+                category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
 
-        if enabled:
-            if not caption:
-                raise ValueError("Caption is required when enabling a custom field")
-            category_dict[field_name] = CustomFieldConfig(status="enabled", caption=caption)
-        else:
-            category_dict[field_name] = CustomFieldConfig(status="disabled", caption=caption)
+            # Update the dictionary
+            setattr(self.dictionary, category, category_dict)
 
-        # Update the dictionary
-        setattr(self.dictionary, category, category_dict)
+    def set_standard_metric_formula(
+        self,
+        metric_name: str,
+        formula_type: str,
+        base_metric: str
+    ) -> None:
+        """
+        Configure a formula for a standard metric.
 
-    def get_enabled_custom_fields(self) -> Dict[str, str]:
+        NEW v3.0: Allows standard metrics to use formulas for calculation.
+
+        Args:
+            metric_name: Standard metric name (e.g., 'metric_impressions', 'metric_clicks')
+            formula_type: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', etc.)
+            base_metric: Base metric for calculation (e.g., 'cost_total', 'metric_impressions')
+
+        Raises:
+            ValueError: If metric_name is not a valid standard metric
+
+        Example:
+            # Configure impressions to calculate from cost and CPM
+            mp.set_standard_metric_formula(
+                "metric_impressions",
+                formula_type="cost_per_unit",
+                base_metric="cost_total"
+            )
+
+            # Configure CTR to calculate from clicks and impressions
+            mp.set_standard_metric_formula(
+                "metric_clicks",
+                formula_type="conversion_rate",
+                base_metric="metric_impressions"
+            )
+        """
+        from mediaplanpy.models.dictionary import MetricFormulaConfig
+
+        # Create dictionary if it doesn't exist
+        if not self.dictionary:
+            self.dictionary = Dictionary()
+
+        # Validate metric name
+        if metric_name not in Dictionary.VALID_STANDARD_METRIC_FIELDS:
+            raise ValueError(
+                f"Invalid standard metric: {metric_name}. "
+                f"Must be one of: {', '.join(sorted(Dictionary.VALID_STANDARD_METRIC_FIELDS))}"
+            )
+
+        # Create standard_metrics dict if it doesn't exist
+        if self.dictionary.standard_metrics is None:
+            self.dictionary.standard_metrics = {}
+
+        # Set the formula configuration
+        self.dictionary.standard_metrics[metric_name] = MetricFormulaConfig(
+            formula_type=formula_type,
+            base_metric=base_metric
+        )
+
+    def get_standard_metric_formula(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula configuration for a standard metric.
+
+        Args:
+            metric_name: Standard metric name (e.g., 'metric_impressions')
+
+        Returns:
+            Dictionary with formula configuration or None if not configured
+
+        Example:
+            config = mp.get_standard_metric_formula("metric_impressions")
+            # {'formula_type': 'cost_per_unit', 'base_metric': 'cost_total'}
+        """
+        if not self.dictionary or not self.dictionary.standard_metrics:
+            return None
+
+        config = self.dictionary.standard_metrics.get(metric_name)
+        if config:
+            return {
+                "formula_type": config.formula_type,
+                "base_metric": config.base_metric
+            }
+        return None
+
+    def remove_standard_metric_formula(self, metric_name: str) -> bool:
+        """
+        Remove formula configuration for a standard metric.
+
+        Args:
+            metric_name: Standard metric name
+
+        Returns:
+            True if formula was removed, False if it didn't exist
+
+        Example:
+            removed = mp.remove_standard_metric_formula("metric_impressions")
+        """
+        if not self.dictionary or not self.dictionary.standard_metrics:
+            return False
+
+        if metric_name in self.dictionary.standard_metrics:
+            del self.dictionary.standard_metrics[metric_name]
+            return True
+        return False
+
+    def get_enabled_custom_fields(self, scope: Optional[str] = None) -> Dict[str, str]:
         """
         Get all enabled custom fields and their captions.
 
+        Args:
+            scope: Optional scope filter ('meta', 'campaign', 'lineitem', 'all')
+
         Returns:
             Dictionary mapping field names to captions for all enabled fields.
+
+        Example:
+            # Get all enabled fields
+            fields = mp.get_enabled_custom_fields()
+
+            # Get only lineitem fields
+            fields = mp.get_enabled_custom_fields(scope="lineitem")
         """
         if not self.dictionary:
             return {}
-        return self.dictionary.get_enabled_fields()
+        return self.dictionary.get_enabled_fields(scope=scope)
 
     # Legacy method support - keeping old methods for any internal usage
     def add_lineitem(self, line_item: Union[LineItem, Dict[str, Any]], **kwargs) -> LineItem:
@@ -951,31 +1334,56 @@ class MediaPlan(BaseModel):
 
     @classmethod
     def create(cls,
-               created_by: str,
                campaign_name: str,
-               campaign_objective: str,
                campaign_start_date: Union[str, date],
                campaign_end_date: Union[str, date],
-               campaign_budget: Union[str, int, float, Decimal],
-               schema_version: Optional[str] = None,
                workspace_manager: Optional['WorkspaceManager'] = None,
+               schema_version: Optional[str] = None,
+               # Dual parameter support for backwards compatibility
+               campaign_budget: Optional[Union[str, int, float, Decimal]] = None,
+               campaign_budget_total: Optional[Union[str, int, float, Decimal]] = None,
+               created_by: Optional[str] = None,
+               created_by_name: Optional[str] = None,
+               campaign_objective: Optional[str] = None,
                **kwargs) -> "MediaPlan":
         """
-        Create a new media plan with the required fields.
+        Create a new media plan with schema-aligned required fields.
 
         This method dynamically routes parameters to the appropriate model objects
         based on their field definitions, ensuring proper JSON structure.
 
+        NEW v3.0:
+        - Signature aligned with schema v3.0 requirements
+        - Supports dual parameter names for backwards compatibility:
+          * campaign_budget (v2.0) OR campaign_budget_total (v3.0)
+          * created_by (v2.0) OR created_by_name (v3.0)
+        - Supports prefixed parameters for disambiguation of fields that exist
+          at multiple levels (e.g., dim_custom1 exists in Meta, Campaign, and LineItem):
+          * Use meta_* prefix for Meta fields (e.g., meta_dim_custom1, meta_custom_properties)
+          * Use campaign_* prefix for Campaign fields (e.g., campaign_dim_custom1, campaign_custom_properties)
+        - Unprefixed fields are routed automatically based on field definitions
+
         Args:
-            created_by: Email or name of the creator
-            campaign_name: Name of the campaign
-            campaign_objective: Objective of the campaign
-            campaign_start_date: Start date (string YYYY-MM-DD or date object)
-            campaign_end_date: End date (string YYYY-MM-DD or date object)
-            campaign_budget: Total budget amount
-            schema_version: Version of the schema to use, defaults to current version
+            campaign_name: Name of the campaign (required by schema)
+            campaign_start_date: Start date (required by schema) - string YYYY-MM-DD or date object
+            campaign_end_date: End date (required by schema) - string YYYY-MM-DD or date object
             workspace_manager: Optional WorkspaceManager for workspace status checking
+            schema_version: Version of the schema to use, defaults to current version (v3.0)
+            campaign_budget: Total budget amount (v2.0 parameter name, prefer campaign_budget_total)
+            campaign_budget_total: Total budget amount (v3.0 parameter name, schema-correct)
+            created_by: Email or name of the creator (v2.0 parameter name, prefer created_by_name)
+            created_by_name: Name of the creator (v3.0 parameter name, schema-correct)
+            campaign_objective: Objective of the campaign (optional)
             **kwargs: Additional fields - automatically routed to Campaign, Meta, or MediaPlan
+
+                      Common v3.0 kwargs examples:
+                      - target_audiences: List[Dict] or List[TargetAudience] (Campaign)
+                      - target_locations: List[Dict] or List[TargetLocation] (Campaign)
+                      - kpi_name1, kpi_value1: KPI tracking (Campaign)
+                      - meta_dim_custom1: Custom dimension for Meta (use meta_ prefix)
+                      - campaign_dim_custom1: Custom dimension for Campaign (use campaign_ prefix)
+                      - meta_custom_properties: Dict (use meta_ prefix)
+                      - campaign_custom_properties: Dict (use campaign_ prefix)
 
         Returns:
             A new MediaPlan instance.
@@ -983,7 +1391,42 @@ class MediaPlan(BaseModel):
         Raises:
             ValidationError: If the provided parameters fail validation.
             WorkspaceInactiveError: If workspace is inactive.
+            ValueError: If required parameters are missing.
+
+        Example:
+            plan = MediaPlan.create(
+                campaign_name="Q1 Campaign",
+                campaign_start_date="2025-01-01",
+                campaign_end_date="2025-03-31",
+                campaign_budget_total=100000,  # or campaign_budget=100000
+                created_by_name="John Doe",    # or created_by="john@example.com"
+                campaign_objective="awareness",
+                target_audiences=[{"name": "Young Adults", "demo_age_start": 18, "demo_age_end": 34}],
+                kpi_name1="CTR",
+                kpi_value1=2.5,
+                meta_dim_custom1="Region: North America",
+                campaign_dim_custom1="Segment: Digital"
+            )
         """
+        # === DUAL PARAMETER NAME HANDLING ===
+        # Handle campaign budget (prefer schema-correct name)
+        if campaign_budget_total is None and campaign_budget is not None:
+            campaign_budget_total = campaign_budget
+        elif campaign_budget_total is None:
+            raise ValueError(
+                "campaign_budget_total is required (or use campaign_budget for backwards compatibility). "
+                "This is required by the v3.0 schema."
+            )
+
+        # Handle creator name (prefer schema-correct name)
+        if created_by_name is None and created_by is not None:
+            created_by_name = created_by
+        elif created_by_name is None:
+            raise ValueError(
+                "created_by_name is required (or use created_by for backwards compatibility). "
+                "This is required by the v3.0 schema."
+            )
+
         # Check workspace status if workspace_manager is provided
         if workspace_manager is not None:
             workspace_manager.check_workspace_active("media plan creation")
@@ -995,8 +1438,8 @@ class MediaPlan(BaseModel):
             campaign_end_date = date.fromisoformat(campaign_end_date)
 
         # Convert budget to Decimal if necessary
-        if isinstance(campaign_budget, (str, int, float)):
-            campaign_budget = Decimal(str(campaign_budget))
+        if isinstance(campaign_budget_total, (str, int, float)):
+            campaign_budget_total = Decimal(str(campaign_budget_total))
 
         # Use current schema version if not specified
         if schema_version is None:
@@ -1016,12 +1459,15 @@ class MediaPlan(BaseModel):
         campaign_data = {
             "id": campaign_id,
             "name": campaign_name,
-            "objective": campaign_objective,
             "start_date": campaign_start_date,
             "end_date": campaign_end_date,
-            "budget_total": campaign_budget,
+            "budget_total": campaign_budget_total,
             **campaign_fields  # Dynamic campaign fields from kwargs
         }
+
+        # Add objective if provided (optional in v3.0)
+        if campaign_objective is not None:
+            campaign_data["objective"] = campaign_objective
 
         try:
             campaign = Campaign.from_dict(campaign_data)
@@ -1029,8 +1475,12 @@ class MediaPlan(BaseModel):
             raise ValidationError(f"Failed to create campaign: {str(e)}")
 
         # === META CREATION ===
-        # Handle v2.0 required field mapping
-        created_by_name = meta_fields.pop("created_by_name", created_by)  # Use created_by as fallback
+        # created_by_name already validated and resolved from parameters above
+        # Check if it was also provided in kwargs (allow kwargs to override)
+        if "created_by_name" in meta_fields:
+            created_by_name = meta_fields.pop("created_by_name")
+
+        # Get plan name from kwargs or use campaign name as fallback
         media_plan_name = mediaplan_fields.pop("media_plan_name", campaign_name)  # Use campaign name as fallback
 
         meta_data = {
@@ -1056,6 +1506,20 @@ class MediaPlan(BaseModel):
                     # For v1.0 compatibility, ensure budget is renamed to cost_total
                     if "budget" in item_data and "cost_total" not in item_data:
                         item_data["cost_total"] = item_data.pop("budget")
+
+                    # Auto-generate ID if not provided (consistent with create_lineitem())
+                    if 'id' not in item_data or not item_data['id']:
+                        item_data['id'] = f"pli_{uuid.uuid4().hex[:8]}"
+
+                    # Inherit dates from campaign if not provided (consistent with create_lineitem())
+                    if 'start_date' not in item_data or not item_data['start_date']:
+                        item_data['start_date'] = campaign_start_date
+                    if 'end_date' not in item_data or not item_data['end_date']:
+                        item_data['end_date'] = campaign_end_date
+
+                    # Set default cost_total if not provided (consistent with create_lineitem())
+                    if 'cost_total' not in item_data or item_data['cost_total'] is None:
+                        item_data['cost_total'] = Decimal('0')
 
                     # Ensure line item has a name
                     if "name" not in item_data:
@@ -1107,6 +1571,10 @@ class MediaPlan(BaseModel):
         This method inspects the actual model field definitions to determine where
         each parameter should go, making it schema-aware and maintainable.
 
+        NEW v3.0: Supports prefixed parameters for disambiguation:
+        - meta_* parameters (e.g., meta_dim_custom1) → Meta fields
+        - campaign_* parameters (e.g., campaign_dim_custom1) → Campaign fields
+
         Args:
             kwargs: All the extra parameters passed to create()
             schema_version: Schema version being used
@@ -1125,13 +1593,22 @@ class MediaPlan(BaseModel):
         # Special handling for certain fields that might be ambiguous
         # These fields should always go to specific models regardless of field name overlaps
         force_campaign_fields = {
+            # v2.0 campaign fields
             'budget_currency', 'agency_id', 'agency_name', 'advertiser_id', 'advertiser_name',
             'product_id', 'product_name', 'product_description', 'campaign_type_id', 'campaign_type_name',
+            'workflow_status_id', 'workflow_status_name',
+            # v2.0 deprecated audience fields (still supported for backward compatibility)
             'audience_name', 'audience_age_start', 'audience_age_end', 'audience_gender', 'audience_interests',
-            'location_type', 'locations', 'workflow_status_id', 'workflow_status_name'
+            # v2.0 deprecated location fields (still supported for backward compatibility)
+            'location_type', 'locations',
+            # NEW v3.0 campaign fields
+            'target_audiences', 'target_locations',
+            'kpi_name1', 'kpi_value1', 'kpi_name2', 'kpi_value2', 'kpi_name3', 'kpi_value3',
+            'kpi_name4', 'kpi_value4', 'kpi_name5', 'kpi_value5'
         }
 
         force_meta_fields = {
+            # v2.0 meta fields
             'created_by_name', 'created_by_id', 'is_current', 'is_archived', 'parent_id', 'comments'
         }
 
@@ -1145,7 +1622,25 @@ class MediaPlan(BaseModel):
         mediaplan_fields = {}
 
         for key, value in kwargs.items():
-            if key in force_campaign_fields or key in campaign_field_names:
+            # NEW v3.0: Handle prefixed parameters for disambiguation
+            if key.startswith('meta_'):
+                # Strip prefix and route to meta
+                actual_field_name = key[5:]  # Remove 'meta_' prefix
+                if actual_field_name in meta_field_names:
+                    meta_fields[actual_field_name] = value
+                else:
+                    logger.warning(f"Unknown meta field '{actual_field_name}' from parameter '{key}'")
+                    meta_fields[actual_field_name] = value  # Add anyway for flexibility
+            elif key.startswith('campaign_'):
+                # Strip prefix and route to campaign
+                actual_field_name = key[9:]  # Remove 'campaign_' prefix
+                if actual_field_name in campaign_field_names:
+                    campaign_fields[actual_field_name] = value
+                else:
+                    logger.warning(f"Unknown campaign field '{actual_field_name}' from parameter '{key}'")
+                    campaign_fields[actual_field_name] = value  # Add anyway for flexibility
+            # Standard routing logic (without prefix)
+            elif key in force_campaign_fields or key in campaign_field_names:
                 campaign_fields[key] = value
             elif key in force_meta_fields or key in meta_field_names:
                 meta_fields[key] = value
@@ -1243,43 +1738,6 @@ class MediaPlan(BaseModel):
             logger.warning(f"Could not load meta fields from schema {schema_version}: {e}")
             return set()
 
-    @classmethod
-    def from_v0_mediaplan(cls, v0_mediaplan: Dict[str, Any]) -> "MediaPlan":
-        """
-        Convert a v0.0 media plan dictionary to a v2.0 MediaPlan model.
-
-        Args:
-            v0_mediaplan: Dictionary containing v0.0 media plan data.
-
-        Returns:
-            A new MediaPlan instance with v2.0 structure.
-        """
-        # Extract metadata
-        v0_meta = v0_mediaplan.get("meta", {})
-        meta_data = {
-            "id": v0_meta.get("id", f"mediaplan_{uuid.uuid4().hex[:8]}"),  # Generate ID if not present
-            "schema_version": "v2.0",  # Set to the new version
-            "created_by_name": v0_meta.get("created_by", "Unknown"),  # Map to required field
-            "created_at": v0_meta.get("created_at", datetime.now().isoformat()),
-            "comments": v0_meta.get("comments")
-        }
-
-        # Handle campaign
-        v0_campaign = v0_mediaplan.get("campaign", {})
-        campaign = Campaign.from_v0_campaign(v0_campaign)
-
-        # Handle line items
-        lineitems = []
-        for v0_lineitem in v0_mediaplan.get("lineitems", []):
-            lineitems.append(LineItem.from_v0_lineitem(v0_lineitem))
-
-        # Create new media plan (no dictionary in v0.0)
-        return cls(
-            meta=Meta(**meta_data),
-            campaign=campaign,
-            lineitems=lineitems,
-            dictionary=None  # v0.0 didn't have dictionary
-        )
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MediaPlan":

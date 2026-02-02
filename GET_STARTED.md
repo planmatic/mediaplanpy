@@ -1,32 +1,42 @@
-# Get Started with Mediaplanpy
+# Get Started with MediaPlanPy
 
-Welcome! This guide will walk you through how to start using **mediaplanpy** in your own projects.
+Welcome! This guide will walk you through how to start using **MediaPlanPy v3.0.0** in your own projects.
 
 ## Package Installation
 
 We support **two primary approaches**:
 
-- Installing the package using `pip` (recommended for most users)
+- Installing the package using `pip` from PyPI (recommended for most users)
 - Cloning the repository for local development or contributions
 
-### Option 1: Install with `pip` (from GitHub)
+### Option 1: Install with `pip` (from PyPI)
 
-This is the simplest way to get started using the package in your project without cloning the source code.
+This is the simplest way to get started using the package in your project.
 
-### Requirements
+#### Requirements
 
 - Python 3.8+
 - `pip` installed
 
-### Installation
+#### Installation for v3.0 (Current)
 
-You can install the package directly from GitHub using:
+To install the latest version (v3.0.0) which supports **schema v3.0 only**:
 
 ```bash
-pip install git+https://github.com/planmatic/mediaplanpy
+pip install mediaplanpy
 ```
 
-This will install the latest version of the package and all its dependencies.
+This will install the latest version of the package and all its core dependencies.
+
+#### Installation for v2.0 Workspaces
+
+**Important**: If you need to continue working with existing v2.0 workspaces, install SDK v2.0.7:
+
+```bash
+pip install mediaplanpy==2.0.7
+```
+
+⚠️ **Note**: SDK v3.0.x cannot load v2.0 workspaces directly. To upgrade your v2.0 workspaces to v3.0, see the [Migration Guide](docs/MIGRATION_V2_TO_V3.md).
 
 ### Option 2: Clone the Repo for Local Development
 
@@ -40,8 +50,17 @@ This approach is useful if you’d like to:
 
 1. **Clone the repository**
 
+**For v3.0 (current version):**
+
 ```bash
 git clone https://github.com/planmatic/mediaplanpy
+cd mediaplanpy
+```
+
+**For v2.0.7 (if working with v2.0 workspaces):**
+
+```bash
+git clone -b maintenance/v2.0.7 https://github.com/planmatic/mediaplanpy
 cd mediaplanpy
 ```
 
@@ -64,7 +83,9 @@ This allows you to make changes to the code and use them immediately without rei
 
 ## Sample Workflow
 
-Follow these steps to create and save a basic media plan using `mediaplanpy`.
+Follow these steps to create and save a basic media plan using MediaPlanPy v3.0.
+
+**Note**: This workflow uses the v3.0 schema. For more examples, see the [examples library](examples/) and [SDK Reference](SDK_REFERENCE.md).
 
 ### Step 1: Import the Package
 
@@ -101,7 +122,7 @@ This creates a new workspace and loads it into memory. All subsequent operations
 ### Step 4: Create a Media Plan
 
 ```python
-# Create a Media Plan
+# Create a Media Plan (v3.0 schema)
 media_plan = MediaPlan.create(
     created_by="you@example.com",
     campaign_name="Summer 2025 Campaign",
@@ -117,13 +138,20 @@ media_plan = MediaPlan.create(
     product_name="Sample Product",
     campaign_type_id="C1",
     campaign_type_name="Awareness",
-    audience_name="Adults 18-54",
-    audience_age_start=18,
-    audience_age_end=54,
-    audience_gender="Any",
-    audience_interests=["Tech Enthusiasts"],
-    location_type="Country",
-    locations=["USA"],
+    # v3.0: Use target_audiences array
+    target_audiences=[{
+        "name": "Adults 18-54",
+        "demo_age_start": 18,
+        "demo_age_end": 54,
+        "demo_gender": "Any",
+        "interest_attributes": "Tech Enthusiasts"
+    }],
+    # v3.0: Use target_locations array
+    target_locations=[{
+        "name": "United States",
+        "location_type": "Country",
+        "location_list": ["USA"]
+    }],
     workflow_status_id="1",
     workflow_status_name="Planning",
     media_plan_name="Test Plan",
@@ -137,7 +165,7 @@ media_plan = MediaPlan.create(
 print(f"Media Plan Created: {media_plan.meta.id}")
 ```
 
-This creates a media plan with required campaign and metadata fields.
+This creates a media plan with required campaign and metadata fields using the v3.0 schema with `target_audiences` and `target_locations` arrays.
 
 ### Step 5: Add Line Items
 
@@ -226,143 +254,41 @@ print(f"Imported plan: {imported_plan.meta.id}")
 
 This creates a new media plan from the Excel file placed in the `imports` subdirectory of your workspace.
 
+---
 
+## Next Steps
 
-## Configure Database Connection (Optional)
+Now that you've completed the basic workflow, explore these resources to learn more:
 
-By default, `mediaplanpy` stores media plans as JSON and Parquet files in your workspace.  
-If you would like to **push media plans in PostgreSQL** for anlaytics of visualization purpose, follow these steps.
+### Additional Resources
 
-### Step 1: Install PostgreSQL (if required)
+- **[Examples Library](examples/)** - Comprehensive collection of examples demonstrating all key SDK functionality:
+  - Creating and editing media plans
+  - Working with formulas and calculated metrics
+  - Excel import/export workflows
+  - Database integration
+  - Advanced querying and analytics
+- **[SDK Reference](SDK_REFERENCE.md)** - Complete API documentation with detailed method descriptions
+- **[Database Configuration](docs/database_configuration.md)** - PostgreSQL integration for analytics and multi-user scenarios (Optional)
+- **[Cloud Storage Configuration](docs/cloud_storage_configuration.md)** - Amazon S3 setup for cloud-based workflows and team collaboration (Optional)
+- **[Migration Guide](docs/MIGRATION_V2_TO_V3.md)** - Step-by-step instructions for upgrading v2.0 workspaces to v3.0
 
-- **Windows**  
-  Download and install PostgreSQL from the [official installer](https://www.postgresql.org/download/windows/).  
-  During setup, make note of the **username**, **password**, and **port** (default: `5432`).
+### What's New in v3.0
 
-- **macOS**  
-  ```bash
-  brew install postgresql
-  brew services start postgresql
-  ```
+MediaPlanPy v3.0 introduces significant enhancements:
+- **Enhanced Targeting**: `target_audiences` and `target_locations` arrays with rich attributes
+- **Formula System**: Dynamic metric calculations with multiple formula types
+- **Additional Fields**: 155 fields (vs 116 in v2.0) for comprehensive media planning
+- **Excel Formula Integration**: Automatic coefficient calculation and dependency management
+- **Strict Version Control**: Workspace version enforcement with migration utilities
 
-- **Linux (Debian/Ubuntu)**  
-  ```bash
-  sudo apt update
-  sudo apt install postgresql postgresql-contrib
-  sudo systemctl enable postgresql
-  sudo systemctl start postgresql
-  ```
+See the [Change Log](CHANGE_LOG.md) for complete details.
 
-After installation, verify it works by running:
+---
 
-```bash
-psql --version
-```
+## Contact & Support
 
-### Step 2: Create or Reuse a Database
-
-You may either create a new database dedicated to `mediaplanpy` or use an existing PostgreSQL database.
-
-To create a new database you can use the PGAdmin user interface or:
-
-```bash
-psql -U postgres
-CREATE DATABASE mediaplanpy;
-```
-
-If you choose to use an existing database, simply update the connection properties in the workspace settings accordingly.
-
-### Step 3: Update Workspace Settings
-
-Locate your workspace settings file (by default stored in `C:\mediaplanpy` on Windows, or the equivalent base path on macOS/Linux).  
-Open the JSON file and update the **database** section:
-
-```json
-"database": {
-  "enabled": true,
-  "host": "localhost",
-  "port": 5432,
-  "database": "mediaplanpy",
-  "schema": "public",
-  "table_name": "media_plans",
-  "username": "postgres",
-  "password_env_var": "MEDIAPLAN_DB_PASSWORD",
-  "ssl": false,
-  "connection_timeout": 30,
-  "auto_create_table": true
-}
-```
-
-- Set `"enabled": true`  
-- Confirm or adjust database name, username, schema, and table name (the table will be created automatically if it does not exist)
-- The password will be supplied via an environment variable (next step)
-
-### Step 4: Configure Password as Environment Variable
-
-To avoid storing your password in plain text, save it as an environment variable:
-
-- **Windows (PowerShell)**  
-  ```powershell
-  setx MEDIAPLAN_DB_PASSWORD "your_password_here"
-  ```
-
-- **macOS/Linux (bash/zsh)**  
-  ```bash
-  export MEDIAPLAN_DB_PASSWORD="your_password_here"
-  ```
-
-To make this permanent on macOS/Linux, add the `export` line to your `~/.bashrc` or `~/.zshrc`.
-
-### Step 5: Test the Database Connection
-
-Now that your database is configured, you can test it in Python:
-
-```python
-from mediaplanpy import WorkspaceManager, MediaPlan
-
-# Load your existing workspace
-workspace = WorkspaceManager()
-workspace.load(workspace_id="workspace_6b48be28")  # Replace with your Workspace ID
-
-# Create a new Media Plan
-plan = MediaPlan.create(
-    created_by="you@example.com",
-    campaign_name="Database Test Campaign",
-    campaign_objective="Awareness",
-    campaign_start_date="2025-09-01",
-    campaign_end_date="2025-11-30",
-    campaign_budget=10000,
-    workspace_manager=workspace
-)
-
-# Add a line item
-lineitem = plan.create_lineitem({
-    "name": "Search Ads",
-    "channel": "Search",
-    "vehicle": "Google",
-    "partner": "Google",
-    "media_product": "Google Ads",
-    "location_type": "Country",
-    "location_name": "USA",
-    "target_audience": "Adults 18-54",
-    "adformat": "Text",
-    "kpi": "Clicks",
-    "cost_total": 2500,
-    "cost_currency": "USD"
-})
-
-# Save the plan (this will insert into the database)
-plan.save(workspace)
-```
-
-### Step 6: Verify the Connection
-
-1. Check that no errors appear in your Python logs when saving the plan.  
-2. Manually verify that a new record was inserted into your target database table (`media_plans` by default).  
-   For example:
-
-```bash
-psql -U postgres -d mediaplanpy -c "SELECT * FROM public.media_plans;"
-```
-
-If you see your newly created plan listed in the table, the connection is working correctly.
+For questions, support, or to learn more about commercial offerings:
+- Visit our [website](https://www.planmatic.io)
+- Follow us on [LinkedIn](https://www.linkedin.com/company/planmatic)
+- Email us at [contact@planmatic.io](mailto:contact@planmatic.io)

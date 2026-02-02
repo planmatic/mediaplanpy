@@ -1,13 +1,13 @@
 """
-Excel exporter for mediaplanpy - Updated for v2.0 Schema Support Only.
+Excel exporter for mediaplanpy - Updated for v3.0 Schema Support Only.
 
 This module provides functionality for exporting media plans to Excel format,
-supporting only v2.0 schema with all new fields and dictionary configuration.
+supporting only v3.0 schema with target audiences/locations arrays and all new fields.
 """
 
 import os
 import logging
-from typing import Dict, Any, List, Optional, Union, Tuple
+from typing import Dict, Any, List, Optional, Union, Tuple, Set, TYPE_CHECKING
 from datetime import datetime
 from decimal import Decimal
 
@@ -21,19 +21,24 @@ from openpyxl.cell import Cell
 from mediaplanpy.exceptions import StorageError
 from mediaplanpy.workspace import WorkspaceManager
 
+if TYPE_CHECKING:
+    from mediaplanpy.models.mediaplan import MediaPlan
+    from mediaplanpy.models.lineitem import LineItem
+    from mediaplanpy.models.dictionary import Dictionary
+
 logger = logging.getLogger("mediaplanpy.excel.exporter")
 
 
-def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
+def export_to_excel(media_plan: "MediaPlan", path: Optional[str] = None,
                     template_path: Optional[str] = None,
                     include_documentation: bool = True,
                     workspace_manager: Optional[WorkspaceManager] = None,
                     **kwargs) -> str:
     """
-    Export a media plan to Excel format using v2.0 schema.
+    Export a media plan to Excel format using v3.0 schema.
 
     Args:
-        media_plan: The media plan data to export (must be v2.0 schema)
+        media_plan: MediaPlan object to export (must be v3.0 schema)
         path: Optional path for the output file
         template_path: Optional path to an Excel template file
         include_documentation: Whether to include a documentation sheet
@@ -44,31 +49,31 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
         The path to the exported Excel file
 
     Raises:
-        StorageError: If export fails or schema version is not v2.0
+        StorageError: If export fails or schema version is not v3.0
     """
     try:
         # Determine the path if not provided
         if not path:
-            media_plan_id = media_plan.get("meta", {}).get("id", "media_plan")
+            media_plan_id = media_plan.meta.id
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             path = f"{media_plan_id}_{timestamp}.xlsx"
 
-        # Validate schema version - only v2.0 supported
-        schema_version = media_plan.get("meta", {}).get("schema_version", "unknown")
-        if not _is_v2_schema_version(schema_version):
-            raise StorageError(f"Excel export only supports v2.0 schema. Found: {schema_version}")
+        # Validate schema version - only v3.0 supported
+        schema_version = media_plan.meta.schema_version
+        if not _is_v3_schema_version(schema_version):
+            raise StorageError(f"Excel export only supports v3.0 schema. Found: {schema_version}")
 
         # Create workbook
         if template_path and os.path.exists(template_path):
             workbook = openpyxl.load_workbook(template_path)
         else:
-            workbook = _create_v2_workbook()
+            workbook = _create_v3_workbook()
 
-        # Populate the workbook with v2.0 data
-        _populate_v2_workbook(workbook, media_plan, include_documentation)
+        # Populate the workbook with v3.0 data
+        _populate_v3_workbook(workbook, media_plan, include_documentation)
 
         # Add validation and formatting
-        _add_v2_validation_and_formatting(workbook)
+        _add_v3_validation_and_formatting(workbook)
 
         # Save the workbook
         if workspace_manager is not None:
@@ -107,30 +112,30 @@ def export_to_excel(media_plan: Dict[str, Any], path: Optional[str] = None,
         raise StorageError(f"Failed to export media plan to Excel: {e}")
 
 
-def _is_v2_schema_version(version: str) -> bool:
+def _is_v3_schema_version(version: str) -> bool:
     """
-    Check if the schema version is v2.0.
+    Check if the schema version is v3.0.
 
     Args:
         version: The schema version to check
 
     Returns:
-        True if the version is v2.0, False otherwise
+        True if the version is v3.0, False otherwise
     """
     if not version:
         return False
 
-    # Normalize version format (handle both "2.0" and "v2.0")
+    # Normalize version format (handle both "3.0" and "v3.0")
     normalized = version.replace("v", "") if version.startswith("v") else version
-    return normalized == "2.0"
+    return normalized == "3.0"
 
 
-def _create_v2_workbook() -> Workbook:
+def _create_v3_workbook() -> Workbook:
     """
-    Create a default workbook with v2.0 schema sheets.
+    Create a default workbook with v3.0 schema sheets.
 
     Returns:
-        A new Workbook with v2.0 schema sheets
+        A new Workbook with v3.0 schema sheets
     """
     workbook = Workbook()
 
@@ -138,21 +143,725 @@ def _create_v2_workbook() -> Workbook:
     metadata_sheet = workbook.active
     metadata_sheet.title = "Metadata"
 
-    # Create other required sheets for v2.0
+    # Create other required sheets for v3.0
     campaign_sheet = workbook.create_sheet("Campaign")
+    target_audiences_sheet = workbook.create_sheet("Target Audiences")  # NEW for v3.0
+    target_locations_sheet = workbook.create_sheet("Target Locations")  # NEW for v3.0
     lineitems_sheet = workbook.create_sheet("Line Items")
-    dictionary_sheet = workbook.create_sheet("Dictionary")  # NEW for v2.0
+    dictionary_sheet = workbook.create_sheet("Dictionary")
     documentation_sheet = workbook.create_sheet("Documentation")
 
-    # Create v2.0 styles
-    _create_v2_styles(workbook)
+    # Create v3.0 styles
+    _create_v3_styles(workbook)
 
     return workbook
 
 
-def _create_v2_styles(workbook: Workbook) -> None:
+# ============================================================================
+# Formula-Aware Column Building Helper Functions (NEW for v3.0 formulas)
+# ============================================================================
+
+def _get_formula_config(metric_name: str, dictionary: Dict[str, Any]) -> Optional[Dict[str, str]]:
     """
-    Create styles for v2.0 Excel export including formula column styling.
+    Get formula configuration from Dictionary for a metric.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        dictionary: Dictionary configuration from media plan
+
+    Returns:
+        Dictionary with formula_type and base_metric, or None if not configured:
+        {
+            "formula_type": "conversion_rate",
+            "base_metric": "metric_impressions"
+        }
+
+    Examples:
+        >>> _get_formula_config("metric_clicks", dictionary)
+        {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+
+        >>> _get_formula_config("metric_impressions", {})
+        None  # No dictionary config, will use defaults
+    """
+    if not dictionary:
+        return None
+
+    # Check standard_metrics first
+    standard_metrics = getattr(dictionary,"standard_metrics", {}) or {}
+    if metric_name in standard_metrics:
+        config = standard_metrics[metric_name]
+        # Extract formula_type and base_metric
+        formula_type = getattr(config, 'formula_type', None) if hasattr(config, 'formula_type') else config.get('formula_type')
+        base_metric = getattr(config, 'base_metric', None) if hasattr(config, 'base_metric') else config.get('base_metric')
+
+        if formula_type and base_metric:
+            return {
+                "formula_type": formula_type,
+                "base_metric": base_metric
+            }
+
+    # Check custom_metrics
+    custom_metrics = getattr(dictionary,"custom_metrics", {}) or {}
+    if metric_name in custom_metrics:
+        config = custom_metrics[metric_name]
+        # Extract formula_type and base_metric from dict
+        formula_type = config.get('formula_type') if isinstance(config, dict) else None
+        base_metric = config.get('base_metric') if isinstance(config, dict) else None
+
+        if formula_type and base_metric:
+            return {
+                "formula_type": formula_type,
+                "base_metric": base_metric
+            }
+
+    return None
+
+
+def _collect_all_formula_types(
+    lineitems: List["LineItem"],
+    present_metrics: List[Tuple[str, str]]
+) -> Dict[str, Set[Tuple[str, str]]]:
+    """
+    Efficiently collect all formula_types actually used across lineitems for each metric.
+
+    This function scans all lineitems to detect if different lineitems use different
+    formula_types for the same metric. This is necessary to ensure the Excel export
+    creates all required columns (e.g., both CPU and CVR columns if some lineitems
+    use cost_per_unit while others use conversion_rate).
+
+    Optimizations:
+    - Single-pass processing of all metrics per lineitem
+    - Pre-extracted metric names (avoids tuple unpacking overhead)
+    - Pre-initialized result dict (avoids repeated dict creation)
+    - Set-based deduplication (O(1) amortized operations)
+
+    Args:
+        lineitems: List of LineItem objects to scan
+        present_metrics: List of (metric_name, header_name) tuples for metrics in data
+
+    Returns:
+        Dict mapping metric_name to set of (formula_type, base_metric) tuples.
+        Example: {
+            "metric_clicks": {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")},
+            "metric_conversions": {("conversion_rate", "metric_clicks")}
+        }
+
+    Example:
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> formula_types = _collect_all_formula_types(lineitems, present)
+        >>> formula_types["metric_clicks"]
+        {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")}
+    """
+    # Early exit if no lineitems
+    if not lineitems:
+        return {}
+
+    # Pre-extract metric names once (avoid repeated tuple unpacking in inner loop)
+    metric_names = [name for name, _ in present_metrics]
+
+    # Pre-initialize result dict with empty sets (avoid repeated dict lookup/set creation)
+    metric_formula_types = {name: set() for name in metric_names}
+
+    # Single pass through all lineitems
+    for lineitem in lineitems:
+        # Process all metrics for this lineitem in one batch
+        for metric_name in metric_names:
+            # This is the only "expensive" call, but it's already optimized:
+            # - O(1) dict lookup for lineitem.metric_formulas first
+            # - Only falls back to dictionary if not found
+            formula_def = lineitem.get_metric_formula_definition(metric_name)
+
+            if formula_def:
+                formula_type = formula_def.get("formula_type")
+                base_metric = formula_def.get("base_metric")
+
+                if formula_type and base_metric:
+                    # Set.add() is O(1) amortized, automatically deduplicates
+                    metric_formula_types[metric_name].add((formula_type, base_metric))
+
+    return metric_formula_types
+
+
+def _determine_calculated_columns(
+    metric_name: str,
+    metric_header: str,
+    formula_config: Optional[Dict[str, str]]
+) -> List[Tuple[str, str, str]]:
+    """
+    Determine which calculated columns to create based on formula_type.
+
+    Args:
+        metric_name: Field name (e.g., "metric_clicks")
+        metric_header: Display name (e.g., "Clicks")
+        formula_config: Formula configuration from dictionary, or None for defaults
+
+    Returns:
+        List of (field_name, header_name, field_type) tuples for calculated and metric columns
+
+    Examples:
+        >>> # Default (no config): cost_per_unit
+        >>> _determine_calculated_columns("metric_clicks", "Clicks", None)
+        [("metric_clicks_cpu", "Cost per Click", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+
+        >>> # Conversion rate
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> _determine_calculated_columns("metric_clicks", "Clicks", config)
+        [("metric_clicks_cvr", "Clicks Conversion Rate", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+
+        >>> # Constant
+        >>> config = {"formula_type": "constant", "base_metric": "cost_total"}
+        >>> _determine_calculated_columns("metric_reach", "Reach", config)
+        [("metric_reach_const", "Reach Constant", "calculated"),
+         ("metric_reach", "Reach", "formula")]
+
+        >>> # Power function
+        >>> config = {"formula_type": "power_function", "base_metric": "metric_impressions"}
+        >>> _determine_calculated_columns("metric_custom1", "Metric Custom 1", config)
+        [("metric_custom1_coef", "Metric Custom 1 Coefficient", "calculated"),
+         ("metric_custom1_param1", "Metric Custom 1 Parameter 1", "calculated"),
+         ("metric_custom1", "Metric Custom 1", "formula")]
+    """
+    columns = []
+
+    # Determine formula type (default to cost_per_unit)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+
+    # Generate calculated column names and headers based on formula type
+    if formula_type == "cost_per_unit":
+        # Cost per unit: CPU column
+        calc_field = f"{metric_name}_cpu"
+
+        # Special handling for impressions (CPM)
+        if metric_name == "metric_impressions":
+            calc_header = "Cost per 1000 Impressions"
+        else:
+            # Convert "Clicks" -> "Click", but preserve special cases
+            singular_name = metric_header
+            if singular_name.endswith('s') and singular_name not in ['Views', 'Sales']:
+                singular_name = singular_name.rstrip('s')
+            calc_header = f"Cost per {singular_name}"
+
+        columns.append((calc_field, calc_header, "calculated"))
+
+    elif formula_type == "conversion_rate":
+        # Conversion rate: CVR column
+        calc_field = f"{metric_name}_cvr"
+        calc_header = f"{metric_header} Conversion Rate"
+        columns.append((calc_field, calc_header, "calculated"))
+
+    elif formula_type == "constant":
+        # Constant: No calculated column needed - coefficient goes directly in formula
+        pass
+
+    elif formula_type == "power_function":
+        # Power function: coefficient and parameter1 columns
+        coef_field = f"{metric_name}_coef"
+        coef_header = f"{metric_header} Coefficient"
+        columns.append((coef_field, coef_header, "calculated"))
+
+        param1_field = f"{metric_name}_param1"
+        param1_header = f"{metric_header} Parameter 1"
+        columns.append((param1_field, param1_header, "calculated"))
+
+    # Add the metric column itself (with formula)
+    columns.append((metric_name, metric_header, "formula"))
+
+    return columns
+
+
+def _determine_calculated_columns_multi(
+    metric_name: str,
+    metric_header: str,
+    formula_types: Set[Tuple[str, str]]
+) -> List[Tuple[str, str, str]]:
+    """
+    Determine which calculated columns to create when multiple formula_types are used.
+
+    This function handles the case where different lineitems use different formula_types
+    for the same metric. It creates columns for ALL formula_types detected, ensuring
+    each lineitem can write its coefficient to the appropriate column.
+
+    Args:
+        metric_name: Field name (e.g., "metric_clicks")
+        metric_header: Display name (e.g., "Clicks")
+        formula_types: Set of (formula_type, base_metric) tuples detected across lineitems
+
+    Returns:
+        List of (field_name, header_name, field_type) tuples for calculated and metric columns
+
+    Example:
+        >>> # Multiple formula types for same metric
+        >>> types = {("cost_per_unit", "cost_total"), ("conversion_rate", "metric_impressions")}
+        >>> _determine_calculated_columns_multi("metric_clicks", "Clicks", types)
+        [("metric_clicks_cpu", "Cost per Click", "calculated"),
+         ("metric_clicks_cvr", "Clicks Conversion Rate", "calculated"),
+         ("metric_clicks", "Clicks", "formula")]
+    """
+    columns = []
+
+    # If no formula types, use default
+    if not formula_types:
+        # Default to cost_per_unit
+        return _determine_calculated_columns(metric_name, metric_header, None)
+
+    # Track which column types we've already added (avoid duplicates)
+    added_column_types = set()
+
+    # Process each formula type and create corresponding columns
+    for formula_type, base_metric in formula_types:
+        # Generate calculated column based on formula type
+        if formula_type == "cost_per_unit" and "cpu" not in added_column_types:
+            calc_field = f"{metric_name}_cpu"
+
+            # Special handling for impressions (CPM)
+            if metric_name == "metric_impressions":
+                calc_header = "Cost per 1000 Impressions"
+            else:
+                # Convert "Clicks" -> "Click", but preserve special cases
+                singular_name = metric_header
+                if singular_name.endswith('s') and singular_name not in ['Views', 'Sales']:
+                    singular_name = singular_name.rstrip('s')
+                calc_header = f"Cost per {singular_name}"
+
+            columns.append((calc_field, calc_header, "calculated"))
+            added_column_types.add("cpu")
+
+        elif formula_type == "conversion_rate" and "cvr" not in added_column_types:
+            calc_field = f"{metric_name}_cvr"
+            calc_header = f"{metric_header} Conversion Rate"
+            columns.append((calc_field, calc_header, "calculated"))
+            added_column_types.add("cvr")
+
+        elif formula_type == "constant" and "const" not in added_column_types:
+            # Constants don't need calculated columns - coefficient goes directly in formula
+            added_column_types.add("const")
+
+        elif formula_type == "power_function" and "power" not in added_column_types:
+            coef_field = f"{metric_name}_coef"
+            coef_header = f"{metric_header} Coefficient"
+            columns.append((coef_field, coef_header, "calculated"))
+
+            param1_field = f"{metric_name}_param1"
+            param1_header = f"{metric_header} Parameter 1"
+            columns.append((param1_field, param1_header, "calculated"))
+            added_column_types.add("power")
+
+    # Add the metric column itself (with formula)
+    columns.append((metric_name, metric_header, "formula"))
+
+    return columns
+
+
+def _extract_missing_base_metrics_from_formula_types(
+    all_formula_types: Dict[str, Set[Tuple[str, str]]],
+    present_metrics: List[Tuple[str, str]]
+) -> List[Tuple[str, str]]:
+    """
+    Extract missing base metrics from already-collected formula types.
+
+    This function reuses the output of _collect_all_formula_types() to identify
+    which base metrics are referenced but not present in the data. This avoids
+    scanning the lineitem matrix a second time.
+
+    Args:
+        all_formula_types: Dict from _collect_all_formula_types() mapping metric_name
+                          to set of (formula_type, base_metric) tuples
+        present_metrics: List of (field_name, header_name) tuples for metrics present in data
+
+    Returns:
+        List of (field_name, header_name) tuples for missing base metrics to add
+
+    Example:
+        >>> formula_types = {
+        ...     "metric_clicks": {("conversion_rate", "metric_impressions")},
+        ...     "metric_conversions": {("conversion_rate", "metric_clicks")}
+        ... }
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> _extract_missing_base_metrics_from_formula_types(formula_types, present)
+        [("metric_impressions", "Impressions")]  # Missing but needed for clicks formula
+    """
+    missing = []
+    present_field_names = {field_name for field_name, _ in present_metrics}
+    checked_base_metrics = set()
+
+    # Extract all base metrics from formula types
+    for metric_name, formula_type_set in all_formula_types.items():
+        for formula_type, base_metric in formula_type_set:
+            if base_metric and base_metric not in present_field_names and base_metric not in checked_base_metrics:
+                # Skip cost fields - always in base section
+                if not base_metric.startswith("cost_"):
+                    # Generate header name
+                    if base_metric.startswith("metric_"):
+                        header = base_metric.replace("metric_", "").replace("_", " ").title()
+                    else:
+                        header = base_metric.replace("_", " ").title()
+
+                    missing.append((base_metric, header))
+                    checked_base_metrics.add(base_metric)
+                    logger.info(f"Added missing base metric column: {base_metric}")
+
+    return missing
+
+
+def _get_missing_base_metrics(
+    present_metrics: List[Tuple[str, str]],
+    dictionary: Dict[str, Any]
+) -> List[Tuple[str, str]]:
+    """
+    Identify base metrics that are missing but needed for formulas.
+
+    Per Design Decision 1: If a metric has a base_metric that doesn't exist in the
+    line items, add that base_metric column with 0 values.
+
+    Args:
+        present_metrics: List of (field_name, header_name) tuples for metrics present in data
+        dictionary: Dictionary configuration
+
+    Returns:
+        List of (field_name, header_name) tuples for missing base metrics to add
+
+    Example:
+        >>> present = [("metric_clicks", "Clicks"), ("metric_conversions", "Conversions")]
+        >>> dictionary = {
+        ...     "standard_metrics": {
+        ...         "metric_clicks": {"formula_type": "conversion_rate", "base_metric": "metric_impressions"},
+        ...         "metric_conversions": {"formula_type": "conversion_rate", "base_metric": "metric_clicks"}
+        ...     }
+        ... }
+        >>> _get_missing_base_metrics(present, dictionary)
+        [("metric_impressions", "Impressions")]  # Missing but needed for clicks formula
+    """
+    if not dictionary:
+        return []
+
+    missing = []
+    present_field_names = {field_name for field_name, _ in present_metrics}
+
+    # Check all present metrics to see if their base_metrics exist
+    for metric_name, _ in present_metrics:
+        formula_config = _get_formula_config(metric_name, dictionary)
+        if formula_config:
+            base_metric = formula_config.get("base_metric")
+            if base_metric and base_metric not in present_field_names:
+                # IMPORTANT: Skip cost fields - they are always added in base section
+                # and should never have formulas. Only add missing metric fields.
+                if base_metric.startswith("cost_"):
+                    logger.debug(f"Skipping cost field {base_metric} - already in base fields")
+                    continue
+
+                # Base metric is missing - need to add it
+                # Generate header name from field name
+                if base_metric.startswith("metric_"):
+                    # Convert metric_impressions -> Impressions
+                    header = base_metric.replace("metric_", "").replace("_", " ").title()
+                else:
+                    # Convert cost_total -> Cost Total
+                    header = base_metric.replace("_", " ").title()
+
+                missing.append((base_metric, header))
+                # Add to present set so we don't add duplicates
+                present_field_names.add(base_metric)
+                logger.info(f"Added missing base metric column: {base_metric}")
+
+    return missing
+
+
+def _populate_coefficient_column(
+    metric_name: str,
+    line_item: "LineItem",
+    formula_config: Optional[Dict[str, str]]
+) -> Optional[Decimal]:
+    """
+    Calculate coefficient value to populate in Excel calculated column.
+
+    This function either retrieves the coefficient from lineitem.metric_formulas,
+    or reverse-calculates it from the metric and base metric values.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        line_item: LineItem object
+        formula_config: Formula configuration with formula_type and base_metric
+
+    Returns:
+        Decimal coefficient value, or None if cannot be calculated
+
+    Examples:
+        >>> # Has formula with coefficient
+        >>> line_item = {
+        ...     "metric_clicks": 20000,
+        ...     "metric_formulas": {
+        ...         "metric_clicks": {"coefficient": Decimal("0.02")}
+        ...     }
+        ... }
+        >>> _populate_coefficient_column("metric_clicks", line_item, config)
+        Decimal("0.02")
+
+        >>> # No formula, reverse-calculate from values (conversion_rate)
+        >>> line_item = {
+        ...     "metric_clicks": 20000,
+        ...     "metric_impressions": 1000000
+        ... }
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> _populate_coefficient_column("metric_clicks", line_item, config)
+        Decimal("0.02")  # 20000 / 1000000
+    """
+    # Step 1: Check if formula exists in lineitem with coefficient
+    metric_formulas = getattr(line_item, "metric_formulas", {})
+    if metric_formulas is None:
+        metric_formulas = {}
+
+    if metric_formulas and metric_name in metric_formulas:
+        formula = metric_formulas[metric_name]
+        # MetricFormula object (always an object in Pydantic models)
+        coefficient = getattr(formula, "coefficient", None)
+        formula_type_from_formula = getattr(formula, "formula_type", None)
+
+        if coefficient is not None:
+            # Convert to Decimal if needed
+            if not isinstance(coefficient, Decimal):
+                coefficient = Decimal(str(coefficient))
+
+            # Special case: For impressions with cost_per_unit, multiply by 1000 to show CPM
+            if metric_name == "metric_impressions" and formula_type_from_formula == "cost_per_unit":
+                coefficient = coefficient * 1000
+
+            return coefficient
+
+    # Step 2: Reverse-calculate from metric and base metric values
+    metric_value = getattr(line_item, metric_name, None)
+    if metric_value is None or metric_value == 0:
+        return Decimal("0")
+
+    # Convert to Decimal
+    if not isinstance(metric_value, Decimal):
+        metric_value = Decimal(str(metric_value))
+
+    # Get formula type and base metric (default to cost_per_unit/cost_total)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+        base_metric_name = "cost_total"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+        base_metric_name = formula_config.get("base_metric", "cost_total")
+
+    # Get base metric value
+    base_metric_value = getattr(line_item, base_metric_name, None)
+    if base_metric_value is None or base_metric_value == 0:
+        return Decimal("0")
+
+    # Convert to Decimal
+    if not isinstance(base_metric_value, Decimal):
+        base_metric_value = Decimal(str(base_metric_value))
+
+    # Reverse-calculate coefficient based on formula type
+    try:
+        if formula_type == "cost_per_unit":
+            # coefficient = base / metric
+            coefficient = base_metric_value / metric_value
+
+            # Special case: For impressions, multiply by 1000 to show CPM
+            # (Cost Per Mille = cost per 1000 impressions)
+            if metric_name == "metric_impressions":
+                coefficient = coefficient * 1000
+
+        elif formula_type == "conversion_rate":
+            # coefficient = metric / base
+            coefficient = metric_value / base_metric_value
+
+        elif formula_type == "constant":
+            # coefficient = metric (constant value)
+            coefficient = metric_value
+
+        elif formula_type == "power_function":
+            # coefficient = metric / (base ^ parameter1)
+            # Get parameter1 from formula or default to 1.0
+            parameter1 = Decimal("1.0")
+            if metric_formulas and metric_name in metric_formulas:
+                formula = metric_formulas[metric_name]
+                # MetricFormula object (always an object in Pydantic models)
+                param1 = getattr(formula, "parameter1", None)
+
+                if param1 is not None:
+                    parameter1 = Decimal(str(param1))
+
+            # Calculate: coefficient = metric / (base ^ param1)
+            if base_metric_value > 0:
+                coefficient = metric_value / (base_metric_value ** parameter1)
+            else:
+                coefficient = Decimal("0")
+
+        else:
+            # Unknown formula type, default to 0
+            coefficient = Decimal("0")
+
+        return coefficient
+
+    except (ZeroDivisionError, ValueError, ArithmeticError):
+        # Handle any calculation errors
+        return Decimal("0")
+
+
+def _get_parameter1_value(
+    metric_name: str,
+    line_item: "LineItem"
+) -> Decimal:
+    """
+    Get parameter1 value for power_function formulas.
+
+    Args:
+        metric_name: Name of the metric
+        line_item: LineItem object
+
+    Returns:
+        Decimal parameter1 value, defaults to 1.0 if not found
+    """
+    metric_formulas = getattr(line_item, "metric_formulas", {})
+    if metric_formulas is None:
+        metric_formulas = {}
+
+    if metric_formulas and metric_name in metric_formulas:
+        formula = metric_formulas[metric_name]
+        # MetricFormula object (always an object in Pydantic models)
+        param1 = getattr(formula, "parameter1", None)
+
+        if param1 is not None:
+            if not isinstance(param1, Decimal):
+                return Decimal(str(param1))
+            return param1
+
+    return Decimal("1.0")
+
+
+def _generate_excel_formula(
+    metric_name: str,
+    formula_config: Optional[Dict[str, str]],
+    column_refs: Dict[str, str],
+    line_item: "LineItem"
+) -> str:
+    """
+    Generate Excel formula string based on formula_type and base_metric.
+
+    Args:
+        metric_name: Name of the metric (e.g., "metric_clicks")
+        formula_config: Formula configuration with formula_type and base_metric
+        column_refs: Dictionary mapping field names to Excel column references
+            Example: {"cost_total": "$C5", "metric_impressions": "$B5", "metric_clicks_cvr": "$D5"}
+        line_item: Line item data dictionary (needed for constant formula coefficient)
+
+    Returns:
+        Excel formula string (e.g., "=IF($D5=0,0,$B5*$D5)")
+
+    Examples:
+        >>> # Cost per unit (default)
+        >>> config = None
+        >>> refs = {"cost_total": "$C5", "metric_clicks_cpu": "$D5"}
+        >>> _generate_excel_formula("metric_clicks", config, refs)
+        "=IF($D5=0,0,$C5/$D5)"
+
+        >>> # Conversion rate
+        >>> config = {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}
+        >>> refs = {"metric_impressions": "$B5", "metric_clicks_cvr": "$D5"}
+        >>> _generate_excel_formula("metric_clicks", config, refs)
+        "=IF($D5=0,0,$B5*$D5)"
+
+        >>> # Constant
+        >>> config = {"formula_type": "constant", "base_metric": "cost_total"}
+        >>> refs = {"metric_reach_const": "$D5"}
+        >>> _generate_excel_formula("metric_reach", config, refs)
+        "=$D5"
+
+        >>> # Power function
+        >>> config = {"formula_type": "power_function", "base_metric": "metric_impressions"}
+        >>> refs = {"metric_impressions": "$B5", "metric_custom1_coef": "$D5", "metric_custom1_param1": "$E5"}
+        >>> _generate_excel_formula("metric_custom1", config, refs)
+        "=IF($B5=0,0,$D5*($B5^$E5))"
+    """
+    # Determine formula type (default to cost_per_unit)
+    if formula_config is None:
+        formula_type = "cost_per_unit"
+        base_metric = "cost_total"
+    else:
+        formula_type = formula_config.get("formula_type", "cost_per_unit")
+        base_metric = formula_config.get("base_metric", "cost_total")
+
+    # Handle constant formulas FIRST (they don't need base_metric/base_ref)
+    if formula_type == "constant":
+        # Formula: metric = coefficient (constant value)
+        # Excel: ={coefficient_value} directly (no column reference needed)
+        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+
+        if coefficient is None or coefficient == 0:
+            formula = "=0"
+        else:
+            # Format the coefficient value in the formula
+            formula = f"={float(coefficient)}"
+
+        return formula
+
+    # Get base metric column reference (required for all non-constant formulas)
+    base_ref = column_refs.get(base_metric)
+    if not base_ref:
+        # Base metric column doesn't exist - return empty string
+        logger.warning(f"Base metric '{base_metric}' not found in column references for {metric_name}")
+        return ""
+
+    # Generate formula based on type
+    if formula_type == "cost_per_unit":
+        # Formula: metric = base / coefficient
+        # Excel: =IF(coefficient=0, 0, base/coefficient)
+        coef_field = f"{metric_name}_cpu"
+        coef_ref = column_refs.get(coef_field, "")
+
+        if not coef_ref:
+            return ""
+
+        # Special case for impressions (multiply by 1000 for CPM)
+        if metric_name == "metric_impressions":
+            formula = f"=IF({coef_ref}=0,0,{base_ref}/{coef_ref}*1000)"
+        else:
+            formula = f"=IF({coef_ref}=0,0,{base_ref}/{coef_ref})"
+
+    elif formula_type == "conversion_rate":
+        # Formula: metric = base * coefficient
+        # Excel: =IF(coefficient=0, 0, base*coefficient)
+        coef_field = f"{metric_name}_cvr"
+        coef_ref = column_refs.get(coef_field, "")
+
+        if not coef_ref:
+            return ""
+
+        formula = f"=IF({coef_ref}=0,0,{base_ref}*{coef_ref})"
+
+    elif formula_type == "power_function":
+        # Formula: metric = coefficient * (base ^ parameter1)
+        # Excel: =IF(base=0, 0, coefficient*(base^parameter1))
+        coef_field = f"{metric_name}_coef"
+        param1_field = f"{metric_name}_param1"
+
+        coef_ref = column_refs.get(coef_field, "")
+        param1_ref = column_refs.get(param1_field, "")
+
+        if not coef_ref or not param1_ref:
+            return ""
+
+        formula = f"=IF({base_ref}=0,0,{coef_ref}*({base_ref}^{param1_ref}))"
+
+    else:
+        # Unknown formula type
+        logger.warning(f"Unknown formula type '{formula_type}' for {metric_name}")
+        return ""
+
+    return formula
+
+
+def _create_v3_styles(workbook: Workbook) -> None:
+    """
+    Create styles for v3.0 Excel export including formula column styling.
 
     Args:
         workbook: The workbook to add styles to
@@ -198,247 +907,357 @@ def _create_v2_styles(workbook: Workbook) -> None:
     workbook.add_named_style(grey_font_style)
 
 
-def _populate_v2_workbook(workbook: Workbook, media_plan: Dict[str, Any], include_documentation: bool) -> None:
+def _populate_v3_workbook(workbook: Workbook, media_plan: "MediaPlan", include_documentation: bool) -> None:
     """
-    Populate a workbook with v2.0 schema data.
+    Populate a workbook with v3.0 schema data.
 
     Args:
         workbook: The workbook to populate
-        media_plan: The media plan data (v2.0 schema)
+        media_plan: MediaPlan object (v3.0 schema)
         include_documentation: Whether to include a documentation sheet
     """
-    meta = media_plan.get("meta", {})
-    campaign = media_plan.get("campaign", {})
-    line_items = media_plan.get("lineitems", [])
-    dictionary = media_plan.get("dictionary", {})  # NEW for v2.0
+    meta = media_plan.meta
+    campaign = media_plan.campaign
+    line_items = media_plan.lineitems  # List[LineItem] objects
+    dictionary = media_plan.dictionary  # Dictionary object
 
     # Populate all sheets
-    _populate_v2_metadata_sheet(workbook["Metadata"], media_plan)
-    _populate_v2_campaign_sheet(workbook["Campaign"], campaign)
-    _populate_v2_lineitems_sheet(workbook["Line Items"], line_items)
-    _populate_v2_dictionary_sheet(workbook["Dictionary"], dictionary)  # NEW for v2.0
+    _populate_v3_metadata_sheet(workbook["Metadata"], media_plan)
+    _populate_v3_campaign_sheet(workbook["Campaign"], campaign)
+    _populate_v3_target_audiences_sheet(workbook["Target Audiences"], campaign)  # NEW for v3.0
+    _populate_v3_target_locations_sheet(workbook["Target Locations"], campaign)  # NEW for v3.0
+    _populate_v3_lineitems_sheet(workbook["Line Items"], line_items, dictionary)  # Pass dictionary for formula-aware export
+    _populate_v3_dictionary_sheet(workbook["Dictionary"], dictionary)
 
     # Populate documentation sheet if needed
     if include_documentation:
-        _populate_v2_documentation_sheet(workbook["Documentation"])
+        _populate_v3_documentation_sheet(workbook["Documentation"])
     elif "Documentation" in workbook.sheetnames:
         workbook.remove(workbook["Documentation"])
 
 
-def _populate_v2_metadata_sheet(sheet, media_plan: Dict[str, Any]) -> None:
+def _populate_v3_metadata_sheet(sheet, media_plan: "MediaPlan") -> None:
     """
-    Populate the metadata sheet with v2.0 schema information.
+    Populate the metadata sheet with v3.0 schema information.
 
     Args:
         sheet: The worksheet to populate
-        media_plan: The media plan data
+        media_plan: MediaPlan object
     """
-    meta = media_plan.get("meta", {})
+    meta = media_plan.meta
 
     # Set column widths
-    sheet.column_dimensions["A"].width = 20
-    sheet.column_dimensions["B"].width = 50
+    sheet.column_dimensions["A"].width = 22  # Field
+    sheet.column_dimensions["B"].width = 40  # Value
+    sheet.column_dimensions["C"].width = 10  # Required
+    sheet.column_dimensions["D"].width = 60  # Comment
 
     # Add title
-    sheet['A1'] = "Media Plan Metadata (v2.0)"
+    sheet['A1'] = "Media Plan Metadata (v3.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:B1')
+    sheet.merge_cells('A1:D1')
 
-    # Add v2.0 metadata fields
+    # Freeze panes after row 1
+    sheet.freeze_panes = 'A2'
+
+    # Define metadata fields with required status and descriptions from schema
+    # Format: (label, field_key, is_required, description)
+    metadata_fields = [
+        ("Schema Version:", "schema_version", True, "Version of the media plan schema used (e.g., '3.0')"),
+        ("Media Plan ID:", "id", True, "Unique identifier for this media plan document"),
+        ("Media Plan Name:", "name", False, "Human-readable name for the media plan"),
+        ("Created By Name:", "created_by_name", True, "Full name of the user who created this media plan"),
+        ("Created By ID:", "created_by_id", False, "Unique identifier of the user who created this media plan"),
+        ("Created At:", "created_at", True, "Timestamp when this media plan was created in ISO 8601 format"),
+        ("Is Current:", "is_current", False, "Whether this is the current/active version of the media plan"),
+        ("Is Archived:", "is_archived", False, "Whether this media plan has been archived"),
+        ("Parent ID:", "parent_id", False, "Identifier of the parent media plan if this is a revision or copy"),
+        ("Comments:", "comments", False, "General comments or notes about this media plan"),
+    ]
+
+    # Add metadata fields
     row = 2
-    sheet[f'A{row}'] = "Schema Version:"
-    sheet[f'B{row}'] = "2.0"
+    for label, field_key, is_required, description in metadata_fields:
+        sheet[f'A{row}'] = label
+        # Special handling for schema_version
+        if field_key == "schema_version":
+            sheet[f'B{row}'] = "3.0"
+        else:
+            sheet[f'B{row}'] = getattr(meta, field_key, "")
+        sheet[f'C{row}'] = "TRUE" if is_required else ""
+        sheet[f'D{row}'] = description
+        row += 1
 
-    row += 1
-    sheet[f'A{row}'] = "Media Plan ID:"
-    sheet[f'B{row}'] = meta.get("id", "")
+    # Add custom dimension fields (v3.0)
+    for i in range(1, 6):
+        sheet[f'A{row}'] = f"Dim Custom {i}:"
+        sheet[f'B{row}'] = getattr(meta, f"dim_custom{i}", "")
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
+        row += 1
 
+    # Add custom properties field (v3.0)
+    sheet[f'A{row}'] = "Custom Properties:"
+    custom_props = getattr(meta, "custom_properties", None)
+    if custom_props:
+        import json
+        sheet[f'B{row}'] = json.dumps(custom_props)
+    else:
+        sheet[f'B{row}'] = ""
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
     row += 1
-    sheet[f'A{row}'] = "Media Plan Name:"
-    sheet[f'B{row}'] = meta.get("name", "")
 
-    # v2.0: created_by_name is required
-    row += 1
-    sheet[f'A{row}'] = "Created By Name:"
-    sheet[f'B{row}'] = meta.get("created_by_name", "")
-
-    # v2.0: created_by_id is optional
-    row += 1
-    sheet[f'A{row}'] = "Created By ID:"
-    sheet[f'B{row}'] = meta.get("created_by_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Created At:"
-    sheet[f'B{row}'] = meta.get("created_at", "")
-
-    # v2.0: New status fields
-    row += 1
-    sheet[f'A{row}'] = "Is Current:"
-    sheet[f'B{row}'] = meta.get("is_current", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Is Archived:"
-    sheet[f'B{row}'] = meta.get("is_archived", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Parent ID:"
-    sheet[f'B{row}'] = meta.get("parent_id", "")
-
-    row += 1
+    # Add export date (not a schema field)
     sheet[f'A{row}'] = "Export Date:"
     sheet[f'B{row}'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    if "comments" in meta:
-        row += 1
-        sheet[f'A{row}'] = "Comments:"
-        sheet[f'B{row}'] = meta.get("comments", "")
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Timestamp when this Excel file was exported"
 
 
-def _populate_v2_campaign_sheet(sheet, campaign: Dict[str, Any]) -> None:
+def _populate_v3_campaign_sheet(sheet, campaign) -> None:
     """
-    Populate the campaign sheet with v2.0 schema information.
+    Populate the campaign sheet with v3.0 schema information.
 
     Args:
         sheet: The worksheet to populate
-        campaign: The campaign data
+        campaign: Campaign object
     """
+    import json
+
     # Set column widths
-    sheet.column_dimensions["A"].width = 25
-    sheet.column_dimensions["B"].width = 50
+    sheet.column_dimensions["A"].width = 25  # Field
+    sheet.column_dimensions["B"].width = 40  # Value
+    sheet.column_dimensions["C"].width = 10  # Required
+    sheet.column_dimensions["D"].width = 60  # Comment
 
     # Add title
-    sheet['A1'] = "Campaign Information (v2.0)"
+    sheet['A1'] = "Campaign Information (v3.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:B1')
+    sheet.merge_cells('A1:D1')
 
-    # Add campaign fields (existing + new v2.0 fields)
+    # Freeze panes after row 1
+    sheet.freeze_panes = 'A2'
+
+    # Define campaign fields with required status and descriptions from schema
+    # Format: (label, field_key, is_required, description, apply_style)
+    campaign_fields = [
+        ("Campaign ID:", "id", True, "Unique identifier for the campaign", None),
+        ("Campaign Name:", "name", True, "Human-readable name for the campaign", None),
+        ("Objective:", "objective", False, "Primary marketing objective for the campaign (e.g., awareness, conversion, engagement)", None),
+        ("Start Date:", "start_date", True, "Campaign start date in YYYY-MM-DD format", "date_style"),
+        ("End Date:", "end_date", True, "Campaign end date in YYYY-MM-DD format", "date_style"),
+        ("Budget Total:", "budget_total", True, "Total budget allocated for the campaign in the base currency", "currency_style"),
+        ("Budget Currency:", "budget_currency", False, "Currency in which the budget of this campaign is expressed", None),
+        ("Agency ID:", "agency_id", False, "Unique identifier for the agency managing the campaign", None),
+        ("Agency Name:", "agency_name", False, "Name of the agency managing the campaign", None),
+        ("Advertiser ID:", "advertiser_id", False, "Unique identifier for the advertiser/client", None),
+        ("Advertiser Name:", "advertiser_name", False, "Name of the advertiser/client organization", None),
+        ("Product ID:", "product_id", False, "Unique identifier for the product being advertised", None),
+        ("Product Name:", "product_name", False, "Name of the product being advertised", None),
+        ("Product Description:", "product_description", False, "Detailed description of the product being advertised", None),
+        ("Campaign Type ID:", "campaign_type_id", False, "Unique identifier for the campaign type classification", None),
+        ("Campaign Type Name:", "campaign_type_name", False, "Name of the campaign type (e.g., Brand Awareness, Performance, Retargeting)", None),
+        ("Workflow Status ID:", "workflow_status_id", False, "Unique identifier for the workflow status", None),
+        ("Workflow Status Name:", "workflow_status_name", False, "Name of the current workflow status", None),
+    ]
+
+    # Add campaign fields
     row = 2
-    sheet[f'A{row}'] = "Campaign ID:"
-    sheet[f'B{row}'] = campaign.get("id", "")
+    for label, field_key, is_required, description, style in campaign_fields:
+        sheet[f'A{row}'] = label
+        sheet[f'B{row}'] = getattr(campaign,field_key, "")
+        if style:
+            sheet[f'B{row}'].style = style
+        sheet[f'C{row}'] = "TRUE" if is_required else ""
+        sheet[f'D{row}'] = description
+        row += 1
 
-    row += 1
-    sheet[f'A{row}'] = "Campaign Name:"
-    sheet[f'B{row}'] = campaign.get("name", "")
+    # Add KPI fields (v3.0) - alternating name/value pairs
+    for i in range(1, 6):
+        sheet[f'A{row}'] = f"KPI Name {i}:"
+        sheet[f'B{row}'] = getattr(campaign,f"kpi_name{i}", "")
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Name of key performance indicator {i}"
+        row += 1
 
-    row += 1
-    sheet[f'A{row}'] = "Objective:"
-    sheet[f'B{row}'] = campaign.get("objective", "")
+        sheet[f'A{row}'] = f"KPI Value {i}:"
+        kpi_value = getattr(campaign,f"kpi_value{i}")
+        sheet[f'B{row}'] = kpi_value if kpi_value is not None else ""
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Target value or goal for key performance indicator {i}"
+        row += 1
 
-    row += 1
-    sheet[f'A{row}'] = "Start Date:"
-    sheet[f'B{row}'] = campaign.get("start_date", "")
-    sheet[f'B{row}'].style = "date_style"
+    # Add custom dimension fields (v3.0)
+    for i in range(1, 6):
+        sheet[f'A{row}'] = f"Dim Custom {i}:"
+        sheet[f'B{row}'] = getattr(campaign,f"dim_custom{i}", "")
+        sheet[f'C{row}'] = ""
+        sheet[f'D{row}'] = f"Custom dimension field {i} - configuration defined in dictionary schema"
+        row += 1
 
-    row += 1
-    sheet[f'A{row}'] = "End Date:"
-    sheet[f'B{row}'] = campaign.get("end_date", "")
-    sheet[f'B{row}'].style = "date_style"
-
-    row += 1
-    sheet[f'A{row}'] = "Budget Total:"
-    sheet[f'B{row}'] = campaign.get("budget_total", 0)
-    sheet[f'B{row}'].style = "currency_style"
-
-    # NEW v2.0: Budget currency
-    row += 1
-    sheet[f'A{row}'] = "Budget Currency:"
-    sheet[f'B{row}'] = campaign.get("budget_currency", "")
-
-    # NEW v2.0: Agency fields
-    row += 1
-    sheet[f'A{row}'] = "Agency ID:"
-    sheet[f'B{row}'] = campaign.get("agency_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Agency Name:"
-    sheet[f'B{row}'] = campaign.get("agency_name", "")
-
-    # NEW v2.0: Advertiser fields
-    row += 1
-    sheet[f'A{row}'] = "Advertiser ID:"
-    sheet[f'B{row}'] = campaign.get("advertiser_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Advertiser Name:"
-    sheet[f'B{row}'] = campaign.get("advertiser_name", "")
-
-    # Product fields (existing + new v2.0 product_id)
-    row += 1
-    sheet[f'A{row}'] = "Product ID:"
-    sheet[f'B{row}'] = campaign.get("product_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Product Name:"
-    sheet[f'B{row}'] = campaign.get("product_name", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Product Description:"
-    sheet[f'B{row}'] = campaign.get("product_description", "")
-
-    # NEW v2.0: Campaign type fields
-    row += 1
-    sheet[f'A{row}'] = "Campaign Type ID:"
-    sheet[f'B{row}'] = campaign.get("campaign_type_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Campaign Type Name:"
-    sheet[f'B{row}'] = campaign.get("campaign_type_name", "")
-
-    # NEW v2.0: Workflow status fields
-    row += 1
-    sheet[f'A{row}'] = "Workflow Status ID:"
-    sheet[f'B{row}'] = campaign.get("workflow_status_id", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Workflow Status Name:"
-    sheet[f'B{row}'] = campaign.get("workflow_status_name", "")
-
-    # Existing audience fields
-    row += 1
-    sheet[f'A{row}'] = "Audience Name:"
-    sheet[f'B{row}'] = campaign.get("audience_name", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Audience Age Start:"
-    sheet[f'B{row}'] = campaign.get("audience_age_start", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Audience Age End:"
-    sheet[f'B{row}'] = campaign.get("audience_age_end", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Audience Gender:"
-    sheet[f'B{row}'] = campaign.get("audience_gender", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Audience Interests:"
-    interests = campaign.get("audience_interests", [])
-    sheet[f'B{row}'] = ", ".join(interests) if interests else ""
-
-    row += 1
-    sheet[f'A{row}'] = "Location Type:"
-    sheet[f'B{row}'] = campaign.get("location_type", "")
-
-    row += 1
-    sheet[f'A{row}'] = "Locations:"
-    locations = campaign.get("locations", [])
-    sheet[f'B{row}'] = ", ".join(locations) if locations else ""
+    # Add custom properties field (v3.0)
+    sheet[f'A{row}'] = "Custom Properties:"
+    custom_props = getattr(campaign,"custom_properties")
+    if custom_props:
+        sheet[f'B{row}'] = json.dumps(custom_props)
+    else:
+        sheet[f'B{row}'] = ""
+    sheet[f'C{row}'] = ""
+    sheet[f'D{row}'] = "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema"
 
 
-def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> None:
+def _populate_v3_target_audiences_sheet(sheet, campaign) -> None:
     """
-    Populate the line items sheet with v2.0 schema data including dynamic calculated columns.
+    Populate the Target Audiences sheet with v3.0 schema data (NEW for v3.0).
 
     Args:
         sheet: The worksheet to populate
-        line_items: List of line item data
+        campaign: The campaign data containing target_audiences array
+    """
+    # Get target audiences from campaign
+    target_audiences = getattr(campaign, "target_audiences", [])
+    # Handle None value
+    if target_audiences is None:
+        target_audiences = []
+
+    # Set column widths
+    sheet.column_dimensions["A"].width = 20  # Name
+    sheet.column_dimensions["B"].width = 30  # Description
+    sheet.column_dimensions["C"].width = 15  # demo_age_start
+    sheet.column_dimensions["D"].width = 15  # demo_age_end
+    sheet.column_dimensions["E"].width = 15  # demo_gender
+    sheet.column_dimensions["F"].width = 25  # demo_attributes
+    sheet.column_dimensions["G"].width = 25  # interest_attributes
+    sheet.column_dimensions["H"].width = 25  # intent_attributes
+    sheet.column_dimensions["I"].width = 25  # purchase_attributes
+    sheet.column_dimensions["J"].width = 25  # content_attributes
+    sheet.column_dimensions["K"].width = 25  # exclusion_list
+    sheet.column_dimensions["L"].width = 20  # extension_approach
+    sheet.column_dimensions["M"].width = 15  # population_size
+
+    # Freeze panes at C2 (freeze first two columns)
+    sheet.freeze_panes = 'C2'
+
+    # Add headers
+    headers = [
+        "Name", "Description", "Demo Age Start", "Demo Age End", "Demo Gender",
+        "Demo Attributes", "Interest Attributes", "Intent Attributes",
+        "Purchase Attributes", "Content Attributes", "Exclusion List",
+        "Extension Approach", "Population Size"
+    ]
+
+    for col_idx, header in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=col_idx, value=header)
+        cell.style = "header_style"
+
+    # Add audience data (one row per audience)
+    for row_idx, audience in enumerate(target_audiences, 2):
+        sheet.cell(row=row_idx, column=1, value=getattr(audience, "name", ""))
+        sheet.cell(row=row_idx, column=2, value=getattr(audience, "description", ""))
+        sheet.cell(row=row_idx, column=3, value=getattr(audience, "demo_age_start", None))
+        sheet.cell(row=row_idx, column=4, value=getattr(audience, "demo_age_end", None))
+        sheet.cell(row=row_idx, column=5, value=getattr(audience, "demo_gender", ""))
+        sheet.cell(row=row_idx, column=6, value=getattr(audience, "demo_attributes", ""))
+        sheet.cell(row=row_idx, column=7, value=getattr(audience, "interest_attributes", ""))
+        sheet.cell(row=row_idx, column=8, value=getattr(audience, "intent_attributes", ""))
+        sheet.cell(row=row_idx, column=9, value=getattr(audience, "purchase_attributes", ""))
+        sheet.cell(row=row_idx, column=10, value=getattr(audience, "content_attributes", ""))
+        sheet.cell(row=row_idx, column=11, value=getattr(audience, "exclusion_list", ""))
+        sheet.cell(row=row_idx, column=12, value=getattr(audience, "extension_approach", ""))
+        sheet.cell(row=row_idx, column=13, value=getattr(audience, "population_size", None))
+
+    logger.info(f"Exported {len(target_audiences)} target audience(s) to Target Audiences sheet")
+
+
+def _populate_v3_target_locations_sheet(sheet, campaign) -> None:
+    """
+    Populate the Target Locations sheet with v3.0 schema data (NEW for v3.0).
+
+    Args:
+        sheet: The worksheet to populate
+        campaign: The campaign data containing target_locations array
+    """
+    import json
+
+    # Get target locations from campaign
+    target_locations = getattr(campaign, "target_locations", [])
+    # Handle None value
+    if target_locations is None:
+        target_locations = []
+
+    # Set column widths
+    sheet.column_dimensions["A"].width = 25  # Name
+    sheet.column_dimensions["B"].width = 30  # Description
+    sheet.column_dimensions["C"].width = 15  # location_type
+    sheet.column_dimensions["D"].width = 40  # location_list
+    sheet.column_dimensions["E"].width = 15  # exclusion_type
+    sheet.column_dimensions["F"].width = 40  # exclusion_list
+    sheet.column_dimensions["G"].width = 20  # population_percent
+
+    # Freeze panes at C2 (freeze first two columns)
+    sheet.freeze_panes = 'C2'
+
+    # Add headers
+    headers = [
+        "Name", "Description", "Location Type", "Location List",
+        "Exclusion Type", "Exclusion List", "Population Percent"
+    ]
+
+    for col_idx, header in enumerate(headers, 1):
+        cell = sheet.cell(row=1, column=col_idx, value=header)
+        cell.style = "header_style"
+
+    # Add location data (one row per location)
+    for row_idx, location in enumerate(target_locations, 2):
+        sheet.cell(row=row_idx, column=1, value=getattr(location, "name", ""))
+        sheet.cell(row=row_idx, column=2, value=getattr(location, "description", ""))
+        sheet.cell(row=row_idx, column=3, value=getattr(location, "location_type", ""))
+
+        # location_list is an array - convert to comma-separated string or JSON
+        location_list = getattr(location, "location_list", [])
+        if location_list:
+            if isinstance(location_list, list):
+                sheet.cell(row=row_idx, column=4, value=", ".join(location_list))
+            else:
+                sheet.cell(row=row_idx, column=4, value=location_list)
+
+        sheet.cell(row=row_idx, column=5, value=getattr(location, "exclusion_type", ""))
+
+        # exclusion_list is an array - convert to comma-separated string or JSON
+        exclusion_list = getattr(location, "exclusion_list", [])
+        if exclusion_list:
+            if isinstance(exclusion_list, list):
+                sheet.cell(row=row_idx, column=6, value=", ".join(exclusion_list))
+            else:
+                sheet.cell(row=row_idx, column=6, value=exclusion_list)
+
+        sheet.cell(row=row_idx, column=7, value=getattr(location, "population_percent", None))
+
+    logger.info(f"Exported {len(target_locations)} target location(s) to Target Locations sheet")
+
+
+def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary: "Dictionary") -> None:
+    """
+    Populate the line items sheet with v3.0 schema data including formula-aware calculated columns.
+
+    This function creates Excel formulas that match the formula_type and base_metric
+    configurations in the Dictionary. For metrics with no Dictionary configuration,
+    defaults to cost_per_unit formulas.
+
+    Args:
+        sheet: The worksheet to populate
+        line_items: List of LineItem objects
+        dictionary: Dictionary object with formula definitions
     """
     # Determine which fields are actually present in line items
     fields_present = set()
     for line_item in line_items:
-        fields_present.update(line_item.keys())
+        # For Pydantic models, use model_dump(exclude_unset=True) to only include fields that were explicitly set
+        # This matches the old dict behavior where only present fields were included
+        fields_present.update(line_item.model_dump(exclude_unset=True).keys())
 
-    # Define base field order for v2.0 schema
+    # Define base field order for v3.0 schema
     base_field_order = [
         # Required fields
         ("id", "ID"),
@@ -469,21 +1288,35 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         # KPI fields
         ("kpi", "KPI"),
         ("kpi_custom", "KPI Custom"),
+        ("kpi_value", "KPI Value"),
 
         # Dayparts and inventory fields
         ("dayparts", "Dayparts"),
         ("dayparts_custom", "Dayparts Custom"),
         ("inventory", "Inventory"),
         ("inventory_custom", "Inventory Custom"),
+
+        # NEW v3.0: Buy fields
+        ("buy_type", "Buy Type"),
+        ("buy_commitment", "Buy Commitment"),
+
+        # NEW v3.0: Aggregation fields
+        ("is_aggregate", "Is Aggregate"),
+        ("aggregation_level", "Aggregation Level"),
+
+        # NEW v3.0: Cost metadata and constraint fields (no % columns needed)
+        ("cost_currency", "Cost Currency"),
+        ("cost_currency_exchange_rate", "Cost Currency Exchange Rate"),
+        ("cost_minimum", "Cost Minimum"),
+        ("cost_maximum", "Cost Maximum"),
     ]
 
     # Add custom dimension fields
     for i in range(1, 11):
         base_field_order.append((f"dim_custom{i}", f"Dim Custom {i}"))
 
-    # Cost fields - we'll insert calculated columns here
+    # Cost fields - we'll insert calculated columns here (% columns for breakdown components)
     cost_fields = [
-        ("cost_currency", "Cost Currency"),
         ("cost_media", "Cost Media"),
         ("cost_buying", "Cost Buying"),
         ("cost_platform", "Cost Platform"),
@@ -512,6 +1345,17 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         ("metric_contact_us", "Contact Us"),
         ("metric_download", "Download"),
         ("metric_signup", "Signup"),
+        # NEW v3.0: Additional metrics
+        ("metric_view_starts", "View Starts"),
+        ("metric_view_completions", "View Completions"),
+        ("metric_reach", "Reach"),
+        ("metric_units", "Units"),
+        ("metric_impression_share", "Impression Share"),
+        ("metric_page_views", "Page Views"),
+        ("metric_likes", "Likes"),
+        ("metric_shares", "Shares"),
+        ("metric_comments", "Comments"),
+        ("metric_conversions", "Conversions"),
     ]
 
     # Add custom metric fields
@@ -541,9 +1385,6 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
             dynamic_field_order.append((field_name, header_name, "base"))
 
     # Add cost fields with calculated columns
-    if "cost_currency" in fields_present:
-        dynamic_field_order.append(("cost_currency", "Cost Currency", "base"))
-
     for field_name, header_name in present_cost_fields:
         # Add percentage column before actual cost column
         calc_field_name = f"{field_name}_pct"
@@ -553,25 +1394,31 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         # Add actual cost column
         dynamic_field_order.append((field_name, header_name, "formula"))
 
-    # Add performance fields with calculated columns
+    # FORMULA-AWARE: Collect all formula types used across all lineitems for each metric
+    # This ensures we create columns for ALL formula_types (e.g., both CPU and CVR if different
+    # lineitems use different formula_types for the same metric)
+    # This single scan is reused for both column creation AND missing base metric detection
+    all_formula_types = _collect_all_formula_types(line_items, present_performance_fields)
+
+    # FORMULA-AWARE: Add missing base metrics if needed (Design Decision 1)
+    # Extract from already-collected formula types to avoid scanning lineitems again
+    missing_base_metrics = _extract_missing_base_metrics_from_formula_types(all_formula_types, present_performance_fields)
+    for missing_field, missing_header in missing_base_metrics:
+        # Add as base column (will be populated with 0 values)
+        # Note: Do NOT add to present_performance_fields to avoid duplicate processing
+        dynamic_field_order.append((missing_field, missing_header, "base"))
+
+    # FORMULA-AWARE: Add performance fields with calculated columns based on detected formula types
     for field_name, header_name in present_performance_fields:
-        # Add cost-per-unit column before actual metric column
-        calc_field_name = f"{field_name}_cpu"
+        # Get all formula types used for this metric across lineitems
+        formula_types = all_formula_types.get(field_name, set())
 
-        # Special handling for impressions (CPM)
-        if field_name == "metric_impressions":
-            calc_header_name = "Cost per 1000 Impressions"
-        else:
-            # Convert metric_clicks -> Cost per Click, etc.
-            metric_name = header_name  # Already clean (e.g., "Clicks")
-            if metric_name.endswith('s') and metric_name not in ['Views', 'Sales']:
-                metric_name = metric_name.rstrip('s')  # Remove plural 's'
-            calc_header_name = f"Cost per {metric_name}"
+        # Determine which calculated columns to create based on ALL formula_types detected
+        columns_to_add = _determine_calculated_columns_multi(field_name, header_name, formula_types)
 
-        dynamic_field_order.append((calc_field_name, calc_header_name, "calculated"))
-
-        # Add actual metric column
-        dynamic_field_order.append((field_name, header_name, "formula"))
+        # Add all columns (calculated + metric)
+        for col_field, col_header, col_type in columns_to_add:
+            dynamic_field_order.append((col_field, col_header, col_type))
 
     # Add remaining metric fields that don't get calculated columns
     remaining_metrics = [
@@ -584,21 +1431,35 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
         if field_name in fields_present:
             dynamic_field_order.append((field_name, header_name, "base"))
 
+    # NEW v3.0: Add metric_formulas and custom_properties at the end
+    if "metric_formulas" in fields_present:
+        dynamic_field_order.append(("metric_formulas", "Metric Formulas (JSON)", "json"))
+
+    if "custom_properties" in fields_present:
+        dynamic_field_order.append(("custom_properties", "Custom Properties (JSON)", "json"))
+
     # Set column widths based on field type
     for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         width = 15
-        if field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
+        if field_name == "cost_total":
+            width = 22.5  # 50% wider than default for Cost Total column
+        elif field_name in ["name", "media_product", "media_product_custom", "target_audience"]:
             width = 25
         elif field_name in ["partner", "partner_custom", "vehicle", "vehicle_custom"]:
             width = 20
         elif field_type == "calculated":
             width = 18  # Slightly wider for calculated columns
+        elif field_type == "json":
+            width = 40  # Wider for JSON data
         sheet.column_dimensions[get_column_letter(col_idx)].width = width
 
     # Add headers with appropriate styling
     for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
         cell = sheet.cell(row=1, column=col_idx, value=header_name)
         cell.style = "header_style"
+
+    # Freeze panes at C2 (freeze first two columns: ID and Name)
+    sheet.freeze_panes = 'C2'
 
     # Add line item data with calculated values and formulas
     for row_idx, line_item in enumerate(line_items, 2):
@@ -610,7 +1471,8 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                 cost_total_col = col_idx
 
             if field_type == "base":
-                value = line_item.get(field_name)
+                # Access LineItem object attribute
+                value = getattr(line_item, field_name, None)
                 if value is None:
                     continue
 
@@ -622,19 +1484,30 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                     cell = sheet.cell(row=row_idx, column=col_idx, value=value)
                     if field_name.startswith("cost"):
                         cell.style = "currency_style"
+                    elif field_name.startswith("metric"):
+                        # Add thousand comma separator for all metrics
+                        cell.number_format = '#,##0'
                 else:
                     sheet.cell(row=row_idx, column=col_idx, value=value)
 
-        # Second pass: populate calculated columns and formulas
-        cost_total_value = line_item.get("cost_total", 0)
+        # Second pass: populate calculated columns and formulas (FORMULA-AWARE)
+        cost_total_value = getattr(line_item, "cost_total", 0)
         cost_total_cell_ref = f"{get_column_letter(cost_total_col)}{row_idx}" if cost_total_col else "0"
+
+        # Build column reference map for formula generation
+        column_refs = {}
+        for idx, (fname, _, _) in enumerate(dynamic_field_order, 1):
+            column_refs[fname] = f"${get_column_letter(idx)}{row_idx}"
 
         for col_idx, (field_name, header_name, field_type) in enumerate(dynamic_field_order, 1):
             if field_type == "calculated":
                 if field_name.endswith("_pct"):
-                    # Cost percentage calculation
+                    # Cost percentage calculation (unchanged)
                     base_field = field_name.replace("_pct", "")
-                    cost_value = line_item.get(base_field, 0)
+                    cost_value = getattr(line_item, base_field, 0)
+                    # Handle None values
+                    if cost_value is None:
+                        cost_value = 0
 
                     if cost_total_value and cost_total_value != 0:
                         percentage = (cost_value / cost_total_value)
@@ -644,27 +1517,70 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                     cell = sheet.cell(row=row_idx, column=col_idx, value=percentage)
                     cell.number_format = '0.0%'  # Percentage format with 1 decimal place
 
-                elif field_name.endswith("_cpu"):
-                    # Cost-per-unit calculation
-                    base_field = field_name.replace("_cpu", "")
-                    metric_value = line_item.get(base_field, 0)
+                elif field_name.endswith(("_cpu", "_cvr", "_coef")):
+                    # FORMULA-AWARE: Coefficient column (CPU, CVR, or Power Coefficient)
+                    # Extract metric name and expected formula type from calculated field name
+                    if field_name.endswith("_cpu"):
+                        metric_name = field_name.replace("_cpu", "")
+                        expected_formula_type = "cost_per_unit"
+                    elif field_name.endswith("_cvr"):
+                        metric_name = field_name.replace("_cvr", "")
+                        expected_formula_type = "conversion_rate"
+                    elif field_name.endswith("_coef"):
+                        metric_name = field_name.replace("_coef", "")
+                        expected_formula_type = "power_function"
 
-                    if metric_value and metric_value != 0:
-                        if base_field == "metric_impressions":
-                            # CPM calculation (cost per 1000 impressions)
-                            cpu_value = (cost_total_value / metric_value) * 1000
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(metric_name)
+
+                    # Only populate coefficient if lineitem's formula_type matches this column type
+                    # (when multiple formula types exist, only write to the matching column)
+                    coefficient = None
+                    if formula_config and formula_config.get("formula_type") == expected_formula_type:
+                        coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
+
+                    if coefficient is not None:
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=float(coefficient))
+                        # Apply appropriate format based on formula type
+                        if field_name.endswith("_cvr"):
+                            cell.number_format = '0.00%'  # Percentage format for conversion rates
+                        elif field_name.endswith("_cpu"):
+                            cell.number_format = '$#,##0.00'  # Currency format for cost per unit
                         else:
-                            cpu_value = cost_total_value / metric_value
+                            cell.number_format = '0.0000'  # 4 decimal places (Decision 4)
                     else:
-                        cpu_value = 0
+                        # Leave cell empty (None) when formula type doesn't match
+                        # This makes it clear to users that this coefficient is not used for this lineitem
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
+                        # Apply appropriate format based on formula type
+                        if field_name.endswith("_cvr"):
+                            cell.number_format = '0.00%'
+                        elif field_name.endswith("_cpu"):
+                            cell.number_format = '$#,##0.00'  # Currency format for cost per unit
+                        else:
+                            cell.number_format = '0.0000'
 
-                    cell = sheet.cell(row=row_idx, column=col_idx, value=cpu_value)
-                    cell.number_format = '$0.00'
-                    # cell.style = "currency_style"
+                elif field_name.endswith("_param1"):
+                    # FORMULA-AWARE: Parameter1 column for power_function
+                    metric_name = field_name.replace("_param1", "")
+
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(metric_name)
+
+                    # Only populate parameter1 if lineitem uses power_function
+                    # Leave empty for other formula types to make it clear this parameter is not used
+                    if formula_config and formula_config.get("formula_type") == "power_function":
+                        parameter1 = _get_parameter1_value(metric_name, line_item)
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter1))
+                        cell.number_format = '0.0000'  # 4 decimal places
+                    else:
+                        # Leave cell empty when not using power_function
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
+                        cell.number_format = '0.0000'
 
             elif field_type == "formula":
                 if field_name.startswith("cost_") and field_name != "cost_total" and field_name != "cost_currency":
-                    # Cost field formula: cost_total * percentage
+                    # Cost field formula: cost_total * percentage (unchanged)
                     pct_col_idx = None
                     for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
                         if fname == f"{field_name}_pct":
@@ -680,132 +1596,280 @@ def _populate_v2_lineitems_sheet(sheet, line_items: List[Dict[str, Any]]) -> Non
                         cell.font = Font(color="808080")  # Grey color
 
                 elif field_name.startswith("metric_"):
-                    # Performance metric formula
-                    cpu_col_idx = None
-                    for idx, (fname, _, ftype) in enumerate(dynamic_field_order, 1):
-                        if fname == f"{field_name}_cpu":
-                            cpu_col_idx = idx
-                            break
+                    # FORMULA-AWARE: Performance metric formula
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(field_name)
+                    formula = _generate_excel_formula(field_name, formula_config, column_refs, line_item)
 
-                    if cpu_col_idx:
-                        cpu_cell_ref = f"{get_column_letter(cpu_col_idx)}{row_idx}"
-
-                        if field_name == "metric_impressions":
-                            # Special formula for impressions (divide by 1000 since CPU is per 1000)
-                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref}*1000)"
-                        else:
-                            formula = f"=IF({cpu_cell_ref}=0,0,{cost_total_cell_ref}/{cpu_cell_ref})"
-
+                    if formula:
                         cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
-                        # Apply grey font formatting for formula columns
+                        # Apply grey font formatting and comma separator for formula columns
                         cell.font = Font(color="808080")  # Grey color
+                        cell.number_format = "#,##0"  # Thousand comma separator, no decimals
+                    else:
+                        # Formula generation failed - show metric value directly
+                        metric_value = getattr(line_item, field_name, 0)
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
+                        cell.number_format = "#,##0"
+
+            elif field_type == "json":
+                # NEW v3.0: Handle JSON fields (metric_formulas, custom_properties)
+                value = getattr(line_item, field_name, None)
+                if value is not None:
+                    import json
+                    # Convert to dict if it's a Pydantic model, then to JSON string
+                    if hasattr(value, 'model_dump'):
+                        # Single Pydantic model - convert to dict first
+                        json_string = json.dumps(value.model_dump(exclude_none=True))
+                    elif isinstance(value, dict):
+                        # Dict that may contain Pydantic models as values (e.g., Dict[str, MetricFormula])
+                        converted_dict = {}
+                        for key, val in value.items():
+                            if hasattr(val, 'model_dump'):
+                                # Convert Pydantic model to dict
+                                converted_dict[key] = val.model_dump(exclude_none=True)
+                            else:
+                                converted_dict[key] = val
+                        json_string = json.dumps(converted_dict)
+                    else:
+                        json_string = str(value)
+                    sheet.cell(row=row_idx, column=col_idx, value=json_string)
 
     logger.info(
         f"Created {len(dynamic_field_order)} columns with {len(present_cost_fields)} cost calculations and {len(present_performance_fields)} performance calculations")
 
 
-def _populate_v2_dictionary_sheet(sheet, dictionary: Dict[str, Any]) -> None:
+def _get_config_value(config, field_name: str, default=""):
     """
-    Populate the dictionary configuration sheet (NEW for v2.0) with enhanced column information.
+    Helper to get value from config which can be either Pydantic object or dict.
+
+    Args:
+        config: Either a Pydantic model (CustomFieldConfig, StandardMetricConfig) or plain dict
+        field_name: Name of the field to retrieve
+        default: Default value if not found
+
+    Returns:
+        The field value or default
+    """
+    if hasattr(config, field_name):
+        # Pydantic object
+        return getattr(config, field_name, default)
+    else:
+        # Plain dict
+        return config.get(field_name, default)
+
+
+def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
+    """
+    Populate the dictionary configuration sheet with v3.0 structure.
+
+    v3.0 Dictionary includes:
+    - Meta, Campaign, and LineItem custom dimensions (status, caption)
+    - Standard metrics (formula_type, base_metric)
+    - Custom metrics (status, caption, formula_type, base_metric)
+    - Custom costs (status, caption)
 
     Args:
         sheet: The worksheet to populate
         dictionary: The dictionary configuration data
     """
-    # Set column widths
-    sheet.column_dimensions["A"].width = 20  # Field Name
-    sheet.column_dimensions["B"].width = 15  # Field Type
-    sheet.column_dimensions["C"].width = 20  # Column Name (NEW)
-    sheet.column_dimensions["D"].width = 40  # Caption
-    sheet.column_dimensions["E"].width = 15  # Status
+    # Set column widths for 7 columns
+    sheet.column_dimensions["A"].width = 25  # Field Name
+    sheet.column_dimensions["B"].width = 20  # Field Type
+    sheet.column_dimensions["C"].width = 25  # Column Name
+    sheet.column_dimensions["D"].width = 35  # Caption
+    sheet.column_dimensions["E"].width = 12  # Status
+    sheet.column_dimensions["F"].width = 20  # Formula Type
+    sheet.column_dimensions["G"].width = 20  # Base Metric
 
     # Add title
-    sheet['A1'] = "Custom Fields Configuration (v2.0)"
+    sheet['A1'] = "Dictionary Configuration (v3.0)"
     sheet['A1'].style = "header_style"
-    sheet.merge_cells('A1:E1')
+    sheet.merge_cells('A1:G1')
 
     # Add headers
     row = 2
     sheet[f'A{row}'] = "Field Name"
     sheet[f'B{row}'] = "Field Type"
-    sheet[f'C{row}'] = "Column Name"  # NEW COLUMN
+    sheet[f'C{row}'] = "Column Name"
     sheet[f'D{row}'] = "Caption"
     sheet[f'E{row}'] = "Status"
+    sheet[f'F{row}'] = "Formula Type"
+    sheet[f'G{row}'] = "Base Metric"
 
-    for col in ['A', 'B', 'C', 'D', 'E']:
+    for col in ['A', 'B', 'C', 'D', 'E', 'F', 'G']:
         sheet[f'{col}{row}'].style = "dict_header_style"
 
-    # Add all possible custom fields with their current configuration
+    # Freeze panes at row 3 (after header rows)
+    sheet.freeze_panes = 'A3'
+
+    # Add all fields with their current configuration
     row = 3
 
-    # Custom dimensions
-    custom_dimensions = dictionary.get("custom_dimensions", {})
-    for i in range(1, 11):
+    # Section 1: Meta custom dimensions (5 fields)
+    meta_custom_dimensions = getattr(dictionary,"meta_custom_dimensions", {}) or {}
+    grey_fill = PatternFill(start_color="D3D3D3", end_color="D3D3D3", fill_type="solid")
+    for i in range(1, 6):
         field_name = f"dim_custom{i}"
-        config = custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
-        column_name = f"Dim Custom {i}"  # This is what should appear in Line Items sheet
+        config = meta_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"Meta Dim Custom {i}"
 
         sheet[f'A{row}'] = field_name
-        sheet[f'B{row}'] = "Dimension"
-        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'B{row}'] = "Meta Dimension"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = ""  # No formula for dimensions
+        sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
-    # Custom metrics
-    custom_metrics = dictionary.get("custom_metrics", {})
+    # Section 2: Campaign custom dimensions (5 fields)
+    campaign_custom_dimensions = getattr(dictionary,"campaign_custom_dimensions", {}) or {}
+    for i in range(1, 6):
+        field_name = f"dim_custom{i}"
+        config = campaign_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"Campaign Dim Custom {i}"
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "Campaign Dimension"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = ""  # No formula for dimensions
+        sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
+        row += 1
+
+    # Section 3: LineItem custom dimensions (10 fields)
+    lineitem_custom_dimensions = getattr(dictionary,"lineitem_custom_dimensions", {}) or {}
+    for i in range(1, 11):
+        field_name = f"dim_custom{i}"
+        config = lineitem_custom_dimensions.get(field_name, {"status": "disabled", "caption": ""})
+        column_name = f"LineItem Dim Custom {i}"
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "LineItem Dimension"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = ""  # No formula for dimensions
+        sheet[f'G{row}'] = ""  # No base metric for dimensions
+        # Grey out formula columns for dimensions
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
+        row += 1
+
+    # Section 4: Standard metrics (25 fields) - NEW in v3.0
+    standard_metrics = getattr(dictionary,"standard_metrics", {}) or {}
+    standard_metric_list = [
+        ("metric_impressions", "Impressions"),
+        ("metric_clicks", "Clicks"),
+        ("metric_views", "Views"),
+        ("metric_view_starts", "View Starts"),
+        ("metric_view_completions", "View Completions"),
+        ("metric_reach", "Reach"),
+        ("metric_units", "Units"),
+        ("metric_impression_share", "Impression Share"),
+        ("metric_engagements", "Engagements"),
+        ("metric_followers", "Followers"),
+        ("metric_visits", "Visits"),
+        ("metric_leads", "Leads"),
+        ("metric_sales", "Sales"),
+        ("metric_add_to_cart", "Add to Cart"),
+        ("metric_app_install", "App Install"),
+        ("metric_application_start", "Application Start"),
+        ("metric_application_complete", "Application Complete"),
+        ("metric_contact_us", "Contact Us"),
+        ("metric_download", "Download"),
+        ("metric_signup", "Signup"),
+        ("metric_page_views", "Page Views"),
+        ("metric_likes", "Likes"),
+        ("metric_shares", "Shares"),
+        ("metric_comments", "Comments"),
+        ("metric_conversions", "Conversions"),
+    ]
+
+    for field_name, column_name in standard_metric_list:
+        config = standard_metrics.get(field_name, {})
+
+        sheet[f'A{row}'] = field_name
+        sheet[f'B{row}'] = "Standard Metric"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = ""  # No caption for standard metrics
+        sheet[f'E{row}'] = ""  # No status for standard metrics
+        sheet[f'F{row}'] = _get_config_value(config, "formula_type", "")
+        sheet[f'G{row}'] = _get_config_value(config, "base_metric", "")
+        # Grey out Caption and Status columns for standard metrics
+        sheet[f'D{row}'].fill = grey_fill
+        sheet[f'E{row}'].fill = grey_fill
+        row += 1
+
+    # Section 5: Custom metrics (10 fields) - Updated in v3.0 to include formula support
+    custom_metrics = getattr(dictionary,"custom_metrics", {}) or {}
     for i in range(1, 11):
         field_name = f"metric_custom{i}"
         config = custom_metrics.get(field_name, {"status": "disabled", "caption": ""})
-        column_name = f"Metric Custom {i}"  # This is what should appear in Line Items sheet
+        column_name = f"Metric Custom {i}"
 
         sheet[f'A{row}'] = field_name
-        sheet[f'B{row}'] = "Metric"
-        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'B{row}'] = "Custom Metric"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = _get_config_value(config, "formula_type", "")
+        sheet[f'G{row}'] = _get_config_value(config, "base_metric", "")
         row += 1
 
-    # Custom costs
-    custom_costs = dictionary.get("custom_costs", {})
+    # Section 6: Custom costs (10 fields)
+    custom_costs = getattr(dictionary,"custom_costs", {}) or {}
     for i in range(1, 11):
         field_name = f"cost_custom{i}"
         config = custom_costs.get(field_name, {"status": "disabled", "caption": ""})
-        column_name = f"Cost Custom {i}"  # This is what should appear in Line Items sheet
+        column_name = f"Cost Custom {i}"
 
         sheet[f'A{row}'] = field_name
-        sheet[f'B{row}'] = "Cost"
-        sheet[f'C{row}'] = column_name  # NEW: Show expected column header
-        sheet[f'D{row}'] = config.get("caption", "")
-        sheet[f'E{row}'] = config.get("status", "disabled")
+        sheet[f'B{row}'] = "Custom Cost"
+        sheet[f'C{row}'] = column_name
+        sheet[f'D{row}'] = _get_config_value(config, "caption", "")
+        sheet[f'E{row}'] = _get_config_value(config, "status", "disabled")
+        sheet[f'F{row}'] = ""  # No formula for costs
+        sheet[f'G{row}'] = ""  # No base metric for costs
+        # Grey out formula columns for costs
+        sheet[f'F{row}'].fill = grey_fill
+        sheet[f'G{row}'].fill = grey_fill
         row += 1
 
     # Add instructions
     row += 2
     sheet[f'A{row}'] = "Instructions:"
     sheet[f'A{row}'].font = Font(bold=True)
-    sheet.merge_cells(f'A{row}:E{row}')
+    sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1
-    sheet[f'A{row}'] = "- Set Status to 'enabled' or 'disabled'"
-    sheet.merge_cells(f'A{row}:E{row}')
+    sheet[f'A{row}'] = "- Custom Fields: Set Status to 'enabled' or 'disabled', Caption is required when enabled"
+    sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1
-    sheet[f'A{row}'] = "- Caption is required when Status is 'enabled'"
-    sheet.merge_cells(f'A{row}:E{row}')
+    sheet[f'A{row}'] = "- Standard/Custom Metrics: Optionally specify Formula Type and Base Metric for formula-based calculations"
+    sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1
-    sheet[f'A{row}'] = "- Caption should describe what the custom field represents"
-    sheet.merge_cells(f'A{row}:E{row}')
+    sheet[f'A{row}'] = "- Common formula types: 'cost_per_unit', 'conversion_rate', 'constant', 'power_function'"
+    sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1
     sheet[f'A{row}'] = "- Use the 'Column Name' exactly as shown when importing from Excel"
-    sheet.merge_cells(f'A{row}:E{row}')
+    sheet.merge_cells(f'A{row}:G{row}')
 
 
-def _populate_v2_documentation_sheet(sheet) -> None:
+def _populate_v3_documentation_sheet(sheet) -> None:
     """
-    Populate the documentation sheet with comprehensive v2.0 schema information.
+    Populate the documentation sheet with comprehensive v3.0 schema information.
 
     Args:
         sheet: The worksheet to populate
@@ -814,18 +1878,18 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     sheet.column_dimensions["A"].width = 25  # Column Name
     sheet.column_dimensions["B"].width = 20  # Field Name (NEW)
     sheet.column_dimensions["C"].width = 15  # Data Type
-    sheet.column_dimensions["D"].width = 45  # Description (slightly reduced to fit)
+    sheet.column_dimensions["D"].width = 67.5  # Description (increased by 50% from 45)
     sheet.column_dimensions["E"].width = 12  # Required
 
     # Add title
-    sheet['A1'] = "Media Plan Excel Documentation (v2.0)"
+    sheet['A1'] = "Media Plan Excel Documentation (v3.0)"
     sheet['A1'].style = "header_style"
     sheet.merge_cells('A1:E1')  # Updated merge range
 
     # Add documentation content
     row = 2
     sheet[f'A{row}'] = "Schema Version:"
-    sheet[f'B{row}'] = "2.0"
+    sheet[f'B{row}'] = "3.0"
 
     row += 1
     sheet[f'A{row}'] = "Export Date:"
@@ -833,7 +1897,7 @@ def _populate_v2_documentation_sheet(sheet) -> None:
 
     row += 2
     sheet[f'A{row}'] = "Instructions:"
-    sheet[f'B{row}'] = "This Excel file contains a media plan following the Media Plan Open Data Standard v2.0."
+    sheet[f'B{row}'] = "This Excel file contains a media plan following the Media Plan Open Data Standard v3.0."
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
     row += 1
@@ -850,11 +1914,19 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
     row += 1
+    sheet[f'B{row}'] = "Target Audiences: Contains target audience definitions (NEW in v3.0)."
+    sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
+
+    row += 1
+    sheet[f'B{row}'] = "Target Locations: Contains target location definitions (NEW in v3.0)."
+    sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
+
+    row += 1
     sheet[f'B{row}'] = "Line Items: Contains all line items in the campaign."
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
     row += 1
-    sheet[f'B{row}'] = "Dictionary: Configuration for custom fields (NEW in v2.0)."
+    sheet[f'B{row}'] = "Dictionary: Configuration for custom fields."
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
     # Comprehensive field documentation header
@@ -875,146 +1947,185 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     # Comprehensive field documentation in schema order with field names
     all_fields_documentation = [
         # Required fields (in schema order)
-        ("ID", "id", "Text", "Unique identifier for the line item", "Yes"),
-        ("Name", "name", "Text", "Human-readable name for the line item", "Yes"),
-        ("Start Date", "start_date", "Date", "Line item start date in YYYY-MM-DD format", "Yes"),
-        ("End Date", "end_date", "Date", "Line item end date in YYYY-MM-DD format", "Yes"),
-        ("Cost Total", "cost_total", "Number", "Total cost for the line item including all cost components", "Yes"),
+        ("ID", "id", "Text", "Unique identifier for the line item", "TRUE"),
+        ("Name", "name", "Text", "Human-readable name for the line item", "TRUE"),
+        ("Start Date", "start_date", "Date", "Line item start date in YYYY-MM-DD format", "TRUE"),
+        ("End Date", "end_date", "Date", "Line item end date in YYYY-MM-DD format", "TRUE"),
+        ("Cost Total", "cost_total", "Number", "Total cost for the line item including all cost components", "TRUE"),
 
         # Channel-related fields (in schema order)
-        ("Channel", "channel", "Text", "Media channel for the line item (e.g., Digital, TV, Radio, Print)", "No"),
+        ("Channel", "channel", "Text", "Media channel for the line item (e.g., Digital, TV, Radio, Print)", ""),
         ("Channel Custom", "channel_custom", "Text",
-         "Custom channel specification when standard channel options don't apply", "No"),
-        ("Vehicle", "vehicle", "Text", "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)", "No"),
+         "Custom channel specification when standard channel options don't apply", ""),
+        ("Vehicle", "vehicle", "Text", "Media vehicle or platform (e.g., Facebook, Google, CNN, Spotify)", ""),
         ("Vehicle Custom", "vehicle_custom", "Text",
-         "Custom vehicle specification when standard vehicle options don't apply", "No"),
-        ("Partner", "partner", "Text", "Media partner or vendor handling the placement", "No"),
+         "Custom vehicle specification when standard vehicle options don't apply", ""),
+        ("Partner", "partner", "Text", "Media partner or vendor handling the placement", ""),
         ("Partner Custom", "partner_custom", "Text",
-         "Custom partner specification when standard partner options don't apply", "No"),
-        ("Media Product", "media_product", "Text", "Specific media product or ad unit being purchased", "No"),
+         "Custom partner specification when standard partner options don't apply", ""),
+        ("Media Product", "media_product", "Text", "Specific media product or ad unit being purchased", ""),
         ("Media Product Custom", "media_product_custom", "Text",
-         "Custom media product specification when standard options don't apply", "No"),
+         "Custom media product specification when standard options don't apply", ""),
 
-        # Location fields (in schema order)
+        # Location fields (line-item-level targeting, in schema order)
         ("Location Type", "location_type", "Text",
-         "Geographic scope type for the line item targeting (Country or State)", "No"),
-        ("Location Name", "location_name", "Text", "Name of the geographic location being targeted", "No"),
+         "Geographic scope type for the line item targeting (Country or State)", ""),
+        ("Location Name", "location_name", "Text", "Name of the geographic location being targeted", ""),
 
         # Target/format fields (in schema order)
-        ("Target Audience", "target_audience", "Text", "Description of the target audience for this line item", "No"),
-        ("Ad Format", "adformat", "Text", "Creative format or ad type (e.g., Banner, Video, Native)", "No"),
+        ("Target Audience", "target_audience", "Text", "Description of the target audience for this line item", ""),
+        ("Ad Format", "adformat", "Text", "Creative format or ad type (e.g., Banner, Video, Native)", ""),
         ("Ad Format Custom", "adformat_custom", "Text",
-         "Custom ad format specification when standard formats don't apply", "No"),
-        ("KPI", "kpi", "Text", "Primary key performance indicator for the line item", "No"),
-        ("KPI Custom", "kpi_custom", "Text", "Custom KPI specification when standard KPIs don't apply", "No"),
+         "Custom ad format specification when standard formats don't apply", ""),
+        ("KPI", "kpi", "Text", "Primary key performance indicator for the line item", ""),
+        ("KPI Custom", "kpi_custom", "Text", "Custom KPI specification when standard KPIs don't apply", ""),
+        ("KPI Value", "kpi_value", "Number", "Target value or goal for the primary key performance indicator", ""),
 
-        # Dayparts and inventory fields (NEW in v2.0, in schema order)
+        # Dayparts and inventory fields (in schema order)
         ("Dayparts", "dayparts", "Text", "Time periods when the ad should run (e.g., Primetime, Morning, All Day)",
-         "No"),
+         ""),
         (
         "Dayparts Custom", "dayparts_custom", "Text", "Custom daypart specification when standard dayparts don't apply",
-        "No"),
-        ("Inventory", "inventory", "Text", "Type of inventory or placement being purchased", "No"),
+        ""),
+        ("Inventory", "inventory", "Text", "Type of inventory or placement being purchased", ""),
         ("Inventory Custom", "inventory_custom", "Text",
-         "Custom inventory specification when standard inventory types don't apply", "No"),
+         "Custom inventory specification when standard inventory types don't apply", ""),
+
+        # Buy fields (NEW in v3.0, in schema order)
+        ("Buy Type", "buy_type", "Text",
+         "Type of media buying arrangement (e.g., Auction, Programmatic Guaranteed, Upfront, Scatter)", ""),
+        ("Buy Commitment", "buy_commitment", "Text",
+         "Commitment level for the media purchase (e.g., Cancellable, Committed, Non-Cancellable)", ""),
 
         # Custom dimension fields (dim_custom1-10, in schema order)
         ("Dim Custom 1", "dim_custom1", "Text", "Custom dimension field 1 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 2", "dim_custom2", "Text", "Custom dimension field 2 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 3", "dim_custom3", "Text", "Custom dimension field 3 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 4", "dim_custom4", "Text", "Custom dimension field 4 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 5", "dim_custom5", "Text", "Custom dimension field 5 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 6", "dim_custom6", "Text", "Custom dimension field 6 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 7", "dim_custom7", "Text", "Custom dimension field 7 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 8", "dim_custom8", "Text", "Custom dimension field 8 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 9", "dim_custom9", "Text", "Custom dimension field 9 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Dim Custom 10", "dim_custom10", "Text",
-         "Custom dimension field 10 - configuration defined in dictionary schema", "No"),
+         "Custom dimension field 10 - configuration defined in dictionary schema", ""),
 
-        # Cost fields (in schema order, cost_currency is NEW in v2.0)
+        # Aggregation fields (NEW in v3.0, in schema order)
+        ("Is Aggregate", "is_aggregate", "Boolean",
+         "Whether this line item contains aggregated values (useful for storing channel-level budgets or campaign-level reach estimates)", ""),
+        ("Aggregation Level", "aggregation_level", "Text",
+         "Level at which the aggregate is stored (e.g., channel, campaign, vehicle) when is_aggregate is true", ""),
+
+        # Cost fields (in schema order)
         ("Cost Currency", "cost_currency", "Text",
-         "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)", "No"),
-        ("Cost Media", "cost_media", "Number", "Media cost component (working media spend)", "No"),
-        ("Cost Buying", "cost_buying", "Number", "Media buying/trading cost component", "No"),
-        ("Cost Platform", "cost_platform", "Number", "Platform or technology cost component", "No"),
-        ("Cost Data", "cost_data", "Number", "Data cost component (audience data, targeting data, etc.)", "No"),
-        ("Cost Creative", "cost_creative", "Number", "Creative production and development cost component", "No"),
+         "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)", ""),
+        ("Cost Currency Exchange Rate", "cost_currency_exchange_rate", "Number",
+         "Exchange rate to convert from line item currency to campaign-level currency (useful when line items use different currencies)", ""),
+        ("Cost Media", "cost_media", "Number", "Media cost component (working media spend)", ""),
+        ("Cost Buying", "cost_buying", "Number", "Media buying/trading cost component", ""),
+        ("Cost Platform", "cost_platform", "Number", "Platform or technology cost component", ""),
+        ("Cost Data", "cost_data", "Number", "Data cost component (audience data, targeting data, etc.)", ""),
+        ("Cost Creative", "cost_creative", "Number", "Creative production and development cost component", ""),
 
         # Custom cost fields (cost_custom1-10, in schema order)
         ("Cost Custom 1", "cost_custom1", "Number", "Custom cost field 1 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 2", "cost_custom2", "Number", "Custom cost field 2 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 3", "cost_custom3", "Number", "Custom cost field 3 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 4", "cost_custom4", "Number", "Custom cost field 4 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 5", "cost_custom5", "Number", "Custom cost field 5 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 6", "cost_custom6", "Number", "Custom cost field 6 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 7", "cost_custom7", "Number", "Custom cost field 7 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 8", "cost_custom8", "Number", "Custom cost field 8 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 9", "cost_custom9", "Number", "Custom cost field 9 - configuration defined in dictionary schema",
-         "No"),
+         ""),
         ("Cost Custom 10", "cost_custom10", "Number",
-         "Custom cost field 10 - configuration defined in dictionary schema", "No"),
+         "Custom cost field 10 - configuration defined in dictionary schema", ""),
 
-        # Standard metric fields (in schema order)
-        ("Impressions", "metric_impressions", "Number", "Number of ad impressions delivered or planned", "No"),
-        ("Clicks", "metric_clicks", "Number", "Number of clicks on the ad", "No"),
-        ("Views", "metric_views", "Number", "Number of video views or content views", "No"),
+        # Cost constraints (NEW in v3.0, in schema order)
+        ("Cost Minimum", "cost_minimum", "Number",
+         "Minimum budget constraint for the line item (user-defined lower bound)", ""),
+        ("Cost Maximum", "cost_maximum", "Number",
+         "Maximum budget constraint for the line item (user-defined upper bound)", ""),
+
+        # Standard metric fields (in v3.0 schema order)
+        ("Impressions", "metric_impressions", "Number", "Number of ad impressions delivered or planned", ""),
+        ("Clicks", "metric_clicks", "Number", "Number of clicks on the ad", ""),
+        ("Views", "metric_views", "Number", "Number of video views or content views", ""),
+        ("View Starts", "metric_view_starts", "Number", "Number of video view starts", ""),
+        ("View Completions", "metric_view_completions", "Number", "Number of video view completions", ""),
+        ("Reach", "metric_reach", "Number", "Number of unique users reached", ""),
+        ("Units", "metric_units", "Number", "Number of units delivered (e.g., TV spots, radio ads, print insertions)", ""),
+        ("Impression Share", "metric_impression_share", "Number", "Percentage of total available impressions captured", ""),
         ("Engagements", "metric_engagements", "Number", "Number of user engagements (likes, shares, comments, etc.)",
-         "No"),
-        ("Followers", "metric_followers", "Number", "Number of new followers gained", "No"),
-        ("Visits", "metric_visits", "Number", "Number of website visits or page visits", "No"),
-        ("Leads", "metric_leads", "Number", "Number of leads generated", "No"),
-        ("Sales", "metric_sales", "Number", "Number of sales or purchases", "No"),
-        ("Add to Cart", "metric_add_to_cart", "Number", "Number of add-to-cart actions", "No"),
-        ("App Install", "metric_app_install", "Number", "Number of app installations", "No"),
-        ("Application Start", "metric_application_start", "Number", "Number of application forms started", "No"),
+         ""),
+        ("Followers", "metric_followers", "Number", "Number of new followers gained", ""),
+        ("Visits", "metric_visits", "Number", "Number of website visits or page visits", ""),
+        ("Leads", "metric_leads", "Number", "Number of leads generated", ""),
+        ("Sales", "metric_sales", "Number", "Number of sales or purchases", ""),
+        ("Add to Cart", "metric_add_to_cart", "Number", "Number of add-to-cart actions", ""),
+        ("App Install", "metric_app_install", "Number", "Number of app installations", ""),
+        ("Application Start", "metric_application_start", "Number", "Number of application forms started", ""),
         (
-        "Application Complete", "metric_application_complete", "Number", "Number of application forms completed", "No"),
-        ("Contact Us", "metric_contact_us", "Number", "Number of contact form submissions or contact actions", "No"),
-        ("Download", "metric_download", "Number", "Number of downloads (files, apps, content)", "No"),
-        ("Signup", "metric_signup", "Number", "Number of signups or registrations", "No"),
-        ("Max Daily Spend", "metric_max_daily_spend", "Number", "Maximum daily spend limit for the line item", "No"),
+        "Application Complete", "metric_application_complete", "Number", "Number of application forms completed", ""),
+        ("Contact Us", "metric_contact_us", "Number", "Number of contact form submissions or contact actions", ""),
+        ("Download", "metric_download", "Number", "Number of downloads (files, apps, content)", ""),
+        ("Signup", "metric_signup", "Number", "Number of signups or registrations", ""),
+        ("Page Views", "metric_page_views", "Number", "Number of page views", ""),
+        ("Likes", "metric_likes", "Number", "Number of likes or reactions", ""),
+        ("Shares", "metric_shares", "Number", "Number of shares or reposts", ""),
+        ("Comments", "metric_comments", "Number", "Number of comments", ""),
+        ("Conversions", "metric_conversions", "Number", "Number of conversions or goal completions", ""),
+        ("Max Daily Spend", "metric_max_daily_spend", "Number", "Maximum daily spend limit for the line item", ""),
         ("Max Daily Impressions", "metric_max_daily_impressions", "Number",
-         "Maximum daily impressions limit for the line item", "No"),
-        ("Audience Size", "metric_audience_size", "Number", "Size of the targetable audience for this line item", "No"),
+         "Maximum daily impressions limit for the line item", ""),
+        ("Audience Size", "metric_audience_size", "Number", "Size of the targetable audience for this line item", ""),
 
         # Custom metric fields (metric_custom1-10, in schema order)
         ("Metric Custom 1", "metric_custom1", "Number",
-         "Custom metric field 1 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 1 - configuration defined in dictionary schema", ""),
         ("Metric Custom 2", "metric_custom2", "Number",
-         "Custom metric field 2 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 2 - configuration defined in dictionary schema", ""),
         ("Metric Custom 3", "metric_custom3", "Number",
-         "Custom metric field 3 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 3 - configuration defined in dictionary schema", ""),
         ("Metric Custom 4", "metric_custom4", "Number",
-         "Custom metric field 4 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 4 - configuration defined in dictionary schema", ""),
         ("Metric Custom 5", "metric_custom5", "Number",
-         "Custom metric field 5 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 5 - configuration defined in dictionary schema", ""),
         ("Metric Custom 6", "metric_custom6", "Number",
-         "Custom metric field 6 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 6 - configuration defined in dictionary schema", ""),
         ("Metric Custom 7", "metric_custom7", "Number",
-         "Custom metric field 7 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 7 - configuration defined in dictionary schema", ""),
         ("Metric Custom 8", "metric_custom8", "Number",
-         "Custom metric field 8 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 8 - configuration defined in dictionary schema", ""),
         ("Metric Custom 9", "metric_custom9", "Number",
-         "Custom metric field 9 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 9 - configuration defined in dictionary schema", ""),
         ("Metric Custom 10", "metric_custom10", "Number",
-         "Custom metric field 10 - configuration defined in dictionary schema", "No"),
+         "Custom metric field 10 - configuration defined in dictionary schema", ""),
+
+        # Metric formulas (NEW in v3.0, in schema order)
+        ("Metric Formulas (JSON)", "metric_formulas", "JSON",
+         "Formula configurations for metrics that use custom calculation formulas. Each metric's formula type and base metric are defined in the dictionary schema.", ""),
+
+        # Custom properties (NEW in v3.0, in schema order)
+        ("Custom Properties (JSON)", "custom_properties", "JSON",
+         "Extensible JSON dictionary for storing custom metadata, settings, or metrics that don't fit elsewhere in the schema", ""),
     ]
 
     # Populate the comprehensive field documentation
@@ -1066,9 +2177,9 @@ def _populate_v2_documentation_sheet(sheet) -> None:
     sheet.merge_cells(f'B{row}:E{row}')  # Updated merge range
 
 
-def _add_v2_validation_and_formatting(workbook: Workbook) -> None:
+def _add_v3_validation_and_formatting(workbook: Workbook) -> None:
     """
-    Add data validation and formatting for v2.0 Excel export.
+    Add data validation and formatting for v3.0 Excel export.
 
     Args:
         workbook: The workbook to add validation to
@@ -1102,24 +2213,59 @@ def _add_v2_validation_and_formatting(workbook: Workbook) -> None:
     #         kpi_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
     #         break
 
-    # Location type validation (existing)
-    location_validation = DataValidation(
+    # Note: Line Items location_type validation removed in v3.0
+    # The location_type field at line item level is now legacy (kept for backwards compatibility)
+    # Proper location targeting is defined in the Target Locations sheet
+
+    # Target Locations: Location Type validation (expanded in v3.0)
+    target_locations_sheet = workbook["Target Locations"]
+    target_location_type_validation = DataValidation(
         type="list",
-        formula1='"Country,State"',
+        formula1='"Country,State,DMA,County,Postcode,Radius,POI"',
         allow_blank=True
     )
-    line_items_sheet.add_data_validation(location_validation)
+    target_locations_sheet.add_data_validation(target_location_type_validation)
     # Find Location Type column dynamically
-    for col in range(1, line_items_sheet.max_column + 1):
-        if line_items_sheet.cell(1, col).value == "Location Type":
-            location_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+    for col in range(1, target_locations_sheet.max_column + 1):
+        if target_locations_sheet.cell(1, col).value == "Location Type":
+            target_location_type_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
             break
 
-    # NEW v2.0: Dictionary Status validation
+    # Target Locations: Exclusion Type validation (expanded in v3.0)
+    target_exclusion_type_validation = DataValidation(
+        type="list",
+        formula1='"Country,State,DMA,County,Postcode,Radius,POI"',
+        allow_blank=True
+    )
+    target_locations_sheet.add_data_validation(target_exclusion_type_validation)
+    # Find Exclusion Type column dynamically
+    for col in range(1, target_locations_sheet.max_column + 1):
+        if target_locations_sheet.cell(1, col).value == "Exclusion Type":
+            target_exclusion_type_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+            break
+
+    # Target Audiences: Demo Gender validation (v3.0)
+    target_audiences_sheet = workbook["Target Audiences"]
+    demo_gender_validation = DataValidation(
+        type="list",
+        formula1='"Male,Female,Any"',
+        allow_blank=True
+    )
+    target_audiences_sheet.add_data_validation(demo_gender_validation)
+    # Find Demo Gender column dynamically
+    for col in range(1, target_audiences_sheet.max_column + 1):
+        if target_audiences_sheet.cell(1, col).value == "Demo Gender":
+            demo_gender_validation.add(f'{get_column_letter(col)}2:{get_column_letter(col)}1000')
+            break
+
+    # Dictionary Status validation (updated for v3.0: 65 fields total, but only 40 have Status)
+    # Structure: 5 meta + 5 campaign + 10 lineitem dims (rows 3-22) + 25 standard metrics (no status, rows 23-47) + 10 custom metrics (rows 48-57) + 10 custom costs (rows 58-67)
+    # Apply validation to dimensions (rows 3-22) and custom fields (rows 48-67), excluding standard metrics which don't have Status
     status_validation = DataValidation(
         type="list",
         formula1='"enabled,disabled"',
         allow_blank=False
     )
     dictionary_sheet.add_data_validation(status_validation)
-    status_validation.add('D3:D32')  # Status column for all 30 custom fields
+    status_validation.add('E3:E22')   # Custom dimensions (meta + campaign + lineitem)
+    status_validation.add('E48:E67')  # Custom metrics and custom costs

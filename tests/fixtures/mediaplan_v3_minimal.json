@@ -1,0 +1,30 @@
+{
+  "meta": {
+    "id": "MP_MIN_001",
+    "schema_version": "v3.0",
+    "name": "Minimal v3.0 Media Plan",
+    "created_by_name": "Test User",
+    "created_at": "2025-01-01T00:00:00Z",
+    "is_current": true,
+    "is_archived": false
+  },
+  "campaign": {
+    "id": "CAM_MIN_001",
+    "name": "Minimal Campaign",
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31",
+    "budget_total": 100000
+  },
+  "lineitems": [
+    {
+      "id": "LI_MIN_001",
+      "name": "Minimal Line Item",
+      "start_date": "2025-01-01",
+      "end_date": "2025-03-31",
+      "cost_total": 10000,
+      "channel": "display",
+      "vehicle": "Programmatic",
+      "partner": "DSP Partner"
+    }
+  ]
+}

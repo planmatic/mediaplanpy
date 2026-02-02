@@ -9,9 +9,110 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set, ClassVar, Union
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, PrivateAttr, field_validator, model_validator
 
 from mediaplanpy.models.base import BaseModel
+from mediaplanpy.models.metric_formula import MetricFormula
+
+
+class MetricValue:
+    """
+    Read-only wrapper providing access to a metric's value and formula.
+
+    This class is returned by LineItem.get_metric_object() and provides a
+    convenient way to access both the metric value and its formula definition
+    in a single object. It is created on-demand and is not persisted.
+
+    Attributes:
+        value: The current value of the metric (Decimal or None)
+        formula_type: Type of formula (e.g., 'cost_per_unit', 'conversion_rate')
+        base_metric: Name of the base metric this metric depends on
+        coefficient: Formula coefficient (CPU, not CPM)
+        parameter1: First formula parameter (e.g., for power_function)
+        parameter2: Second formula parameter (reserved for future use)
+        comments: Comments about the formula
+
+    Example:
+        >>> metric = lineitem.get_metric_object("metric_impressions")
+        >>> print(f"Value: {metric.value}")
+        >>> print(f"Formula: {metric.formula_type} from {metric.base_metric}")
+        >>> print(f"CPM: ${float(metric.coefficient) * 1000:.2f}")
+    """
+
+    def __init__(
+        self,
+        value: Optional[Decimal],
+        formula_type: Optional[str],
+        base_metric: Optional[str],
+        coefficient: Optional[Decimal],
+        parameter1: Optional[Decimal],
+        parameter2: Optional[Decimal],
+        comments: Optional[str]
+    ):
+        self._value = value
+        self._formula_type = formula_type
+        self._base_metric = base_metric
+        self._coefficient = coefficient
+        self._parameter1 = parameter1
+        self._parameter2 = parameter2
+        self._comments = comments
+
+    @property
+    def value(self) -> Optional[Decimal]:
+        """The current value of the metric."""
+        return self._value
+
+    @property
+    def formula_type(self) -> Optional[str]:
+        """Type of formula (e.g., 'cost_per_unit', 'conversion_rate')."""
+        return self._formula_type
+
+    @property
+    def base_metric(self) -> Optional[str]:
+        """Name of the base metric this metric depends on."""
+        return self._base_metric
+
+    @property
+    def coefficient(self) -> Optional[Decimal]:
+        """Formula coefficient (CPU, not CPM)."""
+        return self._coefficient
+
+    @property
+    def parameter1(self) -> Optional[Decimal]:
+        """First formula parameter (e.g., for power_function)."""
+        return self._parameter1
+
+    @property
+    def parameter2(self) -> Optional[Decimal]:
+        """Second formula parameter (reserved for future use)."""
+        return self._parameter2
+
+    @property
+    def comments(self) -> Optional[str]:
+        """Comments about the formula."""
+        return self._comments
+
+    @property
+    def cpm(self) -> Optional[Decimal]:
+        """
+        Convenience property: Coefficient as CPM (Cost Per Mille).
+
+        Only applicable for cost_per_unit formulas. Converts CPU to CPM
+        by multiplying by 1000.
+
+        Returns:
+            CPM value if coefficient exists, None otherwise
+        """
+        if self._coefficient is not None:
+            return self._coefficient * 1000
+        return None
+
+    def __repr__(self) -> str:
+        """String representation for debugging."""
+        return (
+            f"MetricValue(value={self.value}, formula_type={self.formula_type}, "
+            f"base_metric={self.base_metric}, coefficient={self.coefficient})"
+        )
 
 
 class LineItem(BaseModel):
@@ -20,10 +121,13 @@ class LineItem(BaseModel):
 
     A line item is the most granular level of a media plan, representing
     a specific placement, ad format, targeting, or other executable unit.
-    Following the Media Plan Open Data Standard v2.0.
+    Following the Media Plan Open Data Standard v3.0.
     """
 
-    # Required fields per v2.0 schema (same as v1.0)
+    # Private parent reference (not serialized, used for smart methods)
+    _mediaplan: Optional["MediaPlan"] = PrivateAttr(default=None)
+
+    # Required fields per v3.0 schema (same as v2.0)
     id: str = Field(..., description="Unique identifier for the line item")
     name: str = Field(..., description="Name of the line item")
     start_date: date = Field(..., description="Start date of the line item")
@@ -129,6 +233,42 @@ class LineItem(BaseModel):
     metric_custom9: Optional[Decimal] = Field(None, description="Custom metric field 9")
     metric_custom10: Optional[Decimal] = Field(None, description="Custom metric field 10")
 
+    # NEW v3.0 FIELDS - All optional for backward compatibility
+
+    # Buy information - how the media is purchased
+    kpi_value: Optional[Decimal] = Field(None, description="Target value for the KPI")
+    buy_type: Optional[str] = Field(None, description="Type of media buy (e.g., Direct, Programmatic, Auction)")
+    buy_commitment: Optional[str] = Field(None, description="Commitment level of the buy (e.g., Guaranteed, Non-Guaranteed)")
+
+    # Aggregation fields
+    is_aggregate: Optional[bool] = Field(None, description="Whether this line item is an aggregate of other line items")
+    aggregation_level: Optional[str] = Field(None, description="Level at which metrics are aggregated (e.g., Campaign, LineItem, Creative)")
+
+    # Multi-currency support
+    cost_currency_exchange_rate: Optional[Decimal] = Field(None, description="Exchange rate if costs are in different currency than campaign budget")
+
+    # Budget constraints
+    cost_minimum: Optional[Decimal] = Field(None, description="Minimum expected cost for this line item")
+    cost_maximum: Optional[Decimal] = Field(None, description="Maximum expected cost for this line item")
+
+    # NEW v3.0 STANDARD METRICS - 10 new metrics
+    metric_view_starts: Optional[Decimal] = Field(None, description="Number of video view starts")
+    metric_view_completions: Optional[Decimal] = Field(None, description="Number of video view completions")
+    metric_reach: Optional[Decimal] = Field(None, description="Total unique users reached")
+    metric_units: Optional[Decimal] = Field(None, description="Number of units (generic counter)")
+    metric_impression_share: Optional[Decimal] = Field(None, description="Impression share (percentage of available impressions)")
+    metric_page_views: Optional[Decimal] = Field(None, description="Number of page views")
+    metric_likes: Optional[Decimal] = Field(None, description="Number of likes")
+    metric_shares: Optional[Decimal] = Field(None, description="Number of shares")
+    metric_comments: Optional[Decimal] = Field(None, description="Number of comments")
+    metric_conversions: Optional[Decimal] = Field(None, description="Number of conversions")
+
+    # Metric formulas - for custom calculated metrics
+    metric_formulas: Optional[Dict[str, MetricFormula]] = Field(None, description="Dictionary mapping metric names to formula configurations")
+
+    # Custom properties as key-value pairs
+    custom_properties: Optional[Dict[str, Any]] = Field(None, description="Additional custom properties as key-value pairs")
+
     # Constants and reference data for validation
     VALID_CHANNELS: ClassVar[Set[str]] = {
         "social", "search", "display", "video", "audio", "tv", "ooh", "print", "other"
@@ -165,7 +305,9 @@ class LineItem(BaseModel):
 
     @field_validator("cost_total", "cost_media", "cost_buying", "cost_platform", "cost_data", "cost_creative",
                     "cost_custom1", "cost_custom2", "cost_custom3", "cost_custom4", "cost_custom5",
-                    "cost_custom6", "cost_custom7", "cost_custom8", "cost_custom9", "cost_custom10")
+                    "cost_custom6", "cost_custom7", "cost_custom8", "cost_custom9", "cost_custom10",
+                    # Add v3.0 cost fields
+                    "cost_minimum", "cost_maximum", "cost_currency_exchange_rate")
     @classmethod
     def _validate_cost_internal(cls, v: Optional[Decimal]) -> Optional[Decimal]:
         """
@@ -191,6 +333,12 @@ class LineItem(BaseModel):
                     "metric_add_to_cart", "metric_app_install", "metric_application_start", "metric_application_complete",
                     "metric_contact_us", "metric_download", "metric_signup", "metric_max_daily_spend",
                     "metric_max_daily_impressions", "metric_audience_size",
+                    # Add all the new v3.0 standard metrics
+                    "metric_view_starts", "metric_view_completions", "metric_reach", "metric_units",
+                    "metric_impression_share", "metric_page_views", "metric_likes", "metric_shares",
+                    "metric_comments", "metric_conversions",
+                    # Add v3.0 kpi_value
+                    "kpi_value",
                     # Custom metrics
                     "metric_custom1", "metric_custom2", "metric_custom3", "metric_custom4", "metric_custom5",
                     "metric_custom6", "metric_custom7", "metric_custom8", "metric_custom9", "metric_custom10")
@@ -346,42 +494,988 @@ class LineItem(BaseModel):
         """
         return self.validate()
 
-    @classmethod
-    def from_v0_lineitem(cls, v0_lineitem: Dict[str, Any]) -> "LineItem":
-        """
-        Convert a v0.0 line item dictionary to a v2.0 LineItem model.
+    # ========================================================================
+    # Formula Recalculation Methods (v3.0 - NEW)
+    # ========================================================================
 
-        Args:
-            v0_lineitem: Dictionary containing v0.0 line item data.
+    def get_dictionary(self) -> "Dictionary":
+        """
+        Get the dictionary from the parent MediaPlan.
+
+        This method provides access to the MediaPlan's dictionary for smart
+        metric methods without requiring users to pass it as a parameter.
 
         Returns:
-            A new LineItem instance with v2.0 structure.
+            Dictionary object from the parent MediaPlan
+
+        Raises:
+            ValueError: If this LineItem is not attached to a MediaPlan
+
+        Example:
+            >>> mediaplan = MediaPlan(...)
+            >>> lineitem = mediaplan.lineitems[0]
+            >>> dictionary = lineitem.get_dictionary()  # Auto-retrieves from parent
         """
-        # Extract the required fields
-        lineitem_data = {
-            "id": v0_lineitem["id"],
-            "name": v0_lineitem.get("id", ""),  # Use id as name if not available
-            "start_date": v0_lineitem["start_date"],
-            "end_date": v0_lineitem["end_date"],
-            "cost_total": v0_lineitem["budget"],  # Rename budget to cost_total
-        }
+        from mediaplanpy.models.dictionary import Dictionary
 
-        # Map optional fields
-        if "channel" in v0_lineitem:
-            lineitem_data["channel"] = v0_lineitem["channel"]
+        if self._mediaplan is None:
+            raise ValueError(
+                "This LineItem is not attached to a MediaPlan. "
+                "Smart metric methods require the LineItem to be part of a MediaPlan. "
+                "Please add this LineItem to a MediaPlan's lineitems list first."
+            )
 
-        if "platform" in v0_lineitem:
-            lineitem_data["vehicle"] = v0_lineitem["platform"]
+        return self._mediaplan.dictionary
 
-        if "publisher" in v0_lineitem:
-            lineitem_data["partner"] = v0_lineitem["publisher"]
+    def get_metric_formula_definition(self, metric_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get formula definition for this metric on THIS lineitem.
 
-        if "kpi" in v0_lineitem:
-            lineitem_data["kpi"] = v0_lineitem["kpi"]
+        Implements 3-tier hierarchy:
+        1. Check this lineitem's metric_formulas for override (highest priority)
+        2. Delegate to dictionary for plan-level definition (fallback)
+        3. Dictionary returns defaults (ultimate fallback)
 
-        # Handle creative_ids as a custom dimension
-        if "creative_ids" in v0_lineitem and v0_lineitem["creative_ids"]:
-            creative_ids_str = ",".join(v0_lineitem["creative_ids"])
-            lineitem_data["dim_custom1"] = f"creative_ids:{creative_ids_str}"
+        A lineitem override is valid if:
+        - formula_type is "constant": only formula_type is required (base_metric can be None)
+        - formula_type is other: BOTH formula_type AND base_metric must be non-null
 
-        return cls(**lineitem_data)
+        Args:
+            metric_name: Name of the metric (e.g., "metric_clicks")
+
+        Returns:
+            Dict with keys "formula_type" and "base_metric", or None if metric not found
+
+        Example:
+            >>> # Lineitem with override
+            >>> lineitem.metric_formulas = {
+            ...     "metric_clicks": MetricFormula(formula_type="cost_per_unit", base_metric="cost_total")
+            ... }
+            >>> lineitem.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "cost_per_unit", "base_metric": "cost_total"}
+
+            >>> # Lineitem without override - uses dictionary definition
+            >>> lineitem.metric_formulas = {}
+            >>> lineitem.get_metric_formula_definition("metric_clicks")
+            {"formula_type": "conversion_rate", "base_metric": "metric_impressions"}  # from dictionary
+        """
+        # TIER 1: Check this lineitem's metric_formulas for override
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+
+            # Override validation depends on formula_type:
+            # - constant: only needs formula_type (base_metric can be None)
+            # - all others: need both formula_type AND base_metric
+            if formula.formula_type == "constant":
+                # Constant formulas don't need base_metric
+                return {
+                    "formula_type": formula.formula_type,
+                    "base_metric": None  # Constants have no base metric
+                }
+            elif formula.formula_type and formula.base_metric:
+                # Non-constant formulas require both fields
+                return {
+                    "formula_type": formula.formula_type,
+                    "base_metric": formula.base_metric
+                }
+            # If incomplete (non-constant with missing base_metric), ignore the override and fall through to dictionary
+
+        # TIER 2 & 3: Delegate to dictionary (which handles defaults)
+        dictionary = self.get_dictionary()
+
+        # Handle None dictionary - use defaults for standard metrics, None for custom metrics
+        if dictionary is None:
+            from mediaplanpy.models.dictionary import Dictionary
+            # Check if it's a standard metric
+            if metric_name in Dictionary.VALID_STANDARD_METRIC_FIELDS:
+                # Return default formula definition
+                return {
+                    "formula_type": "cost_per_unit",
+                    "base_metric": "cost_total"
+                }
+            else:
+                # Custom metrics require dictionary configuration
+                return None
+
+        return dictionary.get_metric_formula_definition(metric_name)
+
+    def _get_relevant_metrics(self) -> Set[str]:
+        """
+        Get set of metrics that are relevant for this lineitem.
+
+        A metric is considered relevant if it either:
+        - Has a non-None value set on this lineitem, OR
+        - Has a formula defined in metric_formulas for this lineitem
+
+        This is used to filter dependency graphs to only process metrics that
+        are actually used, improving performance when a mediaplan only uses
+        a subset of the 25+ available standard metrics.
+
+        Returns:
+            Set of metric names (both standard and custom) that are relevant
+            for this lineitem.
+
+        Example:
+            >>> lineitem.metric_impressions = Decimal("1000000")
+            >>> lineitem.metric_clicks = Decimal("5000")
+            >>> lineitem.metric_custom1 = Decimal("100")
+            >>> lineitem._get_relevant_metrics()
+            {"metric_impressions", "metric_clicks", "metric_custom1"}
+        """
+        from mediaplanpy.models.dictionary import Dictionary
+
+        relevant = set()
+
+        # Get all valid standard metric field names
+        valid_standard_metrics = Dictionary.VALID_STANDARD_METRIC_FIELDS
+
+        # Check each standard metric
+        for metric_name in valid_standard_metrics:
+            # Check if has value
+            has_value = getattr(self, metric_name, None) is not None
+
+            # Check if has formula defined
+            has_formula = (
+                self.metric_formulas is not None and
+                metric_name in self.metric_formulas
+            )
+
+            # Include if either condition is true
+            if has_value or has_formula:
+                relevant.add(metric_name)
+
+        # Check custom metrics (metric_custom1-10) - same logic as standard metrics
+        custom_metric_fields = Dictionary.VALID_CUSTOM_METRIC_FIELDS
+        for metric_name in custom_metric_fields:
+            # Check if has value
+            has_value = getattr(self, metric_name, None) is not None
+
+            # Check if has formula defined
+            has_formula = (
+                self.metric_formulas is not None and
+                metric_name in self.metric_formulas
+            )
+
+            # Include if either condition is true
+            if has_value or has_formula:
+                relevant.add(metric_name)
+
+        return relevant
+
+    def _build_dependency_graph(self) -> Dict[str, Set[str]]:
+        """
+        Build dependency graph from this lineitem's metric formulas.
+
+        This method respects the 3-tier hierarchy:
+        1. Lineitem-level overrides (metric_formulas on this lineitem)
+        2. Dictionary-level definitions (from parent MediaPlan)
+        3. Defaults (cost_per_unit from cost_total)
+
+        Unlike dictionary.get_dependency_graph(), this method sees lineitem-specific
+        formula overrides and produces the correct chained graph structure.
+
+        Built fresh each time (no caching) to ensure accurate dependency tracking.
+
+        Returns:
+            Dict mapping base_metric -> set of dependent metric names.
+
+        Example:
+            >>> # Lineitem with override: sales depends on impressions (not cost_total)
+            >>> lineitem.metric_formulas = {
+            ...     "metric_sales": MetricFormula(
+            ...         formula_type="conversion_rate",
+            ...         base_metric="metric_impressions"
+            ...     )
+            ... }
+            >>> lineitem.metric_impressions = Decimal("1000000")
+            >>> lineitem.metric_sales = Decimal("5000")
+            >>>
+            >>> graph = lineitem._build_dependency_graph()
+            >>> graph
+            {
+                "cost_total": {"metric_impressions"},        # cost → impressions
+                "metric_impressions": {"metric_sales"}       # impressions → sales (CHAINED!)
+            }
+
+            >>> # Without override, both metrics depend on cost_total (flat graph)
+            >>> lineitem2 = LineItem(...)
+            >>> lineitem2.metric_impressions = Decimal("1000000")
+            >>> lineitem2.metric_sales = Decimal("5000")
+            >>> graph2 = lineitem2._build_dependency_graph()
+            >>> graph2
+            {
+                "cost_total": {"metric_impressions", "metric_sales"}  # Both depend on cost
+            }
+        """
+        graph: Dict[str, Set[str]] = {}
+
+        # Get relevant metrics for this lineitem
+        relevant_metrics = self._get_relevant_metrics()
+
+        # Build graph for each relevant metric using 3-tier hierarchy
+        for metric_name in sorted(relevant_metrics):  # Sort for deterministic order
+            # Get formula definition (respects 3-tier hierarchy)
+            # This is the KEY difference from dictionary.get_dependency_graph()
+            formula_def = self.get_metric_formula_definition(metric_name)
+
+            if formula_def:
+                formula_type = formula_def.get("formula_type")
+                base_metric = formula_def.get("base_metric")
+
+                # Skip constant formulas (they have no base metric)
+                if formula_type == "constant":
+                    continue
+
+                # Add edge: base_metric → metric_name
+                if base_metric:
+                    if base_metric not in graph:
+                        graph[base_metric] = set()
+                    graph[base_metric].add(metric_name)
+
+        return graph
+
+    def _topological_sort(
+        self,
+        dependency_graph: Dict[str, Set[str]],
+        start_metrics: List[str]
+    ) -> List[str]:
+        """
+        Topologically sort metrics to determine calculation order.
+
+        Uses depth-first search to visit metrics in dependency order, ensuring
+        that base metrics are calculated before their dependents.
+
+        Args:
+            dependency_graph: Dict mapping base_metric -> set of dependent metrics
+            start_metrics: List of metrics that changed (starting points for traversal)
+
+        Returns:
+            List of metric names in calculation order (dependencies before dependents)
+
+        Raises:
+            ValueError: If circular dependency detected
+
+        Example:
+            >>> graph = {
+            ...     "cost_total": {"metric_impressions", "metric_clicks"},
+            ...     "metric_clicks": {"metric_conversions"}
+            ... }
+            >>> lineitem._topological_sort(graph, ["cost_total"])
+            ["metric_impressions", "metric_clicks", "metric_conversions"]
+        """
+        result = []
+        visited = set()
+        visiting = set()  # Track nodes currently being visited (for cycle detection)
+
+        def visit(metric: str) -> None:
+            """
+            Recursively visit a metric and its dependents.
+
+            Args:
+                metric: Metric name to visit
+
+            Raises:
+                ValueError: If circular dependency detected
+            """
+            if metric in visited:
+                return  # Already processed
+
+            if metric in visiting:
+                # We're visiting a node that's already in our current path
+                raise ValueError(
+                    f"Circular dependency detected involving metric: {metric}. "
+                    f"Please check your metric formulas for circular references."
+                )
+
+            # Mark as currently being visited
+            visiting.add(metric)
+
+            # Visit all dependents of this metric
+            # Sort dependents to ensure deterministic order
+            dependents = dependency_graph.get(metric, set())
+            for dependent in sorted(dependents):
+                visit(dependent)
+
+            # Done visiting this metric and its dependents
+            visiting.remove(metric)
+            visited.add(metric)
+            result.append(metric)
+
+        # Start DFS from each starting metric
+        for metric in start_metrics:
+            # Visit each dependent of the starting metric
+            # Sort dependents to ensure deterministic order
+            dependents = dependency_graph.get(metric, set())
+            for dependent in sorted(dependents):
+                visit(dependent)
+
+        # Reverse the result to get correct topological order
+        # (DFS post-order gives us reverse order)
+        return list(reversed(result))
+
+    def _calculate_metric_from_formula(
+        self,
+        metric_name: str,
+        dictionary: "Dictionary"
+    ) -> Optional[Decimal]:
+        """
+        Calculate a metric's value from its formula.
+
+        Uses the formula definition from the dictionary and the coefficient/parameters
+        from this lineitem's metric_formulas.
+
+        Args:
+            metric_name: Name of the metric to calculate
+            dictionary: Dictionary object containing formula definitions
+
+        Returns:
+            Calculated Decimal value, or None if calculation fails
+
+        Raises:
+            ValueError: If formula_type is invalid or circular dependency detected
+        """
+        from decimal import Decimal, InvalidOperation
+        from mediaplanpy.models.dictionary import Dictionary
+
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
+
+        # Use defaults if no formula definition exists
+        if formula_def is None:
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
+        else:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
+
+        # Get coefficient and parameters from lineitem's metric_formulas
+        coefficient = Decimal("0")
+        parameter1 = Decimal("1.0")
+
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+            if formula.coefficient is not None:
+                # Ensure coefficient is a Decimal (convert if needed)
+                coefficient = Decimal(str(formula.coefficient))
+            if formula.parameter1 is not None:
+                # Ensure parameter1 is a Decimal (convert if needed)
+                parameter1 = Decimal(str(formula.parameter1))
+
+        # Handle constant formula type (no base metric needed)
+        if formula_type == "constant":
+            return coefficient
+
+        # Get base metric value
+        base_value = getattr(self, base_metric, None)
+        if base_value is None:
+            # Base metric has no value, cannot calculate
+            return None
+
+        # Apply formula based on formula_type
+        try:
+            if formula_type == "cost_per_unit":
+                # metric_value = base / coefficient
+                # Example: cost_total = 10000, coefficient = 0.008 → impressions = 1,250,000
+                if coefficient == 0:
+                    # Division by zero, cannot calculate
+                    return None
+                return base_value / coefficient
+
+            elif formula_type == "conversion_rate":
+                # metric_value = base * coefficient
+                # Example: clicks = 5000, coefficient = 0.02 → conversions = 100
+                return base_value * coefficient
+
+            elif formula_type == "power_function":
+                # metric_value = coefficient * (base ^ parameter1)
+                # Example: base = 1000, coeff = 2.0, param1 = 0.5 → metric = 63.24
+                try:
+                    # Convert to float for power operation, then back to Decimal
+                    base_float = float(base_value)
+                    param_float = float(parameter1)
+                    coeff_float = float(coefficient)
+
+                    result_float = coeff_float * (base_float ** param_float)
+                    return Decimal(str(result_float))
+                except (ValueError, OverflowError, InvalidOperation):
+                    # Power operation failed (negative base with fractional exponent, etc.)
+                    return None
+
+            else:
+                raise ValueError(
+                    f"Invalid formula_type '{formula_type}' for metric '{metric_name}'. "
+                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function"
+                )
+
+        except (InvalidOperation, ZeroDivisionError, ValueError) as e:
+            # Calculation failed, return None
+            return None
+
+    def _reverse_calculate_coefficient(
+        self,
+        metric_name: str,
+        metric_value: Decimal,
+        dictionary: "Dictionary"
+    ) -> Optional[Decimal]:
+        """
+        Reverse-calculate the coefficient from a metric value and base metric.
+
+        Used when a user sets a metric value and we need to calculate what
+        coefficient would produce that value given the base metric.
+
+        Args:
+            metric_name: Name of the metric
+            metric_value: The desired metric value
+            dictionary: Dictionary object containing formula definitions
+
+        Returns:
+            Calculated coefficient as Decimal, or None if calculation fails
+
+        Raises:
+            ValueError: If formula_type is invalid
+        """
+        from decimal import Decimal, InvalidOperation
+        from mediaplanpy.models.dictionary import Dictionary
+
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
+
+        # Use defaults if no formula definition exists
+        if formula_def is None:
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
+        else:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
+
+        # Ensure metric_value is a Decimal
+        if not isinstance(metric_value, Decimal):
+            metric_value = Decimal(str(metric_value))
+
+        # Handle constant formula type (coefficient = metric_value)
+        if formula_type == "constant":
+            return metric_value
+
+        # Get base metric value
+        base_value = getattr(self, base_metric, None)
+        if base_value is None:
+            # Base metric has no value, cannot calculate
+            return None
+
+        # Get parameter1 if needed (for power_function)
+        parameter1 = Decimal("1.0")
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+            if formula.parameter1 is not None:
+                parameter1 = Decimal(str(formula.parameter1))
+
+        # Apply reverse formula based on formula_type
+        try:
+            if formula_type == "cost_per_unit":
+                # coefficient = base / metric
+                # Example: cost_total = 10000, impressions = 1,250,000 → CPU = 0.008
+                if metric_value == 0:
+                    # Division by zero, cannot calculate
+                    return None
+                return base_value / metric_value
+
+            elif formula_type == "conversion_rate":
+                # coefficient = metric / base
+                # Example: conversions = 100, clicks = 5000 → rate = 0.02
+                if base_value == 0:
+                    # Division by zero, cannot calculate
+                    return None
+                return metric_value / base_value
+
+            elif formula_type == "power_function":
+                # coefficient = metric / (base ^ parameter1)
+                # Example: metric = 2000, base = 1000, param1 = 0.5 → coeff = 63.24
+                try:
+                    # Convert to float for power operation, then back to Decimal
+                    base_float = float(base_value)
+                    param_float = float(parameter1)
+                    metric_float = float(metric_value)
+
+                    denominator = base_float ** param_float
+                    if denominator == 0:
+                        return None
+
+                    result_float = metric_float / denominator
+                    return Decimal(str(result_float))
+                except (ValueError, OverflowError, InvalidOperation, ZeroDivisionError):
+                    # Power operation failed
+                    return None
+
+            else:
+                raise ValueError(
+                    f"Invalid formula_type '{formula_type}' for metric '{metric_name}'. "
+                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function"
+                )
+
+        except (InvalidOperation, ZeroDivisionError, ValueError) as e:
+            # Calculation failed, return None
+            return None
+
+    def _update_dependent_coefficients(
+        self,
+        metric_name: str,
+        dictionary: "Dictionary"
+    ) -> None:
+        """
+        Update coefficients for metrics that depend on metric_name.
+
+        Called BEFORE changing a base metric value to ensure dependent metrics
+        without formulas get their coefficients calculated and stored using the
+        CURRENT (old) base metric value.
+
+        Critical for workflow: preserve coefficients → change base → recalculate
+
+        Args:
+            metric_name: Base metric being changed (e.g., "cost_total")
+            dictionary: Dictionary containing formula definitions
+        """
+        from mediaplanpy.models.metric_formula import MetricFormula
+
+        # Build dependency graph for this lineitem (respects lineitem-level overrides)
+        dependency_graph = self._build_dependency_graph()
+
+        # Find metrics that depend on the one being changed
+        dependent_metrics = dependency_graph.get(metric_name, set())
+
+        for dependent_metric in dependent_metrics:
+            # Skip if formula already exists
+            if self.metric_formulas and dependent_metric in self.metric_formulas:
+                continue
+
+            # Get current value of dependent metric
+            dependent_value = getattr(self, dependent_metric, None)
+            if dependent_value is None or dependent_value == 0:
+                continue
+
+            # Reverse-calculate coefficient from current values
+            coefficient = self._reverse_calculate_coefficient(
+                dependent_metric,
+                dependent_value,
+                dictionary
+            )
+
+            if coefficient is not None and coefficient != 0:
+                # Create formula with calculated coefficient
+                if self.metric_formulas is None:
+                    self.metric_formulas = {}
+
+                # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+                formula_def = self.get_metric_formula_definition(dependent_metric)
+
+                if formula_def:
+                    formula_type = formula_def.get("formula_type", "cost_per_unit")
+                    base_metric_name = formula_def.get("base_metric", "cost_total")
+                else:
+                    formula_type = "cost_per_unit"
+                    base_metric_name = "cost_total"
+
+                self.metric_formulas[dependent_metric] = MetricFormula(
+                    formula_type=formula_type,
+                    base_metric=base_metric_name,
+                    coefficient=coefficient
+                )
+
+    def _recalculate_dependent_metrics(
+        self,
+        start_metrics: List[str],
+        dictionary: "Dictionary"
+    ) -> Dict[str, Decimal]:
+        """
+        Recalculate all metrics that depend on the given start_metrics.
+
+        This is the orchestration method that:
+        1. Gets relevant metrics from this lineitem
+        2. Gets the dependency graph from the dictionary (filtered)
+        3. Performs topological sort to determine calculation order
+        4. Recalculates each dependent metric in order
+        5. Updates metric values on this lineitem
+
+        Args:
+            start_metrics: List of metric names that changed (triggers recalculation)
+                          These metrics were explicitly set and won't be recalculated.
+                          Only their dependents will be recalculated.
+            dictionary: Dictionary object containing formula definitions
+
+        Returns:
+            Dictionary mapping metric names to their new calculated values
+
+        Raises:
+            ValueError: If circular dependency detected
+        """
+        from decimal import Decimal
+        from mediaplanpy.models.dictionary import Dictionary
+
+        # Build dependency graph for this lineitem (respects lineitem-level overrides)
+        dependency_graph = self._build_dependency_graph()
+
+        # Perform topological sort to determine calculation order
+        try:
+            sorted_metrics = self._topological_sort(dependency_graph, start_metrics)
+        except ValueError as e:
+            # Circular dependency detected, re-raise with context
+            raise ValueError(f"Cannot recalculate metrics: {e}") from e
+
+        # Recalculate each metric in order and collect results
+        recalculated = {}
+
+        for metric_name in sorted_metrics:
+            # Calculate new value from formula
+            new_value = self._calculate_metric_from_formula(metric_name, dictionary)
+
+            if new_value is not None:
+                # Update the metric value on this lineitem
+                setattr(self, metric_name, new_value)
+                recalculated[metric_name] = new_value
+
+        return recalculated
+
+    def set_metric_value(
+        self,
+        metric_name: str,
+        value: Decimal,
+        recalculate_dependents: bool = True,
+        update_coefficient: bool = True
+    ) -> Dict[str, Decimal]:
+        """
+        Set a metric value with optional automatic recalculation.
+
+        This is the primary method for setting metric values when you want
+        automatic recalculation of dependent metrics. The dictionary is
+        automatically retrieved from the parent MediaPlan.
+
+        Args:
+            metric_name: Name of the metric to set (e.g., "metric_impressions")
+            value: The value to set (must be Decimal)
+            recalculate_dependents: If True (default), recalculate metrics that
+                                   depend on this metric
+            update_coefficient: If True (default), reverse-calculate and update
+                               the coefficient for this metric's formula. Set to
+                               False only when loading data or for metrics without formulas.
+
+        Returns:
+            Dictionary mapping metric names to their new calculated values
+            (empty dict if recalculate_dependents=False)
+
+        Raises:
+            ValueError: If metric_name is invalid, LineItem not attached to MediaPlan,
+                       or circular dependency detected
+
+        Example:
+            >>> mediaplan = MediaPlan(...)
+            >>> lineitem = mediaplan.lineitems[0]
+            >>>
+            >>> # Set cost_total and recalculate all dependents
+            >>> lineitem.set_metric_value("cost_total", Decimal("15000"))
+            {"metric_impressions": Decimal("1875000"), "metric_clicks": Decimal("46875")}
+            >>>
+            >>> # Set impressions and update its coefficient (default behavior)
+            >>> lineitem.set_metric_value("metric_impressions", Decimal("2000000"))
+            {"metric_conversions": Decimal("2000")}  # Conversions depends on impressions
+        """
+        from decimal import Decimal
+        from mediaplanpy.models.dictionary import Dictionary
+
+        # Get dictionary from parent MediaPlan
+        dictionary = self.get_dictionary()
+
+        # Validate metric name exists as an attribute
+        if not hasattr(self, metric_name):
+            raise ValueError(
+                f"Invalid metric name '{metric_name}'. "
+                f"Metric must be a valid LineItem attribute."
+            )
+
+        # Ensure value is a Decimal
+        if not isinstance(value, Decimal):
+            value = Decimal(str(value))
+
+        # CRITICAL: Update coefficients for dependents BEFORE changing the value
+        # This preserves coefficients using the CURRENT (old) value of the base metric
+        if recalculate_dependents:
+            self._update_dependent_coefficients(metric_name, dictionary)
+
+        # Set the metric value
+        setattr(self, metric_name, value)
+
+        # Optionally update the coefficient (reverse-calculate)
+        # Skip for cost fields - they are base metrics and don't have formulas
+        if update_coefficient and not metric_name.startswith("cost_"):
+            new_coefficient = self._reverse_calculate_coefficient(
+                metric_name, value, dictionary
+            )
+            if new_coefficient is not None:
+                # Update or create the formula with the new coefficient
+                if self.metric_formulas is None:
+                    self.metric_formulas = {}
+                
+                if metric_name in self.metric_formulas:
+                    # Update existing formula's coefficient
+                    self.metric_formulas[metric_name].coefficient = new_coefficient
+                else:
+                    # Create new formula with calculated coefficient
+                    from mediaplanpy.models.metric_formula import MetricFormula
+
+                    # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+                    formula_def = self.get_metric_formula_definition(metric_name)
+
+                    # Use formula_def if exists, otherwise use defaults
+                    if formula_def:
+                        formula_type = formula_def.get("formula_type", "cost_per_unit")
+                        base_metric = formula_def.get("base_metric", "cost_total")
+                    else:
+                        formula_type = "cost_per_unit"
+                        base_metric = "cost_total"
+
+                    self.metric_formulas[metric_name] = MetricFormula(
+                        formula_type=formula_type,
+                        base_metric=base_metric,
+                        coefficient=new_coefficient
+                    )
+
+        # Optionally recalculate dependent metrics
+        if recalculate_dependents:
+            recalculated = self._recalculate_dependent_metrics([metric_name], dictionary)
+            return recalculated
+        
+        return {}
+
+    def configure_metric_formula(
+        self,
+        metric_name: str,
+        coefficient: Optional[Decimal] = None,
+        parameter1: Optional[Decimal] = None,
+        parameter2: Optional[Decimal] = None,
+        comments: Optional[str] = None,
+        formula_type: Optional[str] = None,
+        base_metric: Optional[str] = None,
+        recalculate_value: bool = True,
+        recalculate_dependents: bool = True
+    ) -> Dict[str, Decimal]:
+        """
+        Configure formula parameters for a metric, optionally creating a lineitem-level override.
+
+        NEW in v3.0.1: formula_type and base_metric parameters allow creating
+        lineitem-level formula overrides that differ from dictionary defaults.
+
+        This method allows configuring the coefficient, parameter1, parameter2,
+        comments, and optionally formula_type and base_metric for a metric's formula.
+
+        To create a lineitem-level override, provide BOTH formula_type AND base_metric.
+        Providing only one will result in an error.
+
+        Args:
+            metric_name: Name of the metric to configure formula for
+            coefficient: New coefficient value (None = no change)
+            parameter1: New parameter1 value (None = no change)
+            parameter2: New parameter2 value (None = no change)
+            comments: New comments (None = no change)
+            formula_type: Optional formula type to override dictionary definition.
+                         Must provide both formula_type and base_metric together.
+            base_metric: Optional base metric to override dictionary definition.
+                        Must provide both formula_type and base_metric together.
+            recalculate_value: If True (default), recalculate this metric's value
+                              from the new formula
+            recalculate_dependents: If True (default), recalculate metrics that
+                                   depend on this metric
+
+        Returns:
+            Dictionary mapping metric names to their new calculated values
+
+        Raises:
+            ValueError: If metric_name is invalid, LineItem not attached to MediaPlan,
+                       only one of formula_type/base_metric is provided,
+                       or circular dependency detected
+
+        Examples:
+            >>> mediaplan = MediaPlan(...)
+            >>> lineitem = mediaplan.lineitems[0]
+            >>>
+            >>> # Create lineitem-level override with both formula_type and base_metric
+            >>> lineitem.configure_metric_formula(
+            ...     "metric_clicks",
+            ...     coefficient=Decimal("0.02"),
+            ...     formula_type="conversion_rate",
+            ...     base_metric="metric_impressions"
+            ... )
+            >>>
+            >>> # Configure CPM coefficient for impressions (uses dictionary formula)
+            >>> lineitem.configure_metric_formula("metric_impressions",
+            ...                                    coefficient=Decimal("0.010"))
+            {"metric_impressions": Decimal("1000000"), "metric_conversions": Decimal("10")}
+            >>>
+            >>> # ERROR: Providing only one property
+            >>> lineitem.configure_metric_formula(
+            ...     "metric_clicks",
+            ...     formula_type="conversion_rate"  # Missing base_metric!
+            ... )
+            ValueError: Both formula_type and base_metric must be provided together
+        """
+        from decimal import Decimal
+        from mediaplanpy.models.metric_formula import MetricFormula
+
+        # Get dictionary from parent MediaPlan
+        dictionary = self.get_dictionary()
+
+        # Validate metric name exists as an attribute
+        if not hasattr(self, metric_name):
+            raise ValueError(
+                f"Invalid metric name '{metric_name}'. "
+                f"Metric must be a valid LineItem attribute."
+            )
+
+        # Validate override parameters - both must be provided together or neither
+        if (formula_type is None) != (base_metric is None):
+            raise ValueError(
+                "Both formula_type and base_metric must be provided together to create "
+                "a lineitem-level override. Provide both or neither."
+            )
+
+        # Initialize metric_formulas dict if needed
+        if self.metric_formulas is None:
+            self.metric_formulas = {}
+
+        # Get existing formula or create new one
+        if metric_name in self.metric_formulas:
+            # Update existing formula
+            formula = self.metric_formulas[metric_name]
+
+            # Update formula_type and base_metric if provided
+            if formula_type is not None:
+                formula.formula_type = formula_type
+            if base_metric is not None:
+                formula.base_metric = base_metric
+
+            # Update other properties
+            if coefficient is not None:
+                formula.coefficient = Decimal(str(coefficient))
+            if parameter1 is not None:
+                formula.parameter1 = Decimal(str(parameter1))
+            if parameter2 is not None:
+                formula.parameter2 = Decimal(str(parameter2))
+            if comments is not None:
+                formula.comments = comments
+        else:
+            # Create new formula
+            # If override provided, use it; otherwise get from dictionary hierarchy
+            if formula_type is not None and base_metric is not None:
+                # Use provided override
+                use_formula_type = formula_type
+                use_base_metric = base_metric
+            else:
+                # Get from dictionary hierarchy (lineitem override → dictionary → defaults)
+                formula_def = self.get_metric_formula_definition(metric_name)
+                if formula_def:
+                    use_formula_type = formula_def.get("formula_type", "cost_per_unit")
+                    use_base_metric = formula_def.get("base_metric", "cost_total")
+                else:
+                    # Use defaults when no formula definition exists
+                    use_formula_type = "cost_per_unit"
+                    use_base_metric = "cost_total"
+
+            # Create new formula with determined or provided formula_type and base_metric
+            self.metric_formulas[metric_name] = MetricFormula(
+                formula_type=use_formula_type,
+                base_metric=use_base_metric,
+                coefficient=Decimal(str(coefficient)) if coefficient is not None else None,
+                parameter1=Decimal(str(parameter1)) if parameter1 is not None else None,
+                parameter2=Decimal(str(parameter2)) if parameter2 is not None else None,
+                comments=comments
+            )
+
+        recalculated = {}
+
+        # Optionally recalculate this metric's value from the new formula
+        if recalculate_value:
+            new_value = self._calculate_metric_from_formula(metric_name, dictionary)
+            if new_value is not None:
+                setattr(self, metric_name, new_value)
+                recalculated[metric_name] = new_value
+
+        # Optionally recalculate dependent metrics
+        if recalculate_dependents:
+            dependent_recalculated = self._recalculate_dependent_metrics([metric_name], dictionary)
+            recalculated.update(dependent_recalculated)
+
+        return recalculated
+
+    def get_metric_object(self, metric_name: str) -> MetricValue:
+        """
+        Get a read-only MetricValue object for a metric.
+
+        This method returns a convenient wrapper object that provides access to
+        both the metric's value and its complete formula definition (including
+        formula_type and base_metric from the dictionary, and coefficient/parameters
+        from the lineitem).
+
+        Args:
+            metric_name: Name of the metric (e.g., "metric_impressions")
+
+        Returns:
+            MetricValue object with value and formula information
+
+        Raises:
+            ValueError: If metric_name is invalid or LineItem not attached to MediaPlan
+
+        Example:
+            >>> mediaplan = MediaPlan(...)
+            >>> lineitem = mediaplan.lineitems[0]
+            >>>
+            >>> # Get metric object
+            >>> impressions = lineitem.get_metric_object("metric_impressions")
+            >>> print(f"Value: {impressions.value}")
+            >>> print(f"CPM: {float(impressions.cpm):.2f}")
+            >>> print(f"Formula: {impressions.formula_type} from {impressions.base_metric}")
+        """
+        # Get dictionary from parent MediaPlan
+        dictionary = self.get_dictionary()
+
+        # Validate metric name exists as an attribute
+        if not hasattr(self, metric_name):
+            raise ValueError(
+                f"Invalid metric name '{metric_name}'. "
+                f"Metric must be a valid LineItem attribute."
+            )
+
+        # Get metric value
+        value = getattr(self, metric_name, None)
+
+        # Get formula definition (3-tier hierarchy: lineitem override → dictionary → defaults)
+        formula_def = self.get_metric_formula_definition(metric_name)
+
+        # Extract formula_type and base_metric from dictionary or use defaults
+        if formula_def:
+            formula_type = formula_def.get("formula_type", "cost_per_unit")
+            base_metric = formula_def.get("base_metric", "cost_total")
+        else:
+            # Use defaults when no formula definition exists
+            formula_type = "cost_per_unit"
+            base_metric = "cost_total"
+
+        # Get formula parameters from lineitem's metric_formulas
+        coefficient = None
+        parameter1 = None
+        parameter2 = None
+        comments = None
+
+        if self.metric_formulas and metric_name in self.metric_formulas:
+            formula = self.metric_formulas[metric_name]
+            coefficient = formula.coefficient
+            parameter1 = formula.parameter1
+            parameter2 = formula.parameter2
+            comments = formula.comments
+
+        # Create and return MetricValue wrapper
+        return MetricValue(
+            value=value,
+            formula_type=formula_type,
+            base_metric=base_metric,
+            coefficient=coefficient,
+            parameter1=parameter1,
+            parameter2=parameter2,
+            comments=comments
+        )
