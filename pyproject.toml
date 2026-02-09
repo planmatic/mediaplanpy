@@ -50,8 +50,8 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/laurent-colard-l5i/mediaplanpy"
-"Bug Tracker" = "https://github.com/laurent-colard-l5i/mediaplanpy/issues"
+"Homepage" = "https://github.com/planmatic/mediaplanpy"
+"Bug Tracker" = "https://github.com/planmatic/mediaplanpy/issues"
 
 [project.scripts]
 mediaplanpy = "mediaplanpy.cli:main"
