@@ -309,22 +309,22 @@ def list_mediaplans_with_filters(manager):
 
     print(f"\nQuerying plans with budget > $50,000...")
 
-    # Note: For range filters, you can use SQL directly via sql_query()
-    # For simple filters, use the filters parameter
-    all_plans = manager.list_mediaplans(return_dataframe=True)
+    # Use the filters parameter with range filter (min/max)
+    filtered_plans = manager.list_mediaplans(
+        filters={"campaign_budget_total": {"min": 50000}},
+        return_dataframe=True
+    )
 
-    if len(all_plans) > 0:
-        filtered_plans = all_plans[all_plans['campaign_budget_total'] > 50000]
+    if len(filtered_plans) > 0:
         print(f"✓ Found {len(filtered_plans)} plans with budget > $50,000")
 
-        if len(filtered_plans) > 0:
-            print(f"\nTop plan by budget:")
-            top_plan = filtered_plans.nlargest(1, 'campaign_budget_total').iloc[0]
-            print(f"  - Name: {top_plan['meta_name']}")
-            print(f"  - Campaign: {top_plan['campaign_name']}")
-            print(f"  - Budget: ${top_plan['campaign_budget_total']:,.2f}")
+        print(f"\nTop plan by budget:")
+        top_plan = filtered_plans.nlargest(1, 'campaign_budget_total').iloc[0]
+        print(f"  - Name: {top_plan['meta_name']}")
+        print(f"  - Campaign: {top_plan['campaign_name']}")
+        print(f"  - Budget: ${top_plan['campaign_budget_total']:,.2f}")
     else:
-        print(f"No media plans found in workspace")
+        print(f"No media plans found matching filter")
 
     # ====================
     # FILTER 2: Campaign objective
@@ -335,20 +335,20 @@ def list_mediaplans_with_filters(manager):
 
     print(f"\nQuerying plans with 'awareness' objective...")
 
-    if len(all_plans) > 0:
-        # Filter by objective containing 'awareness' (case insensitive)
-        filtered_plans = all_plans[
-            all_plans['campaign_objective'].str.contains('awareness', case=False, na=False)
-        ]
+    # Use the filters parameter with exact match on objective
+    filtered_plans = manager.list_mediaplans(
+        filters={"campaign_objective": "awareness"},
+        return_dataframe=True
+    )
 
-        print(f"✓ Found {len(filtered_plans)} plans with 'awareness' objective")
+    print(f"✓ Found {len(filtered_plans)} plans with 'awareness' objective")
 
-        if len(filtered_plans) > 0:
-            print(f"\nObjectives found:")
-            objectives = filtered_plans['campaign_objective'].unique()
-            for obj in objectives:
-                count = len(filtered_plans[filtered_plans['campaign_objective'] == obj])
-                print(f"  - {obj}: {count} plan(s)")
+    if len(filtered_plans) > 0:
+        print(f"\nObjectives found:")
+        objectives = filtered_plans['campaign_objective'].unique()
+        for obj in objectives:
+            count = len(filtered_plans[filtered_plans['campaign_objective'] == obj])
+            print(f"  - {obj}: {count} plan(s)")
 
     # ====================
     # FILTER 3: Date range
@@ -359,21 +359,18 @@ def list_mediaplans_with_filters(manager):
 
     print(f"\nQuerying plans starting in 2025...")
 
-    if len(all_plans) > 0:
-        # Convert date column to datetime if needed
-        import pandas as pd
-        all_plans['campaign_start_date'] = pd.to_datetime(all_plans['campaign_start_date'])
+    # Use the filters parameter with date range filter
+    filtered_plans = manager.list_mediaplans(
+        filters={"campaign_start_date": {"min": "2025-01-01", "max": "2025-12-31"}},
+        return_dataframe=True
+    )
 
-        filtered_plans = all_plans[
-            all_plans['campaign_start_date'].dt.year == 2025
-        ]
+    print(f"✓ Found {len(filtered_plans)} plans starting in 2025")
 
-        print(f"✓ Found {len(filtered_plans)} plans starting in 2025")
-
-        if len(filtered_plans) > 0:
-            print(f"\nDate range:")
-            print(f"  - Earliest: {filtered_plans['campaign_start_date'].min()}")
-            print(f"  - Latest: {filtered_plans['campaign_start_date'].max()}")
+    if len(filtered_plans) > 0:
+        print(f"\nDate range:")
+        print(f"  - Earliest: {filtered_plans['campaign_start_date'].min()}")
+        print(f"  - Latest: {filtered_plans['campaign_start_date'].max()}")
 
     # ====================
     # FILTER 4: Custom dimensions
@@ -382,21 +379,24 @@ def list_mediaplans_with_filters(manager):
     print("Filter 4: Custom Dimensions")
     print("-"*60)
 
-    print(f"\nQuerying plans with campaign_dim_custom1 set...")
+    print(f"\nQuerying plans with campaign_dim_custom1 matching 'Campaign Type'...")
 
-    if len(all_plans) > 0:
-        filtered_plans = all_plans[all_plans['campaign_dim_custom1'].notna()]
+    # Use the filters parameter with regex filter on custom dimension
+    filtered_plans = manager.list_mediaplans(
+        filters={"campaign_dim_custom1": {"regex": "^Campaign Type.*"}},
+        return_dataframe=True
+    )
 
-        print(f"✓ Found {len(filtered_plans)} plans with campaign_dim_custom1")
+    print(f"✓ Found {len(filtered_plans)} plans with matching campaign_dim_custom1")
 
-        if len(filtered_plans) > 0:
-            print(f"\nCustom dimension values:")
-            values = filtered_plans['campaign_dim_custom1'].unique()
-            for val in values[:5]:  # Show first 5
-                count = len(filtered_plans[filtered_plans['campaign_dim_custom1'] == val])
-                print(f"  - {val}: {count} plan(s)")
-            if len(values) > 5:
-                print(f"  ... and {len(values) - 5} more")
+    if len(filtered_plans) > 0:
+        print(f"\nCustom dimension values:")
+        values = filtered_plans['campaign_dim_custom1'].unique()
+        for val in values[:5]:  # Show first 5
+            count = len(filtered_plans[filtered_plans['campaign_dim_custom1'] == val])
+            print(f"  - {val}: {count} plan(s)")
+        if len(values) > 5:
+            print(f"  ... and {len(values) - 5} more")
 
     # ====================
     # FILTER 5: Version status
@@ -407,19 +407,24 @@ def list_mediaplans_with_filters(manager):
 
     print(f"\nQuerying current (non-archived) plans...")
 
-    if len(all_plans) > 0:
-        filtered_plans = all_plans[
-            (all_plans['meta_is_current'] == True) &
-            (all_plans['meta_is_archived'] == False)
-        ]
+    # Use the filters parameter with exact match on version fields
+    all_plans = manager.list_mediaplans(return_dataframe=True)
+    filtered_plans = manager.list_mediaplans(
+        filters={"meta_is_current": True, "meta_is_archived": False},
+        return_dataframe=True
+    )
 
-        print(f"✓ Found {len(filtered_plans)} current, non-archived plans")
+    print(f"✓ Found {len(filtered_plans)} current, non-archived plans")
 
-        if len(filtered_plans) > 0:
-            print(f"\nVersion info:")
-            print(f"  - Total plans in workspace: {len(all_plans)}")
-            print(f"  - Current plans: {len(filtered_plans)}")
-            print(f"  - Archived: {len(all_plans[all_plans['meta_is_archived'] == True])}")
+    if len(filtered_plans) > 0:
+        print(f"\nVersion info:")
+        print(f"  - Total plans in workspace: {len(all_plans)}")
+        print(f"  - Current plans: {len(filtered_plans)}")
+        archived = manager.list_mediaplans(
+            filters={"meta_is_archived": True},
+            return_dataframe=True
+        )
+        print(f"  - Archived: {len(archived)}")
 
     print(f"\n✓ Successfully demonstrated filtering media plans")
 
