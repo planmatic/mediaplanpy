@@ -359,3 +359,135 @@ class TestQueryEdgeCases:
         from mediaplanpy.exceptions import WorkspaceError
         with pytest.raises(WorkspaceError):
             workspace_manager.list_mediaplans()
+
+
+class TestSQLWorkspaceIsolation:
+    """Test SQL query validation for workspace isolation safety.
+
+    These tests verify that queries which could bypass the workspace_id
+    filter injection are properly rejected. The _add_workspace_filter()
+    method only modifies the first/outermost WHERE clause, so queries
+    with multiple SELECT statements, UNION, or semicolons could leak
+    data across workspaces in a multi-tenant database.
+    """
+
+    def _validate(self, query):
+        """Helper to call _validate_sql_safety directly."""
+        from mediaplanpy.workspace.query import _validate_sql_safety
+        _validate_sql_safety(query)
+
+    # --- Valid queries that SHOULD pass ---
+
+    def test_simple_select_passes(self):
+        """Simple SELECT query should pass validation."""
+        self._validate("SELECT * FROM {*}")
+
+    def test_select_with_where_passes(self):
+        """SELECT with WHERE clause should pass."""
+        self._validate("SELECT * FROM {*} WHERE campaign_name = 'test'")
+
+    def test_select_with_group_by_passes(self):
+        """SELECT with GROUP BY should pass."""
+        self._validate("SELECT campaign_id, COUNT(*) FROM {*} GROUP BY campaign_id")
+
+    def test_select_with_order_and_limit_passes(self):
+        """SELECT with ORDER BY and LIMIT should pass."""
+        self._validate("SELECT * FROM {*} ORDER BY campaign_name LIMIT 10")
+
+    def test_string_literal_containing_select_passes(self):
+        """String literal containing 'SELECT' keyword should not trigger false positive."""
+        self._validate("SELECT * FROM {*} WHERE name = 'SELECT something'")
+
+    def test_string_literal_containing_union_passes(self):
+        """String literal containing 'UNION' keyword should not trigger false positive."""
+        self._validate("SELECT * FROM {*} WHERE description = 'UNION of campaigns'")
+
+    def test_string_literal_containing_semicolon_passes(self):
+        """String literal containing semicolon should not trigger false positive."""
+        self._validate("SELECT * FROM {*} WHERE notes = 'item1; item2; item3'")
+
+    # --- UNION queries that SHOULD be rejected ---
+
+    def test_union_select_rejected(self):
+        """UNION SELECT should be rejected to prevent workspace isolation bypass."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="UNION"):
+            self._validate("SELECT * FROM {*} UNION SELECT * FROM media_plans")
+
+    def test_union_all_rejected(self):
+        """UNION ALL should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="UNION"):
+            self._validate("SELECT * FROM {*} UNION ALL SELECT * FROM media_plans")
+
+    def test_union_case_insensitive(self):
+        """UNION detection should be case-insensitive."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="UNION"):
+            self._validate("SELECT * FROM {*} union select * FROM media_plans")
+
+    # --- Semicolon (multiple statements) that SHOULD be rejected ---
+
+    def test_semicolon_multiple_statements_rejected(self):
+        """Multiple SQL statements via semicolons should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="semicolon"):
+            self._validate("SELECT * FROM {*}; SELECT * FROM media_plans")
+
+    def test_trailing_semicolon_rejected(self):
+        """Even a trailing semicolon should be rejected as a precaution."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="semicolon"):
+            self._validate("SELECT * FROM {*};")
+
+    # --- Subqueries (multiple SELECTs) that SHOULD be rejected ---
+
+    def test_subquery_in_where_rejected(self):
+        """Subquery in WHERE clause should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="[Ss]ubquer"):
+            self._validate(
+                "SELECT * FROM {*} WHERE campaign_id IN (SELECT campaign_id FROM media_plans)"
+            )
+
+    def test_subquery_in_from_rejected(self):
+        """Subquery in FROM clause should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="[Ss]ubquer"):
+            self._validate("SELECT * FROM (SELECT * FROM {*}) AS sub")
+
+    def test_scalar_subquery_rejected(self):
+        """Scalar subquery in SELECT list should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="[Ss]ubquer"):
+            self._validate(
+                "SELECT *, (SELECT COUNT(*) FROM media_plans) AS total FROM {*}"
+            )
+
+    def test_exists_subquery_rejected(self):
+        """EXISTS subquery should be rejected."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="[Ss]ubquer"):
+            self._validate(
+                "SELECT * FROM {*} WHERE EXISTS (SELECT 1 FROM media_plans WHERE workspace_id = 'other')"
+            )
+
+    def test_cte_with_subquery_rejected(self):
+        """CTE (WITH clause) containing SELECT should be rejected (two SELECTs total)."""
+        from mediaplanpy.exceptions import SQLQueryError
+        with pytest.raises(SQLQueryError, match="[Ss]ubquer"):
+            self._validate(
+                "WITH all_data AS (SELECT * FROM media_plans) SELECT * FROM {*}"
+            )
+
+    # --- Comments should not hide dangerous keywords ---
+
+    def test_union_in_line_comment_still_safe(self):
+        """UNION hidden in a line comment should be stripped and not affect the query.
+        A single SELECT after comment stripping should pass."""
+        # The comment gets stripped, leaving just a single SELECT
+        self._validate("SELECT * FROM {*} -- UNION SELECT * FROM media_plans")
+
+    def test_select_in_block_comment_stripped(self):
+        """SELECT in block comment should be stripped and not count."""
+        self._validate("SELECT * FROM {*} /* SELECT * FROM other_table */")
