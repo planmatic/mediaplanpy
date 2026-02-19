@@ -1414,12 +1414,6 @@ def _add_workspace_filter(self, query: str, workspace_id: str) -> str:
             f"This is required for multi-tenant safety. Original error: {str(e)}"
         )
 
-# Also update the SQLQueryError definition if not already present
-class SQLQueryError(Exception):
-    """Exception raised when SQL query execution fails."""
-    pass
-
-
 def _validate_sql_safety(query: str) -> None:
     """
     Validate that the SQL query is safe (SELECT operations only).
@@ -1475,6 +1469,44 @@ def _validate_sql_safety(query: str) -> None:
     for pattern in filesystem_patterns:
         if re.search(pattern, query_clean):
             raise SQLQueryError("File system operations are not allowed in queries")
+
+    # --- Workspace isolation safety checks ---
+    # These prevent queries that could bypass the workspace_id filter injected
+    # by _add_workspace_filter(), which only modifies the first/outermost WHERE
+    # clause. Multiple SELECT statements (via UNION, subqueries, CTEs) or
+    # multiple SQL statements (via semicolons) could reference the multi-tenant
+    # database table without workspace isolation.
+
+    # Strip string literals to avoid false positives on keyword detection
+    # (e.g., WHERE name = 'SELECT UNION' should not be rejected)
+    query_no_strings = re.sub(r"'(?:[^']|'')*'", "''", query_clean)
+
+    # Check for semicolons (multiple SQL statements)
+    if ';' in query_no_strings:
+        raise SQLQueryError(
+            "Multiple SQL statements (semicolons) are not allowed. "
+            "Please use a single SELECT statement per query."
+        )
+
+    # Check for UNION / UNION ALL (prevents combining filtered + unfiltered queries)
+    if re.search(r'\bUNION\b', query_no_strings):
+        raise SQLQueryError(
+            "UNION queries are not allowed for workspace isolation safety. "
+            "The workspace filter can only be applied to a single SELECT statement. "
+            "Please execute separate queries instead."
+        )
+
+    # Check for subqueries (multiple SELECT keywords)
+    # After stripping comments and string literals, more than one SELECT keyword
+    # indicates subqueries, CTEs with inner SELECTs, or other compound constructs
+    # that would bypass workspace isolation filtering.
+    select_count = len(re.findall(r'\bSELECT\b', query_no_strings))
+    if select_count > 1:
+        raise SQLQueryError(
+            "Subqueries (nested SELECT statements) are not allowed for workspace "
+            "isolation safety. The workspace filter can only be applied to a single "
+            "SELECT statement. Please simplify the query or execute separate queries."
+        )
 
 
 def _resolve_sql_file_patterns(workspace_manager, query: str) -> str:
