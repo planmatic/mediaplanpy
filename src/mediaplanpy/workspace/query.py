@@ -590,14 +590,17 @@ def _add_sql_filters(self, base_query, filters):
     """
     Convert filter dict to SQL WHERE clauses and add to base query.
 
-    Handles the GROUP BY case by inserting WHERE clause before GROUP BY.
+    If the base query already contains a WHERE clause, the existing
+    conditions are wrapped in parentheses and the new filter conditions
+    are appended with AND. Otherwise a new WHERE clause is inserted
+    before GROUP BY / ORDER BY / LIMIT (or at the end of the query).
 
     Args:
         base_query: SQL query string
         filters: Dictionary of filter criteria
 
     Returns:
-        Query with WHERE clause added
+        Query with WHERE clause added or extended
 
     Raises:
         SQLQueryError: If filter cannot be converted safely
@@ -610,27 +613,56 @@ def _add_sql_filters(self, base_query, filters):
         if not filter_conditions:
             return base_query
 
-        # Find the position to insert WHERE clause
-        # Look for GROUP BY, ORDER BY, or end of query
         base_query_upper = base_query.upper()
 
-        insert_positions = []
-        for clause in ['GROUP BY', 'ORDER BY', 'LIMIT']:
-            pos = base_query_upper.find(clause)
-            if pos != -1:
-                insert_positions.append(pos)
+        # Check if the query already has a WHERE clause
+        where_pos = base_query_upper.find('WHERE')
 
-        if insert_positions:
-            insert_pos = min(insert_positions)
-            # Insert WHERE clause before the first found clause
-            filtered_query = (
-                    base_query[:insert_pos].rstrip() +
-                    f"\nWHERE {filter_conditions}\n" +
-                    base_query[insert_pos:]
-            )
+        if where_pos != -1:
+            # Query already has a WHERE clause — append with AND.
+            # Find the end of the existing WHERE clause (before GROUP BY,
+            # ORDER BY, LIMIT, or end of query).
+            end_positions = []
+            for clause in ['GROUP BY', 'ORDER BY', 'LIMIT']:
+                pos = base_query_upper.find(clause, where_pos + 5)
+                if pos != -1:
+                    end_positions.append(pos)
+
+            if end_positions:
+                end_pos = min(end_positions)
+                existing_where = base_query[where_pos + 5:end_pos].strip()
+                filtered_query = (
+                    base_query[:where_pos] +
+                    f"WHERE ({existing_where}) AND ({filter_conditions})\n" +
+                    base_query[end_pos:]
+                )
+            else:
+                existing_where = base_query[where_pos + 5:].strip()
+                filtered_query = (
+                    base_query[:where_pos] +
+                    f"WHERE ({existing_where}) AND ({filter_conditions})"
+                )
         else:
-            # No special clauses found, add WHERE at the end
-            filtered_query = f"{base_query.rstrip()}\nWHERE {filter_conditions}"
+            # No existing WHERE — insert a new one.
+            # Find the position to insert WHERE clause
+            # Look for GROUP BY, ORDER BY, or end of query
+            insert_positions = []
+            for clause in ['GROUP BY', 'ORDER BY', 'LIMIT']:
+                pos = base_query_upper.find(clause)
+                if pos != -1:
+                    insert_positions.append(pos)
+
+            if insert_positions:
+                insert_pos = min(insert_positions)
+                # Insert WHERE clause before the first found clause
+                filtered_query = (
+                        base_query[:insert_pos].rstrip() +
+                        f"\nWHERE {filter_conditions}\n" +
+                        base_query[insert_pos:]
+                )
+            else:
+                # No special clauses found, add WHERE at the end
+                filtered_query = f"{base_query.rstrip()}\nWHERE {filter_conditions}"
 
         return filtered_query
 
