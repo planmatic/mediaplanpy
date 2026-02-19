@@ -384,6 +384,16 @@ class SchemaMigrator:
             result["dictionary"]["lineitem_custom_dimensions"] = result["dictionary"].pop("custom_dimensions")
             logger.debug("Renamed dictionary.custom_dimensions to lineitem_custom_dimensions")
 
+        # STEP 5: Record migration metadata in meta.custom_properties
+        if "custom_properties" not in result["meta"] or result["meta"]["custom_properties"] is None:
+            result["meta"]["custom_properties"] = {}
+        result["meta"]["custom_properties"]["schema_migration"] = {
+            "from_version": "2.0",
+            "to_version": "3.0",
+            "migrated_at": datetime.now().isoformat()
+        }
+        logger.debug("Recorded schema migration metadata in meta.custom_properties")
+
         logger.info("Migration from v2.0 to v3.0 complete")
         return result
 

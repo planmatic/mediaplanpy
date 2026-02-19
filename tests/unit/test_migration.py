@@ -555,3 +555,109 @@ class TestMigrationEdgeCases:
         # Original should be unchanged
         assert original["meta"]["schema_version"] == original_version
         assert original["campaign"]["audience_name"] == original_audience
+
+
+class TestMigrationMetadata:
+    """Test that migration records metadata and preserves timestamps."""
+
+    def test_migrate_records_custom_properties(self):
+        """Test that migration adds schema_migration info to custom_properties."""
+        mediaplan_v2 = {
+            "meta": {
+                "id": "MP001",
+                "schema_version": "v2.0",
+                "name": "Test",
+                "created_by_name": "Test User",
+                "created_at": "2025-01-01T00:00:00Z"
+            },
+            "campaign": {
+                "id": "CAM001",
+                "name": "Test",
+                "objective": "awareness",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "budget_total": 100000
+            },
+            "lineitems": []
+        }
+
+        migrator = SchemaMigrator()
+        migrated = migrator.migrate(mediaplan_v2, "2.0", "3.0")
+
+        # Verify custom_properties contains migration metadata
+        assert "custom_properties" in migrated["meta"]
+        assert "schema_migration" in migrated["meta"]["custom_properties"]
+
+        migration_info = migrated["meta"]["custom_properties"]["schema_migration"]
+        assert migration_info["from_version"] == "2.0"
+        assert migration_info["to_version"] == "3.0"
+        assert "migrated_at" in migration_info
+
+        # Verify migrated_at is a valid ISO timestamp
+        migrated_at = datetime.fromisoformat(migration_info["migrated_at"])
+        assert isinstance(migrated_at, datetime)
+
+    def test_migrate_preserves_existing_custom_properties(self):
+        """Test that migration preserves existing custom_properties entries."""
+        mediaplan_v2 = {
+            "meta": {
+                "id": "MP001",
+                "schema_version": "v2.0",
+                "name": "Test",
+                "created_by_name": "Test User",
+                "created_at": "2025-01-01T00:00:00Z",
+                "custom_properties": {
+                    "project_code": "PRJ-123",
+                    "team": "Marketing"
+                }
+            },
+            "campaign": {
+                "id": "CAM001",
+                "name": "Test",
+                "objective": "awareness",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "budget_total": 100000
+            },
+            "lineitems": []
+        }
+
+        migrator = SchemaMigrator()
+        migrated = migrator.migrate(mediaplan_v2, "2.0", "3.0")
+
+        # Verify existing custom_properties are preserved
+        custom_props = migrated["meta"]["custom_properties"]
+        assert custom_props["project_code"] == "PRJ-123"
+        assert custom_props["team"] == "Marketing"
+
+        # Verify migration metadata was also added
+        assert "schema_migration" in custom_props
+        assert custom_props["schema_migration"]["from_version"] == "2.0"
+
+    def test_migrate_preserves_created_at(self):
+        """Test that migration does not alter the created_at timestamp."""
+        original_timestamp = "2025-01-01T00:00:00Z"
+        mediaplan_v2 = {
+            "meta": {
+                "id": "MP001",
+                "schema_version": "v2.0",
+                "name": "Test",
+                "created_by_name": "Test User",
+                "created_at": original_timestamp
+            },
+            "campaign": {
+                "id": "CAM001",
+                "name": "Test",
+                "objective": "awareness",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "budget_total": 100000
+            },
+            "lineitems": []
+        }
+
+        migrator = SchemaMigrator()
+        migrated = migrator.migrate(mediaplan_v2, "2.0", "3.0")
+
+        # created_at should be preserved unchanged
+        assert migrated["meta"]["created_at"] == original_timestamp

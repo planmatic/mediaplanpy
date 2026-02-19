@@ -201,8 +201,9 @@ class StorageMixin:
             # When overwrite=True, preserve existing ID and parent_id regardless of first save
             logger.debug(f"Updating existing media plan ID: {self.meta.id}, parent_id: {self.meta.parent_id}")
 
-        # Update created_at timestamp regardless of overwrite value
-        self.meta.created_at = datetime.now()
+        # Only set created_at on first save; preserve existing timestamp on overwrites
+        if not overwrite or not self.meta.created_at:
+            self.meta.created_at = datetime.now()
 
         # Validation: ensure parent_id doesn't equal current ID (defensive programming)
         if self.meta.parent_id == self.meta.id:

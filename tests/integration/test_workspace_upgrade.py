@@ -467,3 +467,89 @@ class TestWorkspaceUpgradeResults:
         # Should report the failed file
         # (depending on implementation, may be in files_failed or errors)
         assert len(result["files_failed"]) > 0 or len(result["errors"]) > 0
+
+    def test_upgrade_preserves_created_at(self, temp_workspace_dir):
+        """Test that upgrade preserves meta.created_at and records migration metadata."""
+        # Create workspace with v2.0 plan
+        config = {
+            "workspace_id": "test_workspace_timestamps",
+            "workspace_name": "Test Workspace Timestamp Preservation",
+            "workspace_settings": {
+                "schema_version": "2.0"
+            },
+            "storage": {
+                "mode": "local",
+                "local": {
+                    "base_path": temp_workspace_dir
+                }
+            },
+            "database": {
+                "enabled": False
+            }
+        }
+
+        config_path = os.path.join(temp_workspace_dir, "workspace.json")
+        with open(config_path, 'w') as f:
+            json.dump(config, f)
+
+        # Create mediaplans subdirectory
+        mediaplans_dir = os.path.join(temp_workspace_dir, "mediaplans")
+        os.makedirs(mediaplans_dir, exist_ok=True)
+
+        # Create v2.0 media plan with a specific created_at timestamp
+        original_created_at = "2024-06-15T10:30:00"
+        mediaplan_v2 = {
+            "meta": {
+                "id": "MP_TS_001",
+                "schema_version": "v2.0",
+                "name": "Timestamp Test Plan",
+                "created_by_name": "Test User",
+                "created_at": original_created_at
+            },
+            "campaign": {
+                "id": "CAM001",
+                "name": "Test",
+                "objective": "awareness",
+                "start_date": "2025-01-01",
+                "end_date": "2025-12-31",
+                "budget_total": 100000,
+                "audience_name": "Adults 25-54",
+                "audience_age_start": 25,
+                "audience_age_end": 54,
+                "location_type": "State",
+                "locations": ["California"]
+            },
+            "lineitems": []
+        }
+
+        mediaplan_path = os.path.join(mediaplans_dir, "mediaplan_ts_001.json")
+        with open(mediaplan_path, 'w') as f:
+            json.dump(mediaplan_v2, f)
+
+        # Upgrade workspace
+        workspace_manager = WorkspaceManager(workspace_path=config_path)
+        workspace_manager.load(upgrade_mode=True)
+
+        upgrader = WorkspaceUpgrader(workspace_manager)
+        result = upgrader.upgrade(dry_run=False)
+
+        assert result["json_files_migrated"] > 0
+
+        # Load migrated file and verify created_at is preserved
+        with open(mediaplan_path, 'r') as f:
+            migrated = json.load(f)
+
+        # created_at should still reflect the original creation date, not the migration time
+        migrated_created_at = migrated["meta"]["created_at"]
+        assert original_created_at in migrated_created_at, (
+            f"created_at was overwritten: expected '{original_created_at}' "
+            f"to be in '{migrated_created_at}'"
+        )
+
+        # custom_properties should contain migration metadata
+        assert "custom_properties" in migrated["meta"]
+        custom_props = migrated["meta"]["custom_properties"]
+        assert "schema_migration" in custom_props
+        assert custom_props["schema_migration"]["from_version"] == "2.0"
+        assert custom_props["schema_migration"]["to_version"] == "3.0"
+        assert "migrated_at" in custom_props["schema_migration"]
