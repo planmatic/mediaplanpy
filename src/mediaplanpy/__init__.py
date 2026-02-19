@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.0'          # SDK version
+__version__ = '3.0.1'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -20,6 +20,7 @@ VERSION_NOTES = {
     '2.0.6': 'Miscellaneous minor fixes / upgrades',
     '2.0.7': 'Bug fix in workspace.list_campaigns',
     '3.0.0': 'v3.0 schema support - Target audiences/locations arrays, metric formulas, 42+ new fields - v0.0 and v1.0 support removed',
+    '3.0.1': 'Bug fixes: MediaPlan.save() created_at preservation, SQL filter generation, SQL injection prevention, examples update',
 }
 
 # Schema version compatibility constants - Updated for v3.0

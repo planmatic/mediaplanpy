@@ -1,5 +1,25 @@
 # Changelog
 
+## [v3.0.1] - 2026-02-19
+
+### Fixed
+- `MediaPlan.save()`
+  No longer resets `meta.created_at` when overwriting an existing media plan. The original creation timestamp is now preserved across saves; `created_at` is only set on the initial save.
+- `SchemaMigrator`
+  Migration from v2.0 to v3.0 now preserves the original `meta.created_at` value. Migration metadata (source version, target version, migration timestamp) is recorded in `meta.custom_properties.schema_migration`.
+- `Workspace.list_campaigns()`
+  Fixed invalid SQL generated when user-specified filters were applied. The `_add_sql_filters` helper now correctly appends conditions with `AND` when a `WHERE` clause already exists, rather than producing a duplicate `WHERE` keyword.
+
+### Security
+- `Workspace.sql_query()`
+  Blocked SQL workspace isolation bypass via `UNION` operators, subqueries, and multi-statement queries. User-supplied SQL is now validated to prevent cross-workspace data access.
+
+### Improved
+- `examples/examples_08_list_objects.py`
+  Updated to make proper use of the SDK list methods' built-in filter parameters (`list_mediaplans()`, `list_campaigns()`, `list_lineitems()`), replacing manual post-query filtering.
+
+---
+
 ## [v3.0.0] - 2026-01-30
 
 ### Major Release - Schema v3.0 Support
