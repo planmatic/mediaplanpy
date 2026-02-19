@@ -170,6 +170,42 @@ class TestListCampaigns:
             assert "campaign_id" in campaign
             assert "campaign_objective" in campaign
 
+    def test_list_campaigns_with_filters(self, temp_workspace_with_v3_plans):
+        """Test filtering campaigns by criteria.
+
+        Regression test: list_campaigns builds a query with a pre-existing
+        WHERE clause (meta_is_archived filter).  _add_sql_filters must append
+        to it with AND rather than inserting a second WHERE, which would
+        produce invalid SQL.
+        """
+        workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
+        workspace_manager.load()
+
+        # Filter by campaign_id — should return only the matching campaign
+        filtered = workspace_manager.list_campaigns(
+            filters={"campaign_id": "CAM001"}
+        )
+        assert isinstance(filtered, list)
+        assert len(filtered) >= 1
+        assert all(c["campaign_id"] == "CAM001" for c in filtered)
+
+    def test_list_campaigns_with_filters_no_stats(self, temp_workspace_with_v3_plans):
+        """Test filtering campaigns without stats (include_stats=False).
+
+        The non-stats branch also has a pre-existing WHERE clause, so this
+        verifies that path as well.
+        """
+        workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
+        workspace_manager.load()
+
+        filtered = workspace_manager.list_campaigns(
+            filters={"campaign_id": "CAM001"},
+            include_stats=False,
+        )
+        assert isinstance(filtered, list)
+        assert len(filtered) >= 1
+        assert all(c["campaign_id"] == "CAM001" for c in filtered)
+
     def test_list_campaigns_as_dataframe(self, temp_workspace_with_v3_plans):
         """Test returning campaigns as DataFrame."""
         workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
@@ -294,6 +330,62 @@ class TestSQLQuery:
 
         # Should return results
         assert result is not None
+
+
+class TestAddSqlFilters:
+    """Unit-level tests for _add_sql_filters WHERE-clause merging."""
+
+    def test_appends_to_existing_where_with_group_by(self, temp_workspace_with_v3_plans):
+        """When the base query already has WHERE + GROUP BY, filters are ANDed."""
+        workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
+        workspace_manager.load()
+
+        base = (
+            "SELECT * FROM t "
+            "WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL "
+            "GROUP BY campaign_id ORDER BY campaign_id"
+        )
+        result = workspace_manager._add_sql_filters(
+            base, {"campaign_id": "CAM001"}
+        )
+        upper = result.upper()
+        # Must contain exactly one WHERE keyword
+        assert upper.count("WHERE") == 1, f"Expected 1 WHERE, got {upper.count('WHERE')}: {result}"
+        # Existing conditions must be parenthesised
+        assert "(meta_is_archived = FALSE OR meta_is_archived IS NULL)" in result
+        # Filter condition must appear after AND
+        assert "AND" in upper
+        assert "campaign_id" in result
+
+    def test_appends_to_existing_where_without_group_by(self, temp_workspace_with_v3_plans):
+        """When the base query has WHERE + ORDER BY (no GROUP BY), filters are ANDed."""
+        workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
+        workspace_manager.load()
+
+        base = (
+            "SELECT * FROM t "
+            "WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL "
+            "ORDER BY campaign_id"
+        )
+        result = workspace_manager._add_sql_filters(
+            base, {"campaign_id": "CAM001"}
+        )
+        upper = result.upper()
+        assert upper.count("WHERE") == 1
+        assert "AND" in upper
+
+    def test_inserts_where_when_none_exists(self, temp_workspace_with_v3_plans):
+        """When there is no WHERE clause, a new one is inserted."""
+        workspace_manager = WorkspaceManager(workspace_path=temp_workspace_with_v3_plans)
+        workspace_manager.load()
+
+        base = "SELECT * FROM t GROUP BY campaign_id"
+        result = workspace_manager._add_sql_filters(
+            base, {"campaign_id": "CAM001"}
+        )
+        upper = result.upper()
+        assert upper.count("WHERE") == 1
+        assert "GROUP BY" in upper
 
 
 class TestQueryEdgeCases:
