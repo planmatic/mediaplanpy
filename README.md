@@ -2,7 +2,7 @@
 
 Open source Python SDK providing the foundational tools developers need to build, manage, and analyze media plans based on our open data standard (mediaplanschema).
 
-**Latest Release:** v3.0.1 - [View Changelog](CHANGE_LOG.md)
+**Latest Release:** v3.0.1 - [View Changelog](https://github.com/planmatic/mediaplanpy/blob/main/CHANGE_LOG.md)
 
 ## 🔗 Related Projects
 
