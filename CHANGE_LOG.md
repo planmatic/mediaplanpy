@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.0.2] - 2026-03-03
+
+### Fixed
+- `MediaPlan.load(campaign_id=...)`
+  Loading a media plan by `campaign_id` now correctly resolves the campaign's current media plan via `workspace.list_campaigns()` and loads it by its `meta_id`. Previously, `load()` incorrectly attempted to open a file named after the campaign ID, which does not exist. The deprecation warning has been removed as this is a valid and common use case.
+
+### Added
+- `examples/examples_04_load_mediaplan.py`
+  New `load_by_campaign_id()` example demonstrating how to load a media plan using a campaign ID, including how the SDK resolves the campaign to its current media plan behind the scenes.
+
+---
+
 ## [v3.0.1] - 2026-02-19
 
 ### Fixed

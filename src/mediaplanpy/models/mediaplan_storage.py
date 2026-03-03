@@ -334,7 +334,7 @@ class StorageMixin:
             workspace_manager: The WorkspaceManager instance.
             path: The path to the media plan file.
             media_plan_id: The media plan ID to load.
-            campaign_id: The campaign ID to load (deprecated).
+            campaign_id: The campaign ID to load (resolves to current media plan).
             format_name: Optional format name to use.
             validate_version: If True (default), validate and handle version compatibility.
             auto_migrate: If True (default), automatically migrate compatible versions.
@@ -375,24 +375,36 @@ class StorageMixin:
                 logger.info(f"Loading media plan by ID: {media_plan_id}")
 
             elif campaign_id:
-                # Use campaign ID (backward compatibility)
-                logger.warning("Loading by campaign_id is deprecated. Consider using media_plan_id instead.")
+                # Resolve campaign_id to its current media_plan_id via workspace query
+                logger.info(f"Loading media plan by campaign ID: {campaign_id}")
 
-                # Default format is json if not specified
+                campaigns = workspace_manager.list_campaigns(
+                    filters={"campaign_id": campaign_id},
+                    include_stats=False
+                )
+
+                if not campaigns:
+                    raise StorageError(
+                        f"Campaign '{campaign_id}' not found in workspace."
+                    )
+
+                current_meta_id = campaigns[0].get("meta_id")
+                if not current_meta_id:
+                    raise StorageError(
+                        f"Campaign '{campaign_id}' exists but has no current media plan."
+                    )
+
+                # Use the resolved media_plan_id to build the file path
                 default_format = format_name or "json"
-                # Get format extension
                 format_handler = get_format_handler_instance(default_format)
                 extension = format_handler.get_file_extension()
                 if extension.startswith('.'):
                     extension = extension[1:]
 
-                # Sanitize campaign ID for use as a filename
-                safe_campaign_id = campaign_id.replace('/', '_').replace('\\', '_')
+                safe_media_plan_id = current_meta_id.replace('/', '_').replace('\\', '_')
+                path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_media_plan_id}.{extension}")
 
-                # Generate path: mediaplans/campaign_id.extension (old approach)
-                path = os.path.join(MEDIAPLANS_SUBDIR, f"{safe_campaign_id}.{extension}")
-
-                logger.info(f"Loading media plan by campaign ID (deprecated): {campaign_id}")
+                logger.info(f"Resolved campaign '{campaign_id}' to media plan: {current_meta_id}")
 
         # Validate we have a path
         if not path:

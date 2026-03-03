@@ -6,13 +6,14 @@ Loading media plans allows you to read all properties, including v3.0 arrays and
 
 v3.0 Features Demonstrated:
 - MediaPlan.load() method with workspace integration
+- Loading by media_plan_id or campaign_id
 - Comprehensive property inspection (meta, campaign, line items)
 - Access to v3.0 arrays (target_audiences, target_locations)
 - Access to v3.0 nested objects (metric_formulas, dictionary)
 - Inspection of all v3.0 field categories (KPIs, custom dimensions, custom properties)
 
 Prerequisites:
-- MediaPlanPy SDK v3.0.0+ installed
+- MediaPlanPy SDK v3.0.2+ installed
 - Workspace created (see examples_create_workspace.py)
 - Media plan created (see examples_create_mediaplan.py)
 
@@ -632,6 +633,60 @@ def load_and_inspect_all_properties(manager, plan):
     return plan
 
 
+def load_by_campaign_id(manager, campaign_id):
+    """
+    Load a media plan by campaign ID instead of media plan ID.
+
+    Use Case:
+        When you know the campaign ID but not the specific media plan ID.
+        The SDK resolves the campaign to its current media plan automatically
+        by querying workspace.list_campaigns() and finding the plan where
+        is_current=True for that campaign.
+
+    v3.0 Features:
+        - MediaPlan.load(campaign_id=...) with automatic resolution
+        - Workspace query integration to find current plan for a campaign
+        - Seamless loading identical to media_plan_id approach
+
+    Args:
+        manager: Loaded WorkspaceManager instance
+        campaign_id: The campaign ID to look up (e.g., from the previously loaded plan)
+
+    Next Steps:
+        - Use the loaded plan exactly as if loaded by media_plan_id
+        - Access all properties: plan.meta.id, plan.campaign.name, etc.
+        - This is useful in workflows where campaign IDs are the primary identifier
+    """
+    print("\n" + "="*60)
+    print("Load Media Plan by Campaign ID")
+    print("="*60)
+
+    print(f"\nLoading media plan for campaign: {campaign_id}")
+    print(f"  (The SDK will query the workspace to find the current media plan")
+    print(f"   for this campaign and load it automatically.)")
+
+    # Load the media plan using campaign_id
+    plan = MediaPlan.load(manager, campaign_id=campaign_id)
+
+    print(f"\nResolved to media plan:")
+    print(f"  - Media plan ID: {plan.meta.id}")
+    print(f"  - Media plan name: {plan.meta.name}")
+    print(f"  - Campaign ID: {plan.campaign.id}")
+    print(f"  - Campaign name: {plan.campaign.name}")
+    print(f"  - Is current: {plan.meta.is_current}")
+    print(f"  - Line items: {len(plan.lineitems)}")
+
+    print(f"\nHow it works:")
+    print(f"  1. SDK calls workspace.list_campaigns(filters={{'campaign_id': '{campaign_id}'}})")
+    print(f"  2. Finds the current media plan's meta_id for that campaign")
+    print(f"  3. Loads the media plan file using the resolved meta_id")
+
+    print(f"\nThis is equivalent to calling:")
+    print(f"  MediaPlan.load(manager, media_plan_id='{plan.meta.id}')")
+
+    return plan
+
+
 if __name__ == "__main__":
     print("="*60)
     print("MediaPlanPy v3.0 - Load Media Plan Examples")
@@ -650,11 +705,15 @@ if __name__ == "__main__":
     print("\n=== Example 2: Comprehensive Property Inspection ===")
     load_and_inspect_all_properties(manager, plan)
 
+    print("\n=== Example 3: Load by Campaign ID ===")
+    load_by_campaign_id(manager, plan.campaign.id)
+
     print("\n" + "="*60)
     print("Load Examples Completed!")
     print("="*60)
     print(f"\nYou've learned how to:")
-    print(f"  - Load media plans by ID")
+    print(f"  - Load media plans by media plan ID")
+    print(f"  - Load media plans by campaign ID")
     print(f"  - Access all v3.0 properties")
     print(f"  - Inspect arrays (target_audiences, target_locations)")
     print(f"  - Inspect nested objects (metric_formulas, dictionary)")
