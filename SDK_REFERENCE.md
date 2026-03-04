@@ -319,12 +319,19 @@ result = workspace.sql_query(
 
 The `MediaPlan` class represents a complete media plan with comprehensive lifecycle management.
 
+> **Workspace Requirement Note:** Creating a `MediaPlan` in memory does **not** require a workspace.
+> The methods `create()`, `from_dict()`, and `from_json()` all work without a `WorkspaceManager`.
+> A workspace is only required for persistent storage operations such as `save()`, `load()`, and
+> workspace-based import/export. This means API client users can create, inspect, and manipulate
+> media plans entirely in memory without configuring a local workspace.
+
 ### MediaPlan Creation
 
 **`@classmethod create(cls, created_by, campaign_name, campaign_objective, campaign_start_date, campaign_end_date, campaign_budget, schema_version=None, workspace_manager=None, **kwargs) -> MediaPlan`**
 - **Location**: `src/mediaplanpy/models/mediaplan.py:280`
 - **Description**: Creates new media plan with required fields
 - **Key Use Cases**: New media plan creation, template generation
+- **Workspace**: Not required. The `workspace_manager` parameter is optional and used only for status checking if provided.
 - **v3.0 Enhancements**: Supports target_audiences, target_locations, custom_properties
 - **Parameters**:
   - `created_by`: Creator name/email
@@ -333,6 +340,7 @@ The `MediaPlan` class represents a complete media plan with comprehensive lifecy
   - `campaign_start_date`: Start date
   - `campaign_end_date`: End date
   - `campaign_budget`: Total budget
+  - `workspace_manager`: Optional WorkspaceManager (not required for creation)
   - `target_audiences`: List of TargetAudience objects (v3.0)
   - `target_locations`: List of TargetLocation objects (v3.0)
 - **Example**:
@@ -341,6 +349,7 @@ from mediaplanpy import MediaPlan, TargetAudience, TargetLocation
 from datetime import date
 from decimal import Decimal
 
+# No workspace needed - creates MediaPlan entirely in memory
 media_plan = MediaPlan.create(
     created_by="john.doe@company.com",
     campaign_name="Q4 Brand Campaign",
@@ -369,21 +378,39 @@ media_plan = MediaPlan.create(
 **`@classmethod from_dict(cls, data: Dict[str, Any]) -> MediaPlan`**
 - **Location**: `src/mediaplanpy/models/base.py`
 - **Description**: Creates MediaPlan from dictionary with version handling
-- **Key Use Cases**: Data import, API integration
+- **Workspace**: Not required. Pure deserialization from a data structure.
+- **Key Use Cases**: Data import, API integration, loading from any JSON source
 - **Example**:
 ```python
+# No workspace needed - creates MediaPlan from dictionary
 data = {"meta": {...}, "campaign": {...}, "lineitems": [...]}
 media_plan = MediaPlan.from_dict(data)
 ```
 
+**`@classmethod from_json(cls, json_str: str) -> MediaPlan`**
+- **Location**: `src/mediaplanpy/models/base.py`
+- **Description**: Creates MediaPlan from a JSON string with version handling
+- **Workspace**: Not required. Pure deserialization from a JSON string.
+- **Key Use Cases**: API responses, reading JSON from any source, inter-process communication
+- **Example**:
+```python
+# No workspace needed - creates MediaPlan from JSON string
+json_str = '{"meta": {...}, "campaign": {...}, "lineitems": [...]}'
+media_plan = MediaPlan.from_json(json_str)
+```
+
 ### Storage Operations
+
+> **Note:** All storage operations (`save`, `load`, `delete`) require a loaded `WorkspaceManager`
+> to provide storage backend configuration, path resolution, and credentials.
 
 **`save(workspace_manager, path=None, format_name=None, overwrite=False, include_parquet=True, include_database=True, validate_version=True, set_as_current=None, **format_options) -> str`**
 - **Location**: `src/mediaplanpy/models/mediaplan_storage.py:73`
 - **Description**: Saves media plan with comprehensive version validation
+- **Workspace**: Required.
 - **Key Use Cases**: Persisting changes, creating backups, versioning
 - **Parameters**:
-  - `workspace_manager`: WorkspaceManager instance
+  - `workspace_manager`: WorkspaceManager instance (required)
   - `overwrite`: Preserve existing ID vs create new version
   - `include_parquet`: Also save Parquet format
   - `set_as_current`: Set as current plan (None/True/False)
@@ -549,44 +576,74 @@ print(f"Unset {result['plans_unset_count']} other current plans")
 
 ### Export/Import Operations
 
+> **Note:** All export/import methods accept either `workspace_manager` OR `file_path`.
+> When using `file_path`, no workspace is required — files are read from or written to
+> the local filesystem directly. When using `workspace_manager`, the workspace storage
+> backend is used instead.
+
 **`export_to_json(workspace_manager=None, file_path=None, file_name=None, overwrite=False, **format_options) -> str`**
 - **Location**: `src/mediaplanpy/models/mediaplan_json.py:23`
 - **Description**: Exports media plan to JSON format
+- **Workspace**: Not required if `file_path` is provided.
 - **Key Use Cases**: Data export, backup, API integration
 - **Example**:
 ```python
-# Export to workspace storage
-json_path = media_plan.export_to_json(workspace_manager, file_name="backup.json")
+# Export to local file (no workspace needed)
+json_path = media_plan.export_to_json(file_path="/path/to/exports", file_name="backup.json")
 
-# Export to local file
-json_path = media_plan.export_to_json(file_path="/path/to/export.json")
+# Export to workspace storage (workspace required)
+json_path = media_plan.export_to_json(workspace_manager, file_name="backup.json")
 ```
 
 **`@classmethod import_from_json(cls, file_name, workspace_manager=None, file_path=None, **format_options) -> MediaPlan`**
 - **Location**: `src/mediaplanpy/models/mediaplan_json.py:150`
 - **Description**: Imports media plan from JSON with version handling
+- **Workspace**: Not required if `file_path` is provided.
 - **Key Use Cases**: Data import, migration, recovery
 - **Example**:
 ```python
-# Import from workspace
-media_plan = MediaPlan.import_from_json("imported_plan.json", workspace_manager)
-
-# Import from local file
+# Import from local file (no workspace needed)
 media_plan = MediaPlan.import_from_json("plan.json", file_path="/path/to/file")
+
+# Import from workspace storage (workspace required)
+media_plan = MediaPlan.import_from_json("imported_plan.json", workspace_manager)
 ```
 
 **`export_to_excel(workspace_manager=None, file_path=None, file_name=None, template_path=None, include_documentation=True, overwrite=False, **format_options) -> str`**
 - **Location**: `src/mediaplanpy/models/mediaplan_excel.py:25`
 - **Description**: Exports media plan to Excel format with formula-aware column generation
+- **Workspace**: Not required if `file_path` is provided.
 - **Key Use Cases**: Client reporting, offline editing, presentation
 - **v3.0 Enhancements**: Formula-aware export with coefficient columns based on dictionary configuration
 - **Example**:
 ```python
+# Export to local file (no workspace needed)
+excel_path = media_plan.export_to_excel(
+    file_path="/path/to/exports",
+    include_documentation=True
+)
+
+# Export to workspace storage (workspace required)
 excel_path = media_plan.export_to_excel(
     workspace_manager,
     template_path="custom_template.xlsx",
     include_documentation=True
 )
+```
+
+**`@classmethod import_from_excel(cls, file_name, workspace_manager=None, file_path=None, **format_options) -> MediaPlan`**
+- **Location**: `src/mediaplanpy/models/mediaplan_excel.py:198`
+- **Description**: Imports media plan from Excel with version handling and formula-aware coefficient updates
+- **Workspace**: Not required if `file_path` is provided.
+- **Key Use Cases**: Client data import, offline editing workflow
+- **v3.0 Enhancements**: Automatically updates metric_formulas coefficients from edited values
+- **Example**:
+```python
+# Import from local file (no workspace needed)
+media_plan = MediaPlan.import_from_excel("plan.xlsx", file_path="/path/to/file")
+
+# Import from workspace storage (workspace required)
+media_plan = MediaPlan.import_from_excel("plan.xlsx", workspace_manager)
 ```
 
 ### Validation and Migration
@@ -1098,39 +1155,13 @@ migrated_data = migrate(old_plan, "2.0", "3.0")
 
 ## Excel Integration
 
-Functions for Excel format support with formula-aware import/export (v3.0).
-
-**`export_to_excel(media_plan, path=None, template_path=None, include_documentation=True, workspace_manager=None, **kwargs) -> str`**
-- **Location**: `src/mediaplanpy/excel/exporter.py:30`
-- **Description**: Exports media plan to Excel with formula-aware column generation
-- **Key Use Cases**: Client deliverables, offline editing
-- **v3.0 Enhancements**:
-  - Smart column generation based on dictionary formula configurations
-  - Creates coefficient columns (CPU, CVR, Constant) based on formula_type
-  - Separate Target Audiences and Target Locations worksheets
-- **Example**:
-```python
-from mediaplanpy.excel import export_to_excel
-
-excel_path = export_to_excel(
-    media_plan_data,
-    path="client_report.xlsx",
-    include_documentation=True
-)
-```
-
-**`import_from_excel(file_path, **kwargs) -> Dict[str, Any]`**
-- **Location**: `src/mediaplanpy/excel/importer.py:40`
-- **Description**: Imports from Excel with formula-aware coefficient updates
-- **Key Use Cases**: Client data import, offline editing workflow
-- **v3.0 Enhancements**:
-  - Automatically updates metric_formulas coefficients from edited values
-  - Processes dependencies in topological order
-  - Preserves lineitem-level formula overrides through JSON column
+Utility functions for Excel validation. For Excel import/export, use the MediaPlan methods
+`export_to_excel()` and `import_from_excel()` documented in the [Export/Import Operations](#exportimport-operations) section.
 
 **`validate_excel(file_path, schema_validator=None, schema_version=None) -> List[str]`**
 - **Location**: `src/mediaplanpy/excel/validator.py:30`
-- **Description**: Validates Excel file against schema
+- **Description**: Validates Excel file against schema before import
+- **Workspace**: Not required.
 - **Key Use Cases**: Pre-import validation, quality control
 - **Example**:
 ```python
@@ -1139,7 +1170,7 @@ from mediaplanpy.excel import validate_excel
 errors = validate_excel("client_data.xlsx")
 if not errors:
     # Safe to import
-    data = import_from_excel("client_data.xlsx")
+    media_plan = MediaPlan.import_from_excel("client_data.xlsx", file_path="/path/to/file")
 ```
 
 ---
