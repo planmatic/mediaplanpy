@@ -631,6 +631,21 @@ excel_path = media_plan.export_to_excel(
 )
 ```
 
+**`@classmethod import_from_excel(cls, file_name, workspace_manager=None, file_path=None, **format_options) -> MediaPlan`**
+- **Location**: `src/mediaplanpy/models/mediaplan_excel.py:198`
+- **Description**: Imports media plan from Excel with version handling and formula-aware coefficient updates
+- **Workspace**: Not required if `file_path` is provided.
+- **Key Use Cases**: Client data import, offline editing workflow
+- **v3.0 Enhancements**: Automatically updates metric_formulas coefficients from edited values
+- **Example**:
+```python
+# Import from local file (no workspace needed)
+media_plan = MediaPlan.import_from_excel("plan.xlsx", file_path="/path/to/file")
+
+# Import from workspace storage (workspace required)
+media_plan = MediaPlan.import_from_excel("plan.xlsx", workspace_manager)
+```
+
 ### Validation and Migration
 
 **`validate_against_schema(validator=None, version=None) -> List[str]`**
@@ -1140,39 +1155,13 @@ migrated_data = migrate(old_plan, "2.0", "3.0")
 
 ## Excel Integration
 
-Functions for Excel format support with formula-aware import/export (v3.0).
-
-**`export_to_excel(media_plan, path=None, template_path=None, include_documentation=True, workspace_manager=None, **kwargs) -> str`**
-- **Location**: `src/mediaplanpy/excel/exporter.py:30`
-- **Description**: Exports media plan to Excel with formula-aware column generation
-- **Key Use Cases**: Client deliverables, offline editing
-- **v3.0 Enhancements**:
-  - Smart column generation based on dictionary formula configurations
-  - Creates coefficient columns (CPU, CVR, Constant) based on formula_type
-  - Separate Target Audiences and Target Locations worksheets
-- **Example**:
-```python
-from mediaplanpy.excel import export_to_excel
-
-excel_path = export_to_excel(
-    media_plan_data,
-    path="client_report.xlsx",
-    include_documentation=True
-)
-```
-
-**`import_from_excel(file_path, **kwargs) -> Dict[str, Any]`**
-- **Location**: `src/mediaplanpy/excel/importer.py:40`
-- **Description**: Imports from Excel with formula-aware coefficient updates
-- **Key Use Cases**: Client data import, offline editing workflow
-- **v3.0 Enhancements**:
-  - Automatically updates metric_formulas coefficients from edited values
-  - Processes dependencies in topological order
-  - Preserves lineitem-level formula overrides through JSON column
+Utility functions for Excel validation. For Excel import/export, use the MediaPlan methods
+`export_to_excel()` and `import_from_excel()` documented in the [Export/Import Operations](#exportimport-operations) section.
 
 **`validate_excel(file_path, schema_validator=None, schema_version=None) -> List[str]`**
 - **Location**: `src/mediaplanpy/excel/validator.py:30`
-- **Description**: Validates Excel file against schema
+- **Description**: Validates Excel file against schema before import
+- **Workspace**: Not required.
 - **Key Use Cases**: Pre-import validation, quality control
 - **Example**:
 ```python
@@ -1181,7 +1170,7 @@ from mediaplanpy.excel import validate_excel
 errors = validate_excel("client_data.xlsx")
 if not errors:
     # Safe to import
-    data = import_from_excel("client_data.xlsx")
+    media_plan = MediaPlan.import_from_excel("client_data.xlsx", file_path="/path/to/file")
 ```
 
 ---
