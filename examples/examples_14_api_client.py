@@ -4,10 +4,19 @@ MediaPlanPy Examples - API Client Interface
 This script demonstrates how to interact with a Planmatic API Server using the MediaPlanPy SDK.
 The Planmatic API provides remote access to workspace and media plan operations.
 
+IMPORTANT - No Local Workspace Required:
+    This example uses the SDK purely as an API client. No local WorkspaceManager or
+    workspace.json configuration is needed. Media plans are created and manipulated
+    entirely in memory using MediaPlan.create(), MediaPlan.from_dict(), and
+    MediaPlan.from_json() — none of which require a workspace. The "load workspace"
+    step in this script is a server-side API call that sets the workspace context in
+    your API session, NOT a local SDK workspace operation.
+
 v3.0 Features Demonstrated:
 - API authentication with session tokens
-- Remote workspace loading
-- Remote media plan retrieval
+- Server-side workspace loading (no local workspace needed)
+- Remote media plan retrieval using MediaPlan.from_dict()
+- In-memory media plan editing using SDK methods
 - Media plan import/upload to server
 - Campaign listing and inspection
 - Error handling and best practices
@@ -292,15 +301,17 @@ def load_workspace_from_api(
     base_url: str = API_BASE_URL
 ) -> bool:
     """
-    Load a workspace into the API session.
+    Load a workspace into the API session (server-side operation).
 
     Use Case:
         After authentication, you must load a workspace before accessing
         campaigns and media plans. The workspace context is stored server-side
-        in your session.
+        in your session. This is NOT the same as loading a local workspace
+        with WorkspaceManager — no local workspace.json or WorkspaceManager
+        is needed for API client operations.
 
     Workspace Loading:
-        - Associates your session with a specific workspace
+        - Associates your session with a specific workspace on the server
         - Validates your access permissions to the workspace
         - Enables subsequent operations on workspace data
         - Session maintains workspace context until changed or logged out
@@ -539,8 +550,9 @@ def load_media_plan_from_api(
 
     Workflow:
         1. API returns current plan JSON for campaign
-        2. JSON is converted to MediaPlan object using MediaPlanPy SDK
-        3. MediaPlan object can be inspected and edited locally
+        2. JSON is converted to MediaPlan object using MediaPlan.from_dict()
+           (no local workspace required for this conversion)
+        3. MediaPlan object can be inspected and edited locally in memory
         4. Changes can be saved back via import_media_plan_to_api()
 
     Args:
@@ -631,9 +643,9 @@ def load_media_plan_from_api(
 
                 print("\nNext Steps:")
                 print("  1. Inspect plan details: plan.meta, plan.campaign, plan.lineitems")
-                print("  2. Edit plan using MediaPlanPy SDK methods")
-                print("  3. Save changes: import_media_plan_to_api()")
-                print("  4. Export locally: plan.save('/path/to/file.json')")
+                print("  2. Edit plan using MediaPlanPy SDK methods (no workspace needed)")
+                print("  3. Upload changes: import_media_plan_to_api()")
+                print("  4. Export locally: plan.export_to_json(file_path='/path/to/exports')")
 
                 print("\n" + "=" * 80)
                 return media_plan
