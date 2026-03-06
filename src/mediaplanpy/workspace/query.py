@@ -368,11 +368,12 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             meta_dim_custom5,
             meta_id,
             meta_is_current,
-            meta_created_at
+            meta_created_at,
+            CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END AS meta_is_current_sort
         FROM {*}
         WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL
         ORDER BY campaign_id,
-                 CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END,
+                 meta_is_current_sort,
                  meta_created_at DESC
         """
 
