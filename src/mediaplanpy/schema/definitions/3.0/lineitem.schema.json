@@ -406,7 +406,7 @@
         "properties": {
           "formula_type": {
             "type": "string",
-            "description": "Type of formula function. Common types include: 'cost_per_unit', 'conversion_rate', 'constant', 'power_function'. Defined in dictionary schema - should match across all line items for this metric."
+            "description": "Type of formula function. Common types include: 'cost_per_unit', 'conversion_rate', 'constant', 'power_function', 'adbudg'. Defined in dictionary schema - should match across all line items for this metric."
           },
           "base_metric": {
             "type": "string",

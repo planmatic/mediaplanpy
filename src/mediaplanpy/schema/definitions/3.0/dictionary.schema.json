@@ -164,7 +164,7 @@
       "properties": {
         "formula_type": {
           "type": "string",
-          "description": "Type of formula function. Common types include: 'cost_per_unit' (linear division), 'conversion_rate' (linear multiplication), 'constant' (fixed value), 'power_function' (power function). Applications may support additional formula types. Must be consistent across all line items for this metric."
+          "description": "Type of formula function. Common types include: 'cost_per_unit' (linear division), 'conversion_rate' (linear multiplication), 'constant' (fixed value), 'power_function' (power function), 'adbudg' (diminishing returns). Applications may support additional formula types. Must be consistent across all line items for this metric."
         },
         "base_metric": {
           "type": "string",
@@ -190,7 +190,7 @@
         },
         "formula_type": {
           "type": "string",
-          "description": "Type of formula function. Common types include: 'cost_per_unit' (linear division), 'conversion_rate' (linear multiplication), 'constant' (fixed value), 'power_function' (power function). Applications may support additional formula types. Must be consistent across all line items for this metric."
+          "description": "Type of formula function. Common types include: 'cost_per_unit' (linear division), 'conversion_rate' (linear multiplication), 'constant' (fixed value), 'power_function' (power function), 'adbudg' (diminishing returns). Applications may support additional formula types. Must be consistent across all line items for this metric."
         },
         "base_metric": {
           "type": "string",

@@ -448,3 +448,95 @@ class TestExcelEdgeCases:
         # Import back and verify
         imported = import_from_excel(result_path)
         assert len(imported["lineitems"]) == 0
+
+
+class TestExcelAdbudgRoundTrip:
+    """Test adbudg formula round-trip through Excel export/import."""
+
+    def test_adbudg_formula_roundtrip(self, temp_dir):
+        """Test that adbudg formula with coefficient, param1, and param2 survives Excel round-trip."""
+        from mediaplanpy.models import LineItem, Campaign, Meta, MetricFormula, Dictionary, MetricFormulaConfig
+
+        lineitem = LineItem(
+            id="LI001",
+            name="Adbudg Test",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 3, 31),
+            cost_total=Decimal("151774.95"),
+            metric_impressions=Decimal("82177448"),
+            metric_sales=Decimal("374141"),
+            metric_formulas={
+                "metric_impressions": MetricFormula(
+                    formula_type="cost_per_unit",
+                    base_metric="cost_total",
+                    coefficient=0.001847,
+                ),
+                "metric_sales": MetricFormula(
+                    formula_type="adbudg",
+                    base_metric="metric_impressions",
+                    coefficient=753083.697519,
+                    parameter1=3857364.900788,
+                    parameter2=0.8315,
+                )
+            }
+        )
+
+        campaign = Campaign(
+            id="CAM001",
+            name="Test",
+            objective="awareness",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            budget_total=Decimal("200000")
+        )
+
+        meta = Meta(
+            id="MP001",
+            schema_version="v3.0",
+            name="Adbudg Test",
+            created_by_name="Test User",
+            created_at=datetime(2025, 1, 1, 0, 0, 0)
+        )
+
+        dictionary = Dictionary(
+            standard_metrics={
+                "metric_impressions": MetricFormulaConfig(
+                    formula_type="cost_per_unit",
+                    base_metric="cost_total"
+                ),
+                "metric_sales": MetricFormulaConfig(
+                    formula_type="adbudg",
+                    base_metric="metric_impressions"
+                )
+            }
+        )
+
+        mediaplan = MediaPlan(meta=meta, campaign=campaign, dictionary=dictionary, lineitems=[lineitem])
+
+        # Export
+        output_path = os.path.join(temp_dir, "test_adbudg_roundtrip.xlsx")
+        export_to_excel(mediaplan, path=output_path)
+
+        assert os.path.exists(output_path)
+
+        # Import back
+        imported = import_from_excel(output_path)
+
+        # Verify lineitems exist
+        assert len(imported["lineitems"]) > 0
+        li = imported["lineitems"][0]
+
+        # Verify metric_formulas for metric_sales
+        if "metric_formulas" in li and li["metric_formulas"]:
+            formulas = li["metric_formulas"]
+            if "metric_sales" in formulas:
+                sales_formula = formulas["metric_sales"]
+                assert sales_formula["formula_type"] == "adbudg"
+                assert sales_formula["base_metric"] == "metric_impressions"
+                # Coefficient, parameter1, parameter2 should survive round-trip
+                assert "coefficient" in sales_formula
+                assert "parameter1" in sales_formula
+                assert "parameter2" in sales_formula
+                # Verify parameter values are approximately correct
+                assert abs(sales_formula["parameter1"] - 3857364.900788) < 1.0
+                assert abs(sales_formula["parameter2"] - 0.8315) < 0.001

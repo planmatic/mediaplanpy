@@ -55,7 +55,7 @@ class MetricFormulaConfig(BaseModel):
     NEW in v3.0: Allows standard metrics to use formulas for calculation.
     """
 
-    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function)")
+    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function, adbudg)")
     base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation")
 
     @field_validator("formula_type")
@@ -85,7 +85,7 @@ class CustomMetricConfig(BaseModel):
 
     status: str = Field(..., description="Whether this custom metric field is enabled or disabled")
     caption: Optional[str] = Field(None, description="Display caption for this custom metric")
-    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function)")
+    formula_type: Optional[str] = Field(None, description="Type of formula function (e.g., cost_per_unit, conversion_rate, constant, power_function, adbudg)")
     base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation")
 
     @field_validator("status")

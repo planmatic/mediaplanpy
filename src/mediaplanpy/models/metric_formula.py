@@ -41,7 +41,7 @@ class MetricFormula(BaseModel):
     """
 
     # Required field (based on plan specification)
-    formula_type: str = Field(..., description="Type of formula function (e.g., 'cost_per_unit', 'conversion_rate', 'constant', 'power_function')")
+    formula_type: str = Field(..., description="Type of formula function (e.g., 'cost_per_unit', 'conversion_rate', 'constant', 'power_function', 'adbudg')")
 
     # Optional fields
     base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation (e.g., cost_total, cost_media, metric_impressions, metric_clicks)")

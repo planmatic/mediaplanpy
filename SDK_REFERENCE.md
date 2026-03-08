@@ -517,7 +517,7 @@ media_plan.update_lineitem(lineitem)
 - **NEW in v3.0**: Allows standard metrics to use formulas for calculation
 - **Parameters**:
   - `metric_name`: Standard metric name (e.g., 'metric_impressions', 'metric_clicks')
-  - `formula_type`: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', 'power_function')
+  - `formula_type`: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', 'power_function', 'adbudg')
   - `base_metric`: Base metric for calculation (e.g., 'cost_total', 'metric_impressions')
 - **Example**:
 ```python
@@ -958,7 +958,7 @@ The `MetricFormula` class represents a custom calculation formula for a metric.
 ### MetricFormula Data Model
 
 **Required Fields**:
-- `formula_type`: Type of formula function ("cost_per_unit", "conversion_rate", "constant", "power_function")
+- `formula_type`: Type of formula function ("cost_per_unit", "conversion_rate", "constant", "power_function", "adbudg")
 
 **Optional Fields**:
 - `base_metric`: The metric or cost field used as input (e.g., "cost_total", "metric_impressions")

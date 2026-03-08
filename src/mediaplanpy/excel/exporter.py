@@ -368,6 +368,20 @@ def _determine_calculated_columns(
         param1_header = f"{metric_header} Parameter 1"
         columns.append((param1_field, param1_header, "calculated"))
 
+    elif formula_type == "adbudg":
+        # Adbudg (diminishing returns): coefficient, parameter1, and parameter2 columns
+        coef_field = f"{metric_name}_coef"
+        coef_header = f"{metric_header} Coefficient"
+        columns.append((coef_field, coef_header, "calculated"))
+
+        param1_field = f"{metric_name}_param1"
+        param1_header = f"{metric_header} Parameter 1"
+        columns.append((param1_field, param1_header, "calculated"))
+
+        param2_field = f"{metric_name}_param2"
+        param2_header = f"{metric_header} Parameter 2"
+        columns.append((param2_field, param2_header, "calculated"))
+
     # Add the metric column itself (with formula)
     columns.append((metric_name, metric_header, "formula"))
 
@@ -450,6 +464,20 @@ def _determine_calculated_columns_multi(
             param1_header = f"{metric_header} Parameter 1"
             columns.append((param1_field, param1_header, "calculated"))
             added_column_types.add("power")
+
+        elif formula_type == "adbudg" and "adbudg" not in added_column_types:
+            coef_field = f"{metric_name}_coef"
+            coef_header = f"{metric_header} Coefficient"
+            columns.append((coef_field, coef_header, "calculated"))
+
+            param1_field = f"{metric_name}_param1"
+            param1_header = f"{metric_header} Parameter 1"
+            columns.append((param1_field, param1_header, "calculated"))
+
+            param2_field = f"{metric_name}_param2"
+            param2_header = f"{metric_header} Parameter 2"
+            columns.append((param2_field, param2_header, "calculated"))
+            added_column_types.add("adbudg")
 
     # Add the metric column itself (with formula)
     columns.append((metric_name, metric_header, "formula"))
@@ -695,6 +723,28 @@ def _populate_coefficient_column(
             else:
                 coefficient = Decimal("0")
 
+        elif formula_type == "adbudg":
+            # coefficient = metric_value * (parameter1 + base^parameter2) / base^parameter2
+            parameter1 = Decimal("1.0")
+            parameter2 = Decimal("1.0")
+            if metric_formulas and metric_name in metric_formulas:
+                formula = metric_formulas[metric_name]
+                param1 = getattr(formula, "parameter1", None)
+                param2 = getattr(formula, "parameter2", None)
+                if param1 is not None:
+                    parameter1 = Decimal(str(param1))
+                if param2 is not None:
+                    parameter2 = Decimal(str(param2))
+
+            if base_metric_value > 0:
+                base_power = base_metric_value ** parameter2
+                if base_power > 0:
+                    coefficient = metric_value * (parameter1 + base_power) / base_power
+                else:
+                    coefficient = Decimal("0")
+            else:
+                coefficient = Decimal("0")
+
         else:
             # Unknown formula type, default to 0
             coefficient = Decimal("0")
@@ -733,6 +783,36 @@ def _get_parameter1_value(
             if not isinstance(param1, Decimal):
                 return Decimal(str(param1))
             return param1
+
+    return Decimal("1.0")
+
+
+def _get_parameter2_value(
+    metric_name: str,
+    line_item: "LineItem"
+) -> Decimal:
+    """
+    Get parameter2 value for adbudg formulas.
+
+    Args:
+        metric_name: Name of the metric
+        line_item: LineItem object
+
+    Returns:
+        Decimal parameter2 value, defaults to 1.0 if not found
+    """
+    metric_formulas = getattr(line_item, "metric_formulas", {})
+    if metric_formulas is None:
+        metric_formulas = {}
+
+    if metric_formulas and metric_name in metric_formulas:
+        formula = metric_formulas[metric_name]
+        param2 = getattr(formula, "parameter2", None)
+
+        if param2 is not None:
+            if not isinstance(param2, Decimal):
+                return Decimal(str(param2))
+            return param2
 
     return Decimal("1.0")
 
@@ -850,6 +930,22 @@ def _generate_excel_formula(
             return ""
 
         formula = f"=IF({base_ref}=0,0,{coef_ref}*({base_ref}^{param1_ref}))"
+
+    elif formula_type == "adbudg":
+        # Formula: metric = coefficient * (base ^ parameter2) / (parameter1 + base ^ parameter2)
+        # Excel: =IF(base=0,0,coef*(base^param2)/(param1+base^param2))
+        coef_field = f"{metric_name}_coef"
+        param1_field = f"{metric_name}_param1"
+        param2_field = f"{metric_name}_param2"
+
+        coef_ref = column_refs.get(coef_field, "")
+        param1_ref = column_refs.get(param1_field, "")
+        param2_ref = column_refs.get(param2_field, "")
+
+        if not coef_ref or not param1_ref or not param2_ref:
+            return ""
+
+        formula = f"=IF({base_ref}=0,0,{coef_ref}*({base_ref}^{param2_ref})/({param1_ref}+{base_ref}^{param2_ref}))"
 
     else:
         # Unknown formula type
@@ -1518,17 +1614,17 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                     cell.number_format = '0.0%'  # Percentage format with 1 decimal place
 
                 elif field_name.endswith(("_cpu", "_cvr", "_coef")):
-                    # FORMULA-AWARE: Coefficient column (CPU, CVR, or Power Coefficient)
+                    # FORMULA-AWARE: Coefficient column (CPU, CVR, or Power/Adbudg Coefficient)
                     # Extract metric name and expected formula type from calculated field name
                     if field_name.endswith("_cpu"):
                         metric_name = field_name.replace("_cpu", "")
-                        expected_formula_type = "cost_per_unit"
+                        expected_formula_types = ["cost_per_unit"]
                     elif field_name.endswith("_cvr"):
                         metric_name = field_name.replace("_cvr", "")
-                        expected_formula_type = "conversion_rate"
+                        expected_formula_types = ["conversion_rate"]
                     elif field_name.endswith("_coef"):
                         metric_name = field_name.replace("_coef", "")
-                        expected_formula_type = "power_function"
+                        expected_formula_types = ["power_function", "adbudg"]
 
                     # Get formula config from lineitem (respects lineitem overrides)
                     formula_config = line_item.get_metric_formula_definition(metric_name)
@@ -1536,7 +1632,7 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                     # Only populate coefficient if lineitem's formula_type matches this column type
                     # (when multiple formula types exist, only write to the matching column)
                     coefficient = None
-                    if formula_config and formula_config.get("formula_type") == expected_formula_type:
+                    if formula_config and formula_config.get("formula_type") in expected_formula_types:
                         coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
 
                     if coefficient is not None:
@@ -1561,20 +1657,36 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                             cell.number_format = '0.0000'
 
                 elif field_name.endswith("_param1"):
-                    # FORMULA-AWARE: Parameter1 column for power_function
+                    # FORMULA-AWARE: Parameter1 column for power_function and adbudg
                     metric_name = field_name.replace("_param1", "")
 
                     # Get formula config from lineitem (respects lineitem overrides)
                     formula_config = line_item.get_metric_formula_definition(metric_name)
 
-                    # Only populate parameter1 if lineitem uses power_function
-                    # Leave empty for other formula types to make it clear this parameter is not used
-                    if formula_config and formula_config.get("formula_type") == "power_function":
+                    # Only populate parameter1 if lineitem uses power_function or adbudg
+                    if formula_config and formula_config.get("formula_type") in ("power_function", "adbudg"):
                         parameter1 = _get_parameter1_value(metric_name, line_item)
                         cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter1))
                         cell.number_format = '0.0000'  # 4 decimal places
                     else:
-                        # Leave cell empty when not using power_function
+                        # Leave cell empty when not using power_function or adbudg
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
+                        cell.number_format = '0.0000'
+
+                elif field_name.endswith("_param2"):
+                    # FORMULA-AWARE: Parameter2 column for adbudg
+                    metric_name = field_name.replace("_param2", "")
+
+                    # Get formula config from lineitem (respects lineitem overrides)
+                    formula_config = line_item.get_metric_formula_definition(metric_name)
+
+                    # Only populate parameter2 if lineitem uses adbudg
+                    if formula_config and formula_config.get("formula_type") == "adbudg":
+                        parameter2 = _get_parameter2_value(metric_name, line_item)
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=float(parameter2))
+                        cell.number_format = '0.0000'  # 4 decimal places
+                    else:
+                        # Leave cell empty when not using adbudg
                         cell = sheet.cell(row=row_idx, column=col_idx, value=None)
                         cell.number_format = '0.0000'
 
@@ -1859,7 +1971,7 @@ def _populate_v3_dictionary_sheet(sheet, dictionary: "Dictionary") -> None:
     sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1
-    sheet[f'A{row}'] = "- Common formula types: 'cost_per_unit', 'conversion_rate', 'constant', 'power_function'"
+    sheet[f'A{row}'] = "- Common formula types: 'cost_per_unit', 'conversion_rate', 'constant', 'power_function', 'adbudg'"
     sheet.merge_cells(f'A{row}:G{row}')
 
     row += 1

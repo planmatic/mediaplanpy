@@ -1,5 +1,15 @@
 # Changelog
 
+## [v3.0.3] - 2026-03-08
+
+### Added
+- **`adbudg` formula type**: New diminishing-returns response curve formula for metrics.
+  Formula: `metric_value = coefficient * base^parameter2 / (parameter1 + base^parameter2)`.
+  Supports forward calculation, reverse coefficient solving, and full Excel round-trip
+  (export/import) with coefficient, parameter1, and parameter2 columns.
+
+---
+
 ## [v3.0.2] - 2026-03-03
 
 ### Fixed

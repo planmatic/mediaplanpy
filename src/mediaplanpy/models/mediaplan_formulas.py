@@ -15,7 +15,7 @@ class FormulasMixin:
     def select_metric_formula(
         self,
         metric_name: str,
-        formula_type: Optional[Literal["cost_per_unit", "conversion_rate", "constant", "power_function"]] = None,
+        formula_type: Optional[Literal["cost_per_unit", "conversion_rate", "constant", "power_function", "adbudg"]] = None,
         base_metric: Optional[str] = None,
         default_coefficient: Optional[Decimal] = None,
         default_parameter1: Optional[Decimal] = None,
