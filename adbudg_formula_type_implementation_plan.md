@@ -62,17 +62,50 @@ coefficient = metric_value * (parameter1 + base_metric^parameter2) / base_metric
 
 - Add `'adbudg'` to the description strings listing common formula types
 
-### 7. Excel Exporter Documentation
-**File:** `src/mediaplanpy/excel/exporter.py` (line 1862)
+### 7. Excel Exporter — `exporter.py`
+**File:** `src/mediaplanpy/excel/exporter.py`
 
-- Add `'adbudg'` to the help text listing common formula types
+The exporter uses **hardcoded, formula-type-specific logic** for column generation, coefficient writing, and Excel formula construction. Changes needed:
 
-### 8. SDK Reference Documentation
+**a) Column header generation (`_determine_calculated_columns`):**
+- Add `elif formula_type == "adbudg"` branch
+- Create 3 columns: `{metric}_coef` ("Sales Coefficient"), `{metric}_param1` ("Sales Parameter 1"), `{metric}_param2` ("Sales Parameter 2")
+
+**b) Excel formula generation (`_generate_excel_formula` or equivalent):**
+- Add adbudg Excel formula: `=IF(base=0, 0, coef*(base^param2) / (param1 + base^param2))`
+
+**c) Coefficient column population:**
+- Add `_coef` suffix handling for adbudg (may share with power_function)
+- Write parameter1 and parameter2 values to their respective columns
+
+**d) Help text (line 1862):**
+- Add `'adbudg'` to the formula types list
+
+### 8. Excel Importer — `importer.py`
+**File:** `src/mediaplanpy/excel/importer.py`
+
+The importer uses **hardcoded header patterns and suffix mappings** to reconstruct formulas from Excel columns. Changes needed:
+
+**a) Column header pattern matching:**
+- Add recognition for `"... Parameter 2"` header pattern → `{metric}_param2` suffix
+- Ensure `"... Coefficient"` and `"... Parameter 1"` patterns work for adbudg (may already work if shared with power_function)
+
+**b) `_read_coefficient_for_formula_type()` function:**
+- Add `elif formula_type == "adbudg"` → `_coef` suffix mapping
+
+**c) Reverse calculation during import:**
+- Add adbudg reverse calculation: `coefficient = metric_value * (param1 + base^param2) / base^param2`
+- Read `parameter2` from `{metric}_param2` column (currently only reads `parameter1` for power_function)
+
+**d) Build metric_formulas dict:**
+- Include `parameter2` in the formula entry when formula_type is adbudg
+
+### 9. SDK Reference Documentation
 **File:** `SDK_REFERENCE.md` (lines 520, 961)
 
 - Add `'adbudg'` to formula type documentation
 
-### 9. Unit Tests — `test_formulas.py`
+### 10. Unit Tests — `test_formulas.py`
 **File:** `tests/unit/test_formulas.py`
 
 Add new test cases:
@@ -83,7 +116,7 @@ Add new test cases:
 - **`select_metric_formula()`**: Test selecting adbudg at plan level with propagation
 - **Edge cases**: Zero base value, zero parameter1, zero parameter2
 
-### 10. Examples (Optional)
+### 11. Examples (Optional)
 **File:** `examples/examples_15_formulas.py`
 
 - Consider adding an adbudg example demonstrating the Meridian-style response curve
@@ -100,9 +133,10 @@ Add new test cases:
 | 4 | `src/mediaplanpy/models/dictionary.py` | Update description strings (2 places) |
 | 5 | `src/mediaplanpy/schema/definitions/3.0/lineitem.schema.json` | Update description |
 | 6 | `src/mediaplanpy/schema/definitions/3.0/dictionary.schema.json` | Update descriptions (2 places) |
-| 7 | `src/mediaplanpy/excel/exporter.py` | Update help text |
-| 8 | `SDK_REFERENCE.md` | Update documentation |
-| 9 | `tests/unit/test_formulas.py` | Add test cases |
+| 7 | `src/mediaplanpy/excel/exporter.py` | Add adbudg column generation, Excel formula, coefficient writing, help text |
+| 8 | `src/mediaplanpy/excel/importer.py` | Add adbudg header pattern matching, parameter2 reading, reverse calculation |
+| 9 | `SDK_REFERENCE.md` | Update documentation |
+| 10 | `tests/unit/test_formulas.py` | Add test cases |
 
 ## No Changes Required
 
@@ -110,6 +144,5 @@ Add new test cases:
 - **JSON schema structure**: Already supports arbitrary `formula_type` strings and all parameters — no schema structure changes
 - **Schema migration**: No migration needed — adbudg is additive, existing plans unaffected
 - **Storage backends**: Formula serialization is generic — no changes needed
-- **Excel import/export**: Formula data flows through generic dict serialization — no changes needed (just doc string)
 - **Dependency graph / topological sort**: Already works with any formula type — no changes needed
 - **MetricValue wrapper**: Already exposes all formula fields — no changes needed
