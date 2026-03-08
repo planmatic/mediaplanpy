@@ -1196,7 +1196,7 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
 
         Args:
             metric_name: Standard metric name (e.g., 'metric_impressions', 'metric_clicks')
-            formula_type: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', etc.)
+            formula_type: Type of formula ('cost_per_unit', 'conversion_rate', 'constant', 'power_function', 'adbudg', etc.)
             base_metric: Base metric for calculation (e.g., 'cost_total', 'metric_impressions')
 
         Raises:

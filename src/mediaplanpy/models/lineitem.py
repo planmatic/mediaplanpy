@@ -901,10 +901,34 @@ class LineItem(BaseModel):
                     # Power operation failed (negative base with fractional exponent, etc.)
                     return None
 
+            elif formula_type == "adbudg":
+                # metric_value = coefficient * (base ^ parameter2) / (parameter1 + base ^ parameter2)
+                # Diminishing-returns response curve (e.g., Meridian-style)
+                try:
+                    base_float = float(base_value)
+                    coeff_float = float(coefficient)
+                    param1_float = float(parameter1)
+                    # Get parameter2 from formula
+                    parameter2 = Decimal("1.0")
+                    if self.metric_formulas and metric_name in self.metric_formulas:
+                        formula = self.metric_formulas[metric_name]
+                        if formula.parameter2 is not None:
+                            parameter2 = Decimal(str(formula.parameter2))
+                    param2_float = float(parameter2)
+
+                    base_power = base_float ** param2_float
+                    denominator = param1_float + base_power
+                    if denominator == 0:
+                        return None
+                    result_float = coeff_float * base_power / denominator
+                    return Decimal(str(result_float))
+                except (ValueError, OverflowError, InvalidOperation):
+                    return None
+
             else:
                 raise ValueError(
                     f"Invalid formula_type '{formula_type}' for metric '{metric_name}'. "
-                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function"
+                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function, adbudg"
                 )
 
         except (InvalidOperation, ZeroDivisionError, ValueError) as e:
@@ -1006,10 +1030,32 @@ class LineItem(BaseModel):
                     # Power operation failed
                     return None
 
+            elif formula_type == "adbudg":
+                # coefficient = metric_value * (parameter1 + base^parameter2) / base^parameter2
+                try:
+                    base_float = float(base_value)
+                    metric_float = float(metric_value)
+                    param1_float = float(parameter1)
+                    # Get parameter2 from formula
+                    parameter2 = Decimal("1.0")
+                    if self.metric_formulas and metric_name in self.metric_formulas:
+                        formula = self.metric_formulas[metric_name]
+                        if formula.parameter2 is not None:
+                            parameter2 = Decimal(str(formula.parameter2))
+                    param2_float = float(parameter2)
+
+                    base_power = base_float ** param2_float
+                    if base_power == 0:
+                        return None
+                    result_float = metric_float * (param1_float + base_power) / base_power
+                    return Decimal(str(result_float))
+                except (ValueError, OverflowError, InvalidOperation, ZeroDivisionError):
+                    return None
+
             else:
                 raise ValueError(
                     f"Invalid formula_type '{formula_type}' for metric '{metric_name}'. "
-                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function"
+                    f"Valid types: cost_per_unit, conversion_rate, constant, power_function, adbudg"
                 )
 
         except (InvalidOperation, ZeroDivisionError, ValueError) as e:

@@ -146,18 +146,27 @@ def _build_metric_formulas_from_import(
                 if base_metric_value == 0:
                     continue
 
-                # Get parameter1 for power_function (read from calculated_data)
+                # Get parameter1 for power_function and adbudg (read from calculated_data)
                 parameter1 = None
-                if formula_type == "power_function":
+                if formula_type in ("power_function", "adbudg"):
                     param1_key = f"{metric_name}_param1"
                     if param1_key in calculated_data:
                         parameter1 = Decimal(str(calculated_data[param1_key]))
                     else:
                         parameter1 = Decimal("1.0")
 
+                # Get parameter2 for adbudg (read from calculated_data)
+                parameter2 = None
+                if formula_type == "adbudg":
+                    param2_key = f"{metric_name}_param2"
+                    if param2_key in calculated_data:
+                        parameter2 = Decimal(str(calculated_data[param2_key]))
+                    else:
+                        parameter2 = Decimal("1.0")
+
                 # Reverse-calculate coefficient
                 coefficient = _reverse_calculate_coefficient(
-                    metric_value, base_metric_value, formula_type, parameter1
+                    metric_value, base_metric_value, formula_type, parameter1, parameter2
                 )
 
         else:
@@ -168,14 +177,23 @@ def _build_metric_formulas_from_import(
                 metric_name, formula_type, calculated_data
             )
 
-            # Get parameter1 for power_function
+            # Get parameter1 for power_function and adbudg
             parameter1 = None
-            if formula_type == "power_function":
+            if formula_type in ("power_function", "adbudg"):
                 param1_key = f"{metric_name}_param1"
                 if param1_key in calculated_data:
                     parameter1 = Decimal(str(calculated_data[param1_key]))
                 else:
                     parameter1 = Decimal("1.0")
+
+            # Get parameter2 for adbudg
+            parameter2 = None
+            if formula_type == "adbudg":
+                param2_key = f"{metric_name}_param2"
+                if param2_key in calculated_data:
+                    parameter2 = Decimal(str(calculated_data[param2_key]))
+                else:
+                    parameter2 = Decimal("1.0")
 
         # Build metric_formula entry
         if coefficient is not None:
@@ -187,6 +205,9 @@ def _build_metric_formulas_from_import(
 
             if parameter1 is not None:
                 formula_entry["parameter1"] = float(parameter1)
+
+            if parameter2 is not None:
+                formula_entry["parameter2"] = float(parameter2)
 
             metric_formulas[metric_name] = formula_entry
 
@@ -277,6 +298,8 @@ def _read_coefficient_for_formula_type(
         suffix = "_const"
     elif formula_type == "power_function":
         suffix = "_coef"
+    elif formula_type == "adbudg":
+        suffix = "_coef"
     else:
         return None
 
@@ -331,7 +354,8 @@ def _reverse_calculate_coefficient(
     metric_value: Decimal,
     base_metric_value: Decimal,
     formula_type: str,
-    parameter1: Optional[Decimal]
+    parameter1: Optional[Decimal],
+    parameter2: Optional[Decimal] = None
 ) -> Optional[Decimal]:
     """
     Reverse-calculate coefficient from metric and base metric values.
@@ -355,6 +379,21 @@ def _reverse_calculate_coefficient(
                 parameter1 = Decimal("1.0")
             if base_metric_value > 0:
                 coefficient = metric_value / (base_metric_value ** parameter1)
+            else:
+                coefficient = Decimal("0")
+
+        elif formula_type == "adbudg":
+            # coefficient = metric_value * (parameter1 + base^parameter2) / base^parameter2
+            if parameter1 is None:
+                parameter1 = Decimal("1.0")
+            if parameter2 is None:
+                parameter2 = Decimal("1.0")
+            if base_metric_value > 0:
+                base_power = base_metric_value ** parameter2
+                if base_power > 0:
+                    coefficient = metric_value * (parameter1 + base_power) / base_power
+                else:
+                    coefficient = Decimal("0")
             else:
                 coefficient = Decimal("0")
 
@@ -387,6 +426,8 @@ def _read_coefficient_from_calculated_data(
     elif formula_type == "constant":
         suffix = "_const"
     elif formula_type == "power_function":
+        suffix = "_coef"
+    elif formula_type == "adbudg":
         suffix = "_coef"
     else:
         return None
@@ -1413,6 +1454,23 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
             elif "metric custom" in metric_part:
                 number = metric_part.replace("metric custom ", "").replace("metric custom", "").strip()
                 calculated_field_mapping[header] = f"metric_custom{number}_param1"
+
+    # Map adbudg parameter2 columns: "Reach Parameter 2" -> "metric_reach_param2"
+    # Note: Parameter 2 columns use plural forms (e.g., "Impressions", "Clicks", "Reach")
+    for header in headers:
+        if "Parameter 2" in header and not header.startswith("_"):
+            # Extract metric name from header (e.g., "Reach Parameter 2" -> "Reach")
+            metric_part = header.replace(" Parameter 2", "").strip().lower()
+
+            # Check if in comprehensive mapping (use plural forms)
+            if metric_part in metric_plural_to_field:
+                metric_field = metric_plural_to_field[metric_part]
+                calculated_field_mapping[header] = f"{metric_field}_param2"
+
+            # Handle custom metrics
+            elif "metric custom" in metric_part:
+                number = metric_part.replace("metric custom ", "").replace("metric custom", "").strip()
+                calculated_field_mapping[header] = f"metric_custom{number}_param2"
 
     # Helper function to handle Excel errors and convert to appropriate values
     def clean_excel_value(cell_value, field_name: str):

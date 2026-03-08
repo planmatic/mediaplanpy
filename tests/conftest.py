@@ -146,6 +146,26 @@ def metric_formula_conversions():
 
 
 @pytest.fixture
+def metric_formula_sales_adbudg():
+    """
+    Create a sample MetricFormula for calculating sales using adbudg (diminishing returns).
+
+    This formula calculates sales using the adbudg response curve:
+    metric_sales = coefficient * (impressions ^ parameter2) / (parameter1 + impressions ^ parameter2)
+
+    Based on a Meridian-style response curve example.
+    """
+    return MetricFormula(
+        formula_type="adbudg",
+        base_metric="metric_impressions",
+        coefficient=753083.697519,
+        parameter1=3857364.900788,
+        parameter2=0.8315,
+        comments="Meridian response curve for sales"
+    )
+
+
+@pytest.fixture
 def campaign_v3_minimal():
     """Create a minimal v3.0 Campaign with required fields only."""
     return Campaign(

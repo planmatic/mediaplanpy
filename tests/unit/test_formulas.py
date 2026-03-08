@@ -903,3 +903,155 @@ class TestMediaPlanSelectMetricFormula:
         assert mediaplan.lineitems[0].metric_formulas["metric_impressions"].formula_type == "cost_per_unit"
         assert result["dictionary_updated"] == 1
         assert result["lineitems_updated"] == 0
+
+
+class TestAdbudgFormula:
+    """Test adbudg (diminishing returns) formula type."""
+
+    def _make_adbudg_mediaplan(self, impressions=Decimal("82177448"), cost_total=Decimal("151774.95")):
+        """Helper to create a MediaPlan with adbudg formula for metric_sales."""
+        return MediaPlan(
+            meta=Meta(
+                id="mp_adbudg",
+                schema_version="v3.0",
+                created_by_name="Test User"
+            ),
+            campaign=Campaign(
+                id="camp_001",
+                name="Adbudg Test Campaign",
+                start_date=date(2025, 1, 1),
+                end_date=date(2025, 12, 31),
+                budget_total=Decimal("200000")
+            ),
+            dictionary=Dictionary(
+                standard_metrics={
+                    "metric_impressions": MetricFormulaConfig(
+                        formula_type="cost_per_unit",
+                        base_metric="cost_total"
+                    ),
+                    "metric_sales": MetricFormulaConfig(
+                        formula_type="adbudg",
+                        base_metric="metric_impressions"
+                    )
+                }
+            ),
+            lineitems=[
+                LineItem(
+                    id="li_001",
+                    name="Adbudg LineItem",
+                    start_date=date(2025, 1, 1),
+                    end_date=date(2025, 12, 31),
+                    cost_total=cost_total,
+                    metric_impressions=impressions,
+                    metric_formulas={
+                        "metric_impressions": MetricFormula(
+                            formula_type="cost_per_unit",
+                            base_metric="cost_total",
+                            coefficient=Decimal("0.008")
+                        ),
+                        "metric_sales": MetricFormula(
+                            formula_type="adbudg",
+                            base_metric="metric_impressions",
+                            coefficient=753083.697519,
+                            parameter1=3857364.900788,
+                            parameter2=0.8315
+                        )
+                    }
+                )
+            ]
+        )
+
+    def test_forward_calculation(self):
+        """Test adbudg forward calculation produces expected results."""
+        mediaplan = self._make_adbudg_mediaplan()
+        lineitem = mediaplan.lineitems[0]
+
+        # Calculate sales from formula
+        result = lineitem._calculate_metric_from_formula("metric_sales", mediaplan.dictionary)
+
+        # metric_sales = 753083.697519 * (82177448^0.8315) / (3857364.900788 + 82177448^0.8315)
+        assert result is not None
+        # Verify it's in the expected ballpark (around 374140)
+        assert abs(float(result) - 374140.90) < 1000
+
+    def test_reverse_calculation(self):
+        """Test adbudg reverse calculation recovers the coefficient."""
+        mediaplan = self._make_adbudg_mediaplan()
+        lineitem = mediaplan.lineitems[0]
+
+        # First do forward calculation
+        forward_result = lineitem._calculate_metric_from_formula("metric_sales", mediaplan.dictionary)
+        assert forward_result is not None
+
+        # Then reverse-calculate coefficient from that result
+        reverse_coeff = lineitem._reverse_calculate_coefficient(
+            "metric_sales", forward_result, mediaplan.dictionary
+        )
+
+        assert reverse_coeff is not None
+        # Should recover approximately the original coefficient
+        assert abs(float(reverse_coeff) - 753083.697519) < 1.0
+
+    def test_set_metric_value_updates_coefficient(self):
+        """Test setting metric value with adbudg formula updates coefficient."""
+        mediaplan = self._make_adbudg_mediaplan()
+        lineitem = mediaplan.lineitems[0]
+
+        # Set sales to a specific value
+        lineitem.set_metric_value("metric_sales", Decimal("400000"))
+
+        assert lineitem.metric_sales == Decimal("400000")
+        # Coefficient should have been updated
+        new_coeff = lineitem.metric_formulas["metric_sales"].coefficient
+        assert new_coeff is not None
+        assert float(new_coeff) != 753083.697519  # Should be different
+
+    def test_configure_metric_formula_adbudg(self):
+        """Test configuring adbudg formula parameters and recalculation."""
+        mediaplan = self._make_adbudg_mediaplan()
+        lineitem = mediaplan.lineitems[0]
+
+        # Configure new coefficient
+        result = lineitem.configure_metric_formula(
+            "metric_sales",
+            coefficient=Decimal("800000"),
+        )
+
+        # Sales should be recalculated with new coefficient
+        assert "metric_sales" in result
+        assert lineitem.metric_sales is not None
+
+    def test_select_metric_formula_adbudg(self):
+        """Test selecting adbudg formula at plan level."""
+        mediaplan = self._make_adbudg_mediaplan()
+
+        result = mediaplan.select_metric_formula(
+            "metric_sales",
+            formula_type="adbudg",
+            base_metric="metric_impressions"
+        )
+
+        assert mediaplan.dictionary.standard_metrics["metric_sales"].formula_type == "adbudg"
+        assert result["dictionary_updated"] == 1
+
+    def test_forward_calculation_zero_base(self):
+        """Test adbudg with zero base value returns None."""
+        mediaplan = self._make_adbudg_mediaplan(impressions=Decimal("0"))
+        lineitem = mediaplan.lineitems[0]
+
+        result = lineitem._calculate_metric_from_formula("metric_sales", mediaplan.dictionary)
+        # base^parameter2 = 0^0.8315 = 0, denominator = param1 + 0 = param1 != 0
+        # result = coeff * 0 / param1 = 0
+        assert result is not None
+        assert float(result) == 0.0
+
+    def test_reverse_calculation_zero_base(self):
+        """Test adbudg reverse calculation with zero base returns None."""
+        mediaplan = self._make_adbudg_mediaplan(impressions=Decimal("0"))
+        lineitem = mediaplan.lineitems[0]
+
+        result = lineitem._reverse_calculate_coefficient(
+            "metric_sales", Decimal("100000"), mediaplan.dictionary
+        )
+        # base^param2 = 0, so division by zero → None
+        assert result is None
