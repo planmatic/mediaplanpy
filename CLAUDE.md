@@ -85,7 +85,7 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 ## Configuration
 
 **Version Information**
-- Current SDK version: 3.0.2
+- Current SDK version: 3.0.3
 - Current schema version: 3.0
 - Supported major versions: [2, 3]
 
