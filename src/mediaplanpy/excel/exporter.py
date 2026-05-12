@@ -1629,10 +1629,20 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                     # Get formula config from lineitem (respects lineitem overrides)
                     formula_config = line_item.get_metric_formula_definition(metric_name)
 
-                    # Only populate coefficient if lineitem's formula_type matches this column type
-                    # (when multiple formula types exist, only write to the matching column)
+                    # Aggregate rows store summary values directly — coefficient columns
+                    # are not meaningful, so leave them empty.
+                    is_aggregate_row = bool(getattr(line_item, "is_aggregate", False))
+
+                    # Determine effective formula type. When no formula config exists
+                    # (e.g. custom metric without dictionary entry), column creation
+                    # defaults to cost_per_unit — coefficient population must match.
+                    if formula_config:
+                        effective_formula_type = formula_config.get("formula_type")
+                    else:
+                        effective_formula_type = "cost_per_unit"
+
                     coefficient = None
-                    if formula_config and formula_config.get("formula_type") in expected_formula_types:
+                    if not is_aggregate_row and effective_formula_type in expected_formula_types:
                         coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
 
                     if coefficient is not None:
@@ -1708,6 +1718,16 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                         cell.font = Font(color="808080")  # Grey color
 
                 elif field_name.startswith("metric_"):
+                    # Aggregate rows hold stored summary values, not derived ones —
+                    # bypass the formula path so values like a campaign-level reach
+                    # are written verbatim.
+                    if getattr(line_item, "is_aggregate", False):
+                        metric_value = getattr(line_item, field_name, None)
+                        if metric_value is not None:
+                            cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
+                            cell.number_format = "#,##0"
+                        continue
+
                     # FORMULA-AWARE: Performance metric formula
                     # Get formula config from lineitem (respects lineitem overrides)
                     formula_config = line_item.get_metric_formula_definition(field_name)

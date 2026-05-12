@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.3'          # SDK version
+__version__ = '3.0.4'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -23,6 +23,7 @@ VERSION_NOTES = {
     '3.0.1': 'Bug fixes: MediaPlan.save() created_at preservation, SQL filter generation, SQL injection prevention, examples update',
     '3.0.2': 'Fix MediaPlan.load(campaign_id=...) to resolve current media plan via workspace query',
     '3.0.3': 'Add adbudg (diminishing returns) formula type support',
+    '3.0.4': 'Bug fixes: Excel export of metric values on aggregate line items and custom metrics without dictionary entries',
 }
 
 # Schema version compatibility constants - Updated for v3.0

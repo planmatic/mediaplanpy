@@ -1,5 +1,25 @@
 # Changelog
 
+## [v3.0.4] - 2026-05-12
+
+### Fixed
+- Excel export of metric values on aggregate line items (`is_aggregate=True`)
+  Aggregate rows store summary values directly rather than deriving them from
+  a base metric and coefficient. The exporter previously applied the standard
+  `=IF(cpu=0, 0, cost_total/cpu)` formula path to these rows, which evaluated
+  to 0 when `cost_total=0` — masking the actual stored metric value (e.g.
+  `metric_reach` on a campaign-level rollup). Aggregate rows now write metric
+  values verbatim and leave coefficient columns blank.
+- Excel export of custom metrics without a Dictionary entry
+  When a custom metric (e.g. `metric_custom1`) had no entry in the plan's
+  Dictionary, `metric_custom*_cpu` columns were created (defaulted to
+  `cost_per_unit`) but never populated with a coefficient, so the metric's
+  formula referenced an empty cell and evaluated to 0. The coefficient
+  population logic now applies the same `cost_per_unit` default as column
+  creation, so the values round-trip correctly.
+
+---
+
 ## [v3.0.3] - 2026-03-08
 
 ### Added
