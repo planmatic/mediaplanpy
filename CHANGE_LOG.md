@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.0.5] - 2026-08-12
+
+### Added
+- `include_archived` parameter on `WorkspaceManager.list_campaigns()`
+  Previously, `list_campaigns()` hardcoded the exclusion of archived campaigns
+  (`meta_is_archived = FALSE OR meta_is_archived IS NULL`) with no way to
+  override it. The new `include_archived` parameter (default `False`, preserving
+  current behavior byte-for-byte) allows callers to opt in to seeing archived
+  campaigns. Purely additive — existing callers are unaffected.
+
+---
+
 ## [v3.0.4] - 2026-05-12
 
 ### Fixed

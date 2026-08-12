@@ -208,7 +208,7 @@ def _apply_filters(self, df, filters):
     return filtered_df
 
 
-def list_campaigns(self, filters=None, include_stats=True, return_dataframe=False):
+def list_campaigns(self, filters=None, include_stats=True, include_archived=False, return_dataframe=False):
     """
     Retrieve a list of unique campaigns with metadata and statistics (v3.0).
 
@@ -226,6 +226,9 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
         filters (dict, optional): Filters to apply. Keys are field names, values are
                                  filter values or lists of values.
         include_stats (bool): Whether to include summary statistics.
+        include_archived (bool): Whether to include archived campaigns. Defaults to False,
+                                which excludes campaigns where meta_is_archived is TRUE
+                                (rows with a NULL meta_is_archived are always included).
         return_dataframe (bool): If True, return pandas DataFrame instead of list of dicts.
 
     Returns:
@@ -240,8 +243,10 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
 
     # Step 1: Build simple SQL query to get all campaign data with line item aggregations
     # The workspace_id filter will be automatically injected by sql_query
-    # Filter out archived plans at SQL level
+    # Filter out archived plans at SQL level, unless include_archived is set
     # v3.0: Removed deprecated audience/location fields, added KPIs and custom dimensions
+    archived_clause = "" if include_archived else "WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL"
+
     if include_stats:
         query = """
         SELECT
@@ -302,7 +307,7 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_kpi IS NOT NULL AND lineitem_kpi != '' THEN lineitem_kpi END) as stat_distinct_kpi_count,
             COUNT(DISTINCT CASE WHEN (is_placeholder = FALSE OR is_placeholder IS NULL) AND lineitem_location_name IS NOT NULL AND lineitem_location_name != '' THEN lineitem_location_name END) as stat_distinct_location_name_count
         FROM {*}
-        WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL
+        __ARCHIVED_CLAUSE__
         GROUP BY campaign_id, campaign_name, campaign_objective,
                  campaign_start_date, campaign_end_date, campaign_budget_total,
                  campaign_product_name, campaign_product_description,
@@ -371,11 +376,13 @@ def list_campaigns(self, filters=None, include_stats=True, return_dataframe=Fals
             meta_created_at,
             CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END AS meta_is_current_sort
         FROM {*}
-        WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL
+        __ARCHIVED_CLAUSE__
         ORDER BY campaign_id,
                  meta_is_current_sort,
                  meta_created_at DESC
         """
+
+    query = query.replace("__ARCHIVED_CLAUSE__", archived_clause)
 
     # Add user filters if provided
     if filters:
