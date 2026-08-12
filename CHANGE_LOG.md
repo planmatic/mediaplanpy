@@ -9,6 +9,29 @@
   override it. The new `include_archived` parameter (default `False`, preserving
   current behavior byte-for-byte) allows callers to opt in to seeing archived
   campaigns. Purely additive — existing callers are unaffected.
+- `allow_current` parameter on `MediaPlan.archive()`
+  Archiving a campaign has always been implemented client-side as a loop over
+  the campaign's plans, but that loop could never complete: `archive()` always
+  raised on the campaign's current plan, and every campaign has one. The new
+  `allow_current` parameter (default `False`, preserving current behavior and
+  error message byte-for-byte) lets callers explicitly archive a current plan
+  as part of a campaign-level cascade. When used, `is_current` is preserved
+  (not cleared), so `restore()` reinstates the plan as current with no
+  re-election step. Intended for campaign-level cascade archival only — see
+  the `archive()` docstring for the caveat on using it against a single plan
+  of an otherwise-live campaign.
+- Relaxed the `is_current`/`is_archived` mutual-exclusion invariant
+  Removed the "cannot be both current and archived" checks in
+  `Meta.validate_model()` and `SchemaValidator._validate_meta_v2_consistency()`.
+  These flags answer different questions (which plan is authoritative vs.
+  whether it's active) and are only contradictory for plan-level archival,
+  which the default `archive()` guard above continues to prevent. No JSON
+  Schema change — the constraint was SDK-side only.
+- `MediaPlan.load(campaign_id=...)` now resolves archived campaigns
+  Internally passes `include_archived=True` to `list_campaigns()` so that a
+  campaign whose current plan has been archived (via `allow_current=True`)
+  remains loadable by `campaign_id` — required for the campaign-archive-cascade
+  UI flow to view/restore an archived campaign.
 
 ---
 

@@ -24,7 +24,7 @@ VERSION_NOTES = {
     '3.0.2': 'Fix MediaPlan.load(campaign_id=...) to resolve current media plan via workspace query',
     '3.0.3': 'Add adbudg (diminishing returns) formula type support',
     '3.0.4': 'Bug fixes: Excel export of metric values on aggregate line items and custom metrics without dictionary entries',
-    '3.0.5': 'Add include_archived parameter to workspace.list_campaigns() (purely additive)',
+    '3.0.5': 'Add include_archived parameter to workspace.list_campaigns(); add allow_current override to MediaPlan.archive() to support campaign-level archive cascades (purely additive)',
 }
 
 # Schema version compatibility constants - Updated for v3.0

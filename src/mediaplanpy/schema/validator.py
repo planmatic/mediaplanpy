@@ -591,13 +591,6 @@ class SchemaValidator:
         """
         errors = []
 
-        # Validate status field consistency
-        is_current = meta.get("is_current")
-        is_archived = meta.get("is_archived")
-
-        if is_current is True and is_archived is True:
-            errors.append("Media plan cannot be both current (is_current: true) and archived (is_archived: true)")
-
         # Validate parent_id doesn't reference itself
         parent_id = meta.get("parent_id")
         plan_id = meta.get("id")

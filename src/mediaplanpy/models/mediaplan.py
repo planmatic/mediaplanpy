@@ -92,10 +92,6 @@ class Meta(BaseModel):
                 if not re.match(r'^v?[0-9]+\.[0-9]+(\.[0-9]+)?$', self.schema_version):
                     errors.append(f"Invalid schema_version format: {self.schema_version}")
 
-        # Validate status consistency
-        if self.is_current is True and self.is_archived is True:
-            errors.append("Media plan cannot be both current and archived")
-
         # Validate parent_id format if provided
         if self.parent_id and self.parent_id == self.id:
             errors.append("parent_id cannot be the same as the media plan id")
@@ -664,7 +660,7 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
         # Note: Date validation warnings may be issued if dates extend beyond campaign
         return self.create_lineitem(copied_dict, validate=validate)
 
-    def archive(self, workspace_manager: 'WorkspaceManager') -> None:
+    def archive(self, workspace_manager: 'WorkspaceManager', allow_current: bool = False) -> None:
         """
         Archive this media plan by setting is_archived=True and saving to storage.
 
@@ -674,9 +670,26 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
 
         Args:
             workspace_manager: The WorkspaceManager instance for saving.
+            allow_current: If False (default), archiving a plan marked as current
+                          (is_current=True) raises ValidationError. If True, the
+                          current plan is archived while its is_current flag is
+                          preserved (not cleared), so restore() reinstates it as
+                          current with no re-election step.
+
+                          This is intended for campaign-level cascade archival,
+                          where every plan version in a campaign (including the
+                          current one) is archived together because campaigns have
+                          no lifecycle state of their own. Using allow_current=True
+                          on a single plan of an otherwise-live campaign leaves that
+                          campaign's current plan archived: the campaign will drop
+                          out of list_campaigns() default (non-archived) listings
+                          while still being loadable via
+                          MediaPlan.load(campaign_id=...). Only pass allow_current=True
+                          when archiving every plan in the campaign.
 
         Raises:
-            ValidationError: If the media plan is currently marked as current (is_current=True).
+            ValidationError: If the media plan is currently marked as current
+                             (is_current=True) and allow_current is False.
             StorageError: If saving fails.
             WorkspaceInactiveError: If the workspace is inactive.
 
@@ -684,8 +697,8 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
             >>> media_plan.archive(workspace_manager)
             >>> print(media_plan.meta.is_archived)  # True
         """
-        # Validation: Cannot archive a current media plan
-        if self.meta.is_current is True:
+        # Validation: Cannot archive a current media plan unless explicitly allowed
+        if self.meta.is_current is True and not allow_current:
             raise ValidationError(
                 f"Cannot archive media plan '{self.meta.id}': it is marked as current (is_current=True). "
                 f"Please set is_current=False before archiving."

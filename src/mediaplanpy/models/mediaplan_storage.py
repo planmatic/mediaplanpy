@@ -380,7 +380,8 @@ class StorageMixin:
 
                 campaigns = workspace_manager.list_campaigns(
                     filters={"campaign_id": campaign_id},
-                    include_stats=False
+                    include_stats=False,
+                    include_archived=True
                 )
 
                 if not campaigns:
