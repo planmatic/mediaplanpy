@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.5'          # SDK version
+__version__ = '3.0.6'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -25,6 +25,7 @@ VERSION_NOTES = {
     '3.0.3': 'Add adbudg (diminishing returns) formula type support',
     '3.0.4': 'Bug fixes: Excel export of metric values on aggregate line items and custom metrics without dictionary entries',
     '3.0.5': 'Add include_archived parameter to workspace.list_campaigns(); add allow_current override to MediaPlan.archive() to support campaign-level archive cascades (purely additive)',
+    '3.0.6': 'Add include_archived parameter to workspace.list_mediaplans() (defaults to True, preserving existing behavior)',
 }
 
 # Schema version compatibility constants - Updated for v3.0

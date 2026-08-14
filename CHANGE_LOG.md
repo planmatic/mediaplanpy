@@ -1,5 +1,23 @@
 # Changelog
 
+## [v3.0.6] - 2026-08-14
+
+### Added
+- `include_archived` parameter on `WorkspaceManager.list_mediaplans()`
+  Previously, `list_mediaplans()` had no archived-filtering concept at all —
+  it always returned every media plan, archived or not, with no native way
+  to exclude them. The new `include_archived` parameter defaults to `True`
+  (preserving current behavior byte-for-byte, unlike `list_campaigns()`'s
+  `include_archived` default of `False`, which matches *its* pre-existing
+  always-exclude behavior). Setting `include_archived=False` adds a
+  `WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL` clause,
+  mirroring the NULL-safe pattern already used by `list_campaigns()` — plans
+  that have never been explicitly archived or restored (`meta_is_archived`
+  is `NULL`) are still included. Purely additive — existing callers are
+  unaffected.
+
+---
+
 ## [v3.0.5] - 2026-08-12
 
 ### Added

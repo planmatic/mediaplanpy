@@ -213,7 +213,7 @@ result = workspace.upgrade_workspace()
 
 #### Data Querying
 
-**`list_campaigns(filters=None, include_stats=True, return_dataframe=False) -> Union[List[Dict], DataFrame]`**
+**`list_campaigns(filters=None, include_stats=True, include_archived=False, return_dataframe=False) -> Union[List[Dict], DataFrame]`**
 - **Location**: `src/mediaplanpy/workspace/query.py:211`
 - **Description**: Retrieves campaigns with metadata and statistics. Returns one row per campaign_id with current settings and statistics from the current/latest media plan.
 - **Key Use Cases**: Campaign reporting, dashboard data
@@ -224,6 +224,9 @@ result = workspace.upgrade_workspace()
 - **Parameters**:
   - `filters`: Dictionary of filter criteria
   - `include_stats`: Include summary statistics
+  - `include_archived`: Include archived campaigns. Defaults to `False`, which excludes
+    campaigns where `meta_is_archived` is `TRUE` (campaigns with a `NULL` `meta_is_archived`
+    are always included).
   - `return_dataframe`: Return pandas DataFrame instead of list
 - **Example**:
 ```python
@@ -234,16 +237,29 @@ campaigns = workspace.list_campaigns(include_stats=True)
 campaigns = workspace.list_campaigns(
     filters={"stat_min_start_date": {"min": "2023-01-01"}}
 )
+
+# Include archived campaigns
+campaigns = workspace.list_campaigns(include_archived=True)
 ```
 
-**`list_mediaplans(filters=None, include_stats=True, return_dataframe=False) -> Union[List[Dict], DataFrame]`**
+**`list_mediaplans(filters=None, include_stats=True, include_archived=True, return_dataframe=False) -> Union[List[Dict], DataFrame]`**
 - **Location**: `src/mediaplanpy/workspace/query.py:301`
 - **Description**: Retrieves media plans with metadata and statistics
 - **Key Use Cases**: Media plan reporting, portfolio analysis
+- **Parameters**:
+  - `filters`: Dictionary of filter criteria
+  - `include_stats`: Include summary statistics
+  - `include_archived`: Include archived media plans. Defaults to `True` (returns all media
+    plans regardless of archive status, preserving prior behavior). Set to `False` to exclude
+    plans where `meta_is_archived` is `TRUE` (plans with a `NULL` `meta_is_archived` are always included).
+  - `return_dataframe`: Return pandas DataFrame instead of list
 - **Example**:
 ```python
-# Get all media plans
+# Get all media plans (including archived, the default)
 plans = workspace.list_mediaplans()
+
+# Exclude archived media plans
+plans = workspace.list_mediaplans(include_archived=False)
 
 # Filter by campaign
 plans = workspace.list_mediaplans(

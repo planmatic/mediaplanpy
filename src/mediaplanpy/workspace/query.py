@@ -420,7 +420,7 @@ def list_campaigns(self, filters=None, include_stats=True, include_archived=Fals
         return result_df.to_dict(orient='records')
 
 
-def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=False):
+def list_mediaplans(self, filters=None, include_stats=True, include_archived=True, return_dataframe=False):
     """
     Retrieve a list of media plans with metadata and statistics (v3.0).
 
@@ -432,6 +432,11 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
         filters (dict, optional): Filters to apply. Keys are field names, values are
                                  filter values or lists of values.
         include_stats (bool): Whether to include summary statistics.
+        include_archived (bool): Whether to include archived media plans. Defaults to True
+                                (preserving prior behavior, which returned all media plans
+                                regardless of archive status). When False, excludes media
+                                plans where meta_is_archived is TRUE (rows with a NULL
+                                meta_is_archived are always included).
         return_dataframe (bool): If True, return pandas DataFrame instead of list of dicts.
 
     Returns:
@@ -441,6 +446,8 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
     if not self.is_loaded:
         from mediaplanpy.exceptions import WorkspaceError
         raise WorkspaceError("No workspace configuration loaded. Call load() first.")
+
+    archived_clause = "" if include_archived else "WHERE meta_is_archived = FALSE OR meta_is_archived IS NULL"
 
     # Build SQL query with all meta and campaign fields (using correct database column names)
     query = """
@@ -521,6 +528,7 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
 
     query += """
     FROM {*}
+    __ARCHIVED_CLAUSE__
     GROUP BY meta_id, meta_schema_version, meta_created_at, meta_name, meta_comments,
              meta_created_by_id, meta_created_by_name, meta_is_current, meta_is_archived, meta_parent_id,
              campaign_id, campaign_name, campaign_objective,
@@ -537,6 +545,8 @@ def list_mediaplans(self, filters=None, include_stats=True, return_dataframe=Fal
              meta_dim_custom1, meta_dim_custom2, meta_dim_custom3,
              meta_dim_custom4, meta_dim_custom5
     ORDER BY meta_created_at DESC"""
+
+    query = query.replace("__ARCHIVED_CLAUSE__", archived_clause)
 
     # Add filters if provided
     if filters:

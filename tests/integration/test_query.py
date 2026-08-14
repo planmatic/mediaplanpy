@@ -15,10 +15,11 @@ import json
 import tempfile
 import shutil
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 
 from mediaplanpy.workspace import WorkspaceManager
-from mediaplanpy.models import MediaPlan
+from mediaplanpy.models import MediaPlan, Campaign, LineItem, Meta
 
 
 @pytest.fixture
@@ -111,6 +112,116 @@ class TestListMediaPlans:
         assert isinstance(filtered, list)
         if len(filtered) > 0:
             assert all(mp["meta_id"] == "MP001" for mp in filtered)
+
+
+@pytest.fixture
+def workspace_with_two_plans(temp_dir):
+    """Create a workspace with two distinct (non-shared-meta) v3.0 media plans."""
+    config = {
+        "workspace_id": "test_workspace_query_archived",
+        "workspace_name": "Test Workspace for Archived Queries",
+        "workspace_settings": {
+            "schema_version": "3.0"
+        },
+        "storage": {
+            "mode": "local",
+            "local": {
+                "base_path": temp_dir
+            }
+        },
+        "database": {
+            "enabled": False
+        }
+    }
+
+    config_path = os.path.join(temp_dir, "workspace.json")
+    with open(config_path, 'w') as f:
+        json.dump(config, f)
+
+    os.makedirs(os.path.join(temp_dir, "mediaplans"), exist_ok=True)
+
+    workspace_manager = WorkspaceManager(workspace_path=config_path)
+    workspace_manager.load()
+
+    def make_plan(meta_id, campaign_id):
+        meta = Meta(
+            id=meta_id,
+            schema_version="v3.0",
+            name=f"Plan {meta_id}",
+            created_by_name="Test User",
+            created_at=datetime(2025, 1, 1, 0, 0, 0),
+            is_current=True
+        )
+        campaign = Campaign(
+            id=campaign_id,
+            name=f"Campaign {campaign_id}",
+            objective="awareness",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            budget_total=Decimal("50000")
+        )
+        lineitem = LineItem(
+            id=f"LI_{meta_id}",
+            name=f"Line Item for {meta_id}",
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 3, 31),
+            cost_total=Decimal("10000"),
+            channel="display",
+            vehicle="Programmatic",
+            partner="DSP Partner"
+        )
+        plan = MediaPlan(meta=meta, campaign=campaign, lineitems=[lineitem])
+        plan.save(workspace_manager)
+        return plan
+
+    plan_a = make_plan("MP_QUERY_A", "CAM_QUERY_A")
+    plan_b = make_plan("MP_QUERY_B", "CAM_QUERY_B")
+
+    return workspace_manager, plan_a, plan_b
+
+
+class TestListMediaPlansIncludeArchived:
+    """Test list_mediaplans()'s include_archived parameter.
+
+    Unlike list_campaigns() (which defaults include_archived=False, matching
+    its pre-existing always-exclude-archived behavior), list_mediaplans()
+    defaults include_archived=True to preserve its prior behavior of
+    returning every media plan regardless of archive status.
+    """
+
+    def test_include_archived_true_by_default_returns_all(self, workspace_with_two_plans):
+        """Default call includes archived plans (backward-compatible behavior)."""
+        workspace_manager, plan_a, plan_b = workspace_with_two_plans
+        plan_a.archive(workspace_manager, allow_current=True)
+
+        mediaplans = workspace_manager.list_mediaplans()
+        meta_ids = {mp["meta_id"] for mp in mediaplans}
+
+        assert "MP_QUERY_A" in meta_ids
+        assert "MP_QUERY_B" in meta_ids
+
+    def test_include_archived_false_excludes_archived(self, workspace_with_two_plans):
+        """include_archived=False excludes archived plans but keeps non-archived ones."""
+        workspace_manager, plan_a, plan_b = workspace_with_two_plans
+        plan_a.archive(workspace_manager, allow_current=True)
+
+        mediaplans = workspace_manager.list_mediaplans(include_archived=False)
+        meta_ids = {mp["meta_id"] for mp in mediaplans}
+
+        assert "MP_QUERY_A" not in meta_ids
+        assert "MP_QUERY_B" in meta_ids
+
+    def test_include_archived_false_keeps_null_archived_flag(self, workspace_with_two_plans):
+        """Rows with a NULL meta_is_archived are treated as not-archived and kept."""
+        workspace_manager, plan_a, plan_b = workspace_with_two_plans
+
+        # Neither plan has been archived, so meta_is_archived is False/NULL
+        # for both; include_archived=False must still return them.
+        mediaplans = workspace_manager.list_mediaplans(include_archived=False)
+        meta_ids = {mp["meta_id"] for mp in mediaplans}
+
+        assert "MP_QUERY_A" in meta_ids
+        assert "MP_QUERY_B" in meta_ids
 
 
 class TestListCampaigns:
