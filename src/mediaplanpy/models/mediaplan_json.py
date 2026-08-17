@@ -7,6 +7,7 @@ media plans to JSON format and importing media plans from JSON files.
 
 import os
 import json
+import uuid
 import logging
 from typing import Dict, Any, Optional, TYPE_CHECKING
 
@@ -22,6 +23,18 @@ logger = logging.getLogger("mediaplanpy.models.mediaplan_json")
 # Constants for directory structure
 EXPORTS_SUBDIR = "exports"
 IMPORTS_SUBDIR = "imports"
+
+
+def _ensure_meta_id(data: Dict[str, Any]) -> None:
+    """Auto-generate meta.id if missing, mirroring the Excel importer's behavior.
+
+    Only for brand-new imports where no identity exists yet - do not call this
+    from a load()/clone()/migration path, where a missing id on an
+    already-saved plan indicates corruption rather than a new plan.
+    """
+    meta = data.setdefault("meta", {})
+    if not meta.get("id"):
+        meta["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
 
 
 def _create_schema_error_message(data: Dict[str, Any], file_identifier: str) -> str:
@@ -245,6 +258,10 @@ class JsonMixin:
                 except json.JSONDecodeError as e:
                     raise StorageError(f"Failed to parse JSON file: {e}")
 
+                # Auto-generate meta.id if missing, matching the Excel importer's
+                # behavior - there's no existing identity to preserve on a new import.
+                _ensure_meta_id(data)
+
                 # Create MediaPlan instance with enhanced version error handling
                 try:
                     result = cls.from_dict(data)
@@ -285,6 +302,10 @@ class JsonMixin:
                 # Read and parse JSON
                 with open(full_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+
+                # Auto-generate meta.id if missing, matching the Excel importer's
+                # behavior - there's no existing identity to preserve on a new import.
+                _ensure_meta_id(data)
 
                 # Create MediaPlan instance with enhanced version error handling
                 try:
