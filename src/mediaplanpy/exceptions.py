@@ -85,6 +85,12 @@ class DatabaseError(StorageError):
     pass
 
 
+class MediaPlanNotFoundError(StorageError):
+    """Raised when MediaPlan.load() can't find the requested plan - genuinely missing,
+    not a different storage failure (permission, corruption, network)."""
+    pass
+
+
 class SQLQueryError(Exception):
     """Exception raised for SQL query errors."""
     pass

@@ -16,7 +16,8 @@ from mediaplanpy.exceptions import (
     FileReadError,
     FileWriteError,
     SchemaVersionError,
-    SchemaError
+    SchemaError,
+    MediaPlanNotFoundError
 )
 from mediaplanpy.storage import (
     read_mediaplan as storage_read_mediaplan,
@@ -571,6 +572,10 @@ class StorageMixin:
 
             # If all attempts failed, raise appropriate error
             raise StorageError(f"Failed to read media plan from {path}")
+        except MediaPlanNotFoundError:
+            # Re-raise as-is so callers can distinguish "not found" from
+            # other storage failures.
+            raise
         except SchemaVersionError:
             # Re-raise version errors
             raise

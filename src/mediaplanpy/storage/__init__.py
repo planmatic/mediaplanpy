@@ -8,7 +8,7 @@ to various storage backends in different formats.
 import logging
 from typing import Dict, Any, Optional, Type, Union
 
-from mediaplanpy.exceptions import StorageError
+from mediaplanpy.exceptions import StorageError, MediaPlanNotFoundError
 from mediaplanpy.storage.base import StorageBackend
 from mediaplanpy.storage.local import LocalStorageBackend
 from mediaplanpy.storage.formats import (
@@ -82,10 +82,16 @@ def read_mediaplan(workspace_config: Dict[str, Any], path: str, format_name: Opt
         The media plan data as a dictionary.
 
     Raises:
+        MediaPlanNotFoundError: If no file exists at the given path.
         StorageError: If the media plan cannot be read.
     """
     # Get storage backend
     backend = get_storage_backend(workspace_config)
+
+    # Check existence up front so a genuinely missing plan is distinguishable
+    # from other storage failures (permission, corruption, network).
+    if not backend.exists(path):
+        raise MediaPlanNotFoundError(f"Media plan not found: {path}")
 
     # Get format handler
     if format_name:
