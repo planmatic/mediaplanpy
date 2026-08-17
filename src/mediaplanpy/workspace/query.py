@@ -691,6 +691,32 @@ def _add_sql_filters(self, base_query, filters):
         raise SQLQueryError(f"Failed to add SQL filters: {str(e)}")
 
 
+def _column_is_numeric(self, field):
+    """
+    Determine whether a column's declared type is numeric (int/Decimal).
+
+    Uses the canonical schema (storage/schema_columns.py) so filter values are
+    quoted based on the column's actual SQL type rather than guessed from the
+    Python value's own shape - a varchar column holding a numeric-looking
+    string (e.g. campaign_workflow_status_id = "1") must still be quoted.
+
+    Returns:
+        True/False if the column is part of the canonical schema, or None if
+        it isn't (e.g. workspace_id, stat_* computed aliases) - callers should
+        fall back to guessing from the value's shape in that case.
+    """
+    try:
+        from mediaplanpy.storage.schema_columns import get_column_types
+        from decimal import Decimal
+    except ImportError:
+        return None
+
+    col_type = get_column_types().get(field)
+    if col_type is None:
+        return None
+    return col_type in (int, Decimal)
+
+
 def _build_sql_filter_conditions(self, filters):
     """
     Convert filter dictionary to SQL WHERE conditions (v3.0).
@@ -701,6 +727,9 @@ def _build_sql_filter_conditions(self, filters):
     - Exact matches
     - Date field detection and conversion
     - SQL injection prevention through proper escaping
+    - Scalar quoting based on the target column's declared type (falls back
+      to guessing from the value's shape for columns outside the canonical
+      schema)
 
     v3.0 Note:
         - Deprecated v2.0 fields (audience_*, location_type, locations) are no longer
@@ -752,13 +781,18 @@ def _build_sql_filter_conditions(self, filters):
                 # Range filter {'min': x, 'max': y} or regex
                 if 'min' in value or 'max' in value:
                     range_conditions = []
+                    is_numeric_column = self._column_is_numeric(field)
 
                     if 'min' in value:
                         min_val = self._escape_sql_value(str(value['min']))
                         if is_date_field:
                             range_conditions.append(f"{field} >= '{min_val}'")
+                        elif is_numeric_column is True:
+                            range_conditions.append(f"{field} >= {min_val}")
+                        elif is_numeric_column is False:
+                            range_conditions.append(f"{field} >= '{min_val}'")
                         else:
-                            # Try numeric first, fall back to string
+                            # Unknown column - fall back to guessing from value shape
                             try:
                                 float(value['min'])
                                 range_conditions.append(f"{field} >= {min_val}")
@@ -769,8 +803,12 @@ def _build_sql_filter_conditions(self, filters):
                         max_val = self._escape_sql_value(str(value['max']))
                         if is_date_field:
                             range_conditions.append(f"{field} <= '{max_val}'")
+                        elif is_numeric_column is True:
+                            range_conditions.append(f"{field} <= {max_val}")
+                        elif is_numeric_column is False:
+                            range_conditions.append(f"{field} <= '{max_val}'")
                         else:
-                            # Try numeric first, fall back to string
+                            # Unknown column - fall back to guessing from value shape
                             try:
                                 float(value['max'])
                                 range_conditions.append(f"{field} <= {max_val}")
@@ -800,12 +838,18 @@ def _build_sql_filter_conditions(self, filters):
                 if is_date_field:
                     conditions.append(f"{field} = '{escaped_value}'")
                 else:
-                    # Try numeric first, fall back to string
-                    try:
-                        float(value)
+                    is_numeric_column = self._column_is_numeric(field)
+                    if is_numeric_column is True:
                         conditions.append(f"{field} = {escaped_value}")
-                    except (ValueError, TypeError):
+                    elif is_numeric_column is False:
                         conditions.append(f"{field} = '{escaped_value}'")
+                    else:
+                        # Unknown column - fall back to guessing from value shape
+                        try:
+                            float(value)
+                            conditions.append(f"{field} = {escaped_value}")
+                        except (ValueError, TypeError):
+                            conditions.append(f"{field} = '{escaped_value}'")
 
         except Exception as e:
             from mediaplanpy.exceptions import SQLQueryError
@@ -1074,6 +1118,33 @@ def _sql_query_duckdb(self, query: str, return_dataframe: bool = True,
             raise SQLQueryError(f"DuckDB query execution failed: {str(e)}")
 
 
+def _is_workspace_isolation_error(e: Exception) -> bool:
+    """
+    True only if a Postgres error is genuinely about the workspace_id predicate
+    injected by _add_workspace_filter() (e.g. an undefined-column error on
+    workspace_id), determined from psycopg2's structured diagnostics.
+
+    _add_workspace_filter() injects a workspace_id predicate into every query,
+    so Postgres's own error text - which embeds the full failing SQL, including
+    the injected filter - always contains the substring "workspace_id"
+    regardless of the error's true cause. Checking psycopg2's diag.column_name
+    / diag.message_primary (the concise primary message, not the full SQL
+    dump) avoids mislabeling unrelated errors (e.g. a type mismatch on some
+    other column) as workspace isolation problems.
+    """
+    diag = getattr(e, 'diag', None)
+    if diag is None:
+        return False
+
+    if getattr(diag, 'column_name', None) == 'workspace_id':
+        return True
+
+    pgcode = getattr(e, 'pgcode', None)
+    message_primary = (getattr(diag, 'message_primary', None) or '').lower()
+    # 42703 = undefined_column
+    return pgcode == '42703' and 'workspace_id' in message_primary
+
+
 def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
                         limit: Optional[int] = None) -> Union[pd.DataFrame, List[Dict[str, Any]]]:
     """
@@ -1162,7 +1233,7 @@ def _sql_query_postgres(self, query: str, return_dataframe: bool = True,
                 f"Database table '{table_name}' does not exist. "
                 f"Enable auto_create_table or create table manually. Original error: {str(e)}"
             )
-        elif "workspace_id" in error_msg:
+        elif _is_workspace_isolation_error(e):
             raise SQLQueryError(
                 f"Workspace isolation error - invalid workspace_id filter. "
                 f"Original error: {str(e)}"
@@ -1811,6 +1882,7 @@ def patch_workspace_manager():
 
     WorkspaceManager._add_sql_filters = _add_sql_filters
     WorkspaceManager._build_sql_filter_conditions = _build_sql_filter_conditions
+    WorkspaceManager._column_is_numeric = _column_is_numeric
     WorkspaceManager._escape_sql_value = _escape_sql_value
 
 # Update the patch call at the bottom of the file
