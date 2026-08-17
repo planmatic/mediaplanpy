@@ -1,5 +1,68 @@
 # Changelog
 
+## [v3.0.7] - 2026-08-17
+
+### Added
+- `MediaPlanNotFoundError`, distinct from generic `StorageError`
+  `MediaPlan.load()`'s only failure mode for a missing plan ID used to be a
+  generic `StorageError` built from the full resolved local path (leaking the
+  server's absolute filesystem layout) and indistinguishable by type from
+  permission errors, corrupted reads, or S3 access failures. `read_mediaplan()`
+  now checks file existence up front and raises `MediaPlanNotFoundError` (a
+  `StorageError` subclass) with just the relative path. Since it subclasses
+  `StorageError`, every existing `except StorageError` catch continues to work
+  unchanged.
+- `meta_is_archived` in `WorkspaceManager.list_campaigns()`'s SQL output
+  `list_mediaplans()` already selected `meta_is_archived` in both its `SELECT`
+  and `GROUP BY` clauses; `list_campaigns()` never did, so `include_archived=True`
+  correctly changed *which* campaigns came back but no returned row said
+  whether that campaign *is* archived. Purely additive — no behavior change for
+  callers ignoring the new field.
+- Auto-generated `meta.id` on JSON import
+  `excel/importer.py` already auto-generates `meta.id` (`mediaplan_{8-hex}`)
+  when the Media Plan ID cell is blank; `import_from_json()` had no equivalent,
+  so a JSON payload with a missing/null `id` failed Pydantic validation
+  outright. `import_from_json()` now applies the same convention immediately
+  before validation, at the import call site only — `from_dict()`/`load()`/
+  `clone()`/migration are unaffected, since a missing `id` there indicates
+  corruption of an already-saved plan rather than a new import.
+- `ValidationError.errors()` passthrough
+  `mediaplanpy.exceptions.ValidationError` now exposes a `.errors()` method
+  returning pydantic's structured per-field error list (field, message, input)
+  when available, instead of only a flattened string message.
+
+### Fixed
+- JSON-import validation failures no longer double-wrapped into `StorageError`
+  `import_from_json()` caught its own `ValidationError` (already built from
+  pydantic's message, dev URL included) and re-wrapped it a second time into
+  `StorageError`, discarding pydantic's structured `.errors()` list and
+  collapsing the distinction between "the input data is invalid" and "a real
+  storage/IO problem occurred." Genuine data-validation failures now propagate
+  as `ValidationError` with `.errors()` intact; the schema-version-mismatch
+  case still maps to a friendly `StorageError` as before.
+- SQL filter values quoted by column type instead of guessed from value shape
+  `_build_sql_filter_conditions()` decided whether to quote a scalar filter
+  value based on whether the Python value looked numeric, not the target
+  column's actual SQL type — a filter like
+  `{"campaign_workflow_status_id": "1"}` (a `varchar` column, string value
+  that looks numeric) was emitted unquoted, which Postgres rejected with
+  `operator does not exist: character varying = integer`. Exact-match and
+  range filters now quote based on the column's declared type from the
+  canonical schema (`storage/schema_columns.py`); columns outside that schema
+  keep the previous guess-from-value-shape behavior.
+- Postgres error misclassified as a workspace-isolation error
+  `_sql_query_postgres`'s exception handler classified *any* database error
+  mentioning `"workspace_id"` anywhere in its text as a workspace-isolation
+  problem. Since `_add_workspace_filter()` injects a `workspace_id` predicate
+  into every query, and Postgres embeds the full failing SQL in its error
+  text, that substring was present in essentially every SQL error regardless
+  of cause — so an unrelated type mismatch (see above) was mislabeled as a
+  workspace isolation error. The classifier now inspects psycopg2's structured
+  diagnostics (`diag.column_name` / `pgcode`) instead of substring-matching
+  the full error text.
+
+---
+
 ## [v3.0.6] - 2026-08-14
 
 ### Added
