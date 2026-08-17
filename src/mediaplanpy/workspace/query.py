@@ -293,6 +293,7 @@ def list_campaigns(self, filters=None, include_stats=True, include_archived=Fals
             meta_dim_custom5,
             meta_id,
             meta_is_current,
+            meta_is_archived,
             meta_created_at,
             -- Line item statistics per media plan
             COUNT(CASE WHEN is_placeholder = FALSE OR is_placeholder IS NULL THEN 1 END) as stat_lineitem_count,
@@ -322,7 +323,7 @@ def list_campaigns(self, filters=None, include_stats=True, include_archived=Fals
                  campaign_dim_custom4, campaign_dim_custom5,
                  meta_dim_custom1, meta_dim_custom2, meta_dim_custom3,
                  meta_dim_custom4, meta_dim_custom5,
-                 meta_id, meta_is_current, meta_created_at
+                 meta_id, meta_is_current, meta_is_archived, meta_created_at
         ORDER BY campaign_id,
                  CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END,
                  meta_created_at DESC
@@ -373,6 +374,7 @@ def list_campaigns(self, filters=None, include_stats=True, include_archived=Fals
             meta_dim_custom5,
             meta_id,
             meta_is_current,
+            meta_is_archived,
             meta_created_at,
             CASE WHEN meta_is_current = TRUE THEN 0 ELSE 1 END AS meta_is_current_sort
         FROM {*}
