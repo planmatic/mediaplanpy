@@ -279,11 +279,16 @@ class JsonMixin:
                         error_msg = _create_schema_error_message(data, full_path)
                         raise StorageError(error_msg)
                     else:
-                        # Re-raise other validation errors as-is
-                        raise StorageError(f"Failed to import media plan from JSON: {e}")
+                        # Let genuine data-validation failures propagate as ValidationError
+                        # (with its structured .errors() list intact) instead of flattening
+                        # them into a StorageError indistinguishable from an I/O failure.
+                        raise
 
             except StorageError:
                 # Re-raise StorageError as-is (including our enhanced schema version errors)
+                raise
+            except ValidationError:
+                # Re-raise data-validation failures as-is (see inner handler above)
                 raise
             except Exception as e:
                 if not isinstance(e, StorageError):
@@ -324,13 +329,18 @@ class JsonMixin:
                         error_msg = _create_schema_error_message(data, full_path)
                         raise StorageError(error_msg)
                     else:
-                        # Re-raise other validation errors as-is
-                        raise StorageError(f"Failed to import media plan from JSON: {e}")
+                        # Let genuine data-validation failures propagate as ValidationError
+                        # (with its structured .errors() list intact) instead of flattening
+                        # them into a StorageError indistinguishable from an I/O failure.
+                        raise
 
             except json.JSONDecodeError as e:
                 raise StorageError(f"Failed to parse JSON file: {e}")
             except StorageError:
                 # Re-raise StorageError as-is
+                raise
+            except ValidationError:
+                # Re-raise data-validation failures as-is (see inner handler above)
                 raise
             except Exception as e:
                 raise StorageError(f"Failed to import media plan from JSON: {e}")

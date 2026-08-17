@@ -13,6 +13,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set, Union, ClassVar
 
 from pydantic import Field, field_validator, model_validator
+from pydantic import ValidationError as PydanticValidationError
 
 from mediaplanpy.models.base import BaseModel
 from mediaplanpy.models.campaign import Campaign
@@ -1779,5 +1780,9 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
         except SchemaVersionError:
             # Re-raise schema version errors as-is
             raise
+        except PydanticValidationError as e:
+            # Preserve pydantic's structured per-field error list so callers can
+            # build a clean {field, issue} report instead of parsing the flattened string.
+            raise ValidationError(f"Validation failed for {cls.__name__}: {str(e)}", errors=e.errors())
         except Exception as e:
             raise ValidationError(f"Validation failed for {cls.__name__}: {str(e)}")

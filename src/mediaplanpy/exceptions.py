@@ -57,7 +57,18 @@ class SchemaMigrationError(SchemaError):
 
 class ValidationError(SchemaError):
     """Exception raised when a media plan fails validation against the schema."""
-    pass
+
+    def __init__(self, message, errors=None):
+        super().__init__(message)
+        self._errors = errors
+
+    def errors(self):
+        """Structured per-field error list (field, message, type, input), if available.
+
+        Passthrough from the underlying pydantic ValidationError when one caused this
+        exception; otherwise an empty list.
+        """
+        return self._errors if self._errors is not None else []
 
 
 class StorageError(MediaPlanError):
