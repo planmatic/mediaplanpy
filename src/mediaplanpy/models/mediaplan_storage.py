@@ -9,7 +9,7 @@ import os
 import logging
 import uuid
 from typing import Dict, Any, Optional, TYPE_CHECKING
-from datetime import datetime
+from datetime import datetime, timezone
 
 from mediaplanpy.exceptions import (
     StorageError,
@@ -204,7 +204,7 @@ class StorageMixin:
 
         # Only set created_at on first save; preserve existing timestamp on overwrites
         if not overwrite or not self.meta.created_at:
-            self.meta.created_at = datetime.now()
+            self.meta.created_at = datetime.now(timezone.utc)
 
         # Validation: ensure parent_id doesn't equal current ID (defensive programming)
         if self.meta.parent_id == self.meta.id:

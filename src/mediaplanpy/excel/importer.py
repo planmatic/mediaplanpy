@@ -8,7 +8,7 @@ supporting only v3.0 schema with target audiences/locations and enhanced diction
 import os
 import logging
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 from typing import Dict, Any, List, Optional, Union, Tuple
 from decimal import Decimal
 import copy
@@ -856,7 +856,7 @@ def _import_v3_metadata(metadata_sheet) -> Dict[str, Any]:
         elif key_cell == "Created By ID:":
             meta["created_by_id"] = value_cell or None
         elif key_cell == "Created At:":
-            meta["created_at"] = value_cell or datetime.now().isoformat()
+            meta["created_at"] = value_cell or datetime.now(timezone.utc).isoformat()
         elif key_cell == "Is Current:":
             if value_cell is not None:
                 meta["is_current"] = str(value_cell).lower() in ['true', 'yes', '1']
@@ -1852,7 +1852,7 @@ def _ensure_v3_meta_fields(meta: Dict[str, Any]) -> None:
 
     # v3.0: created_at is required
     if "created_at" not in meta:
-        meta["created_at"] = datetime.now().isoformat()
+        meta["created_at"] = datetime.now(timezone.utc).isoformat()
 
 
 def _ensure_v3_campaign_fields(campaign: Dict[str, Any]) -> None:

@@ -8,7 +8,7 @@ Data Standard v2.0.
 
 import os
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Set, Union, ClassVar
 
@@ -52,7 +52,7 @@ class Meta(BaseModel):
 
     # UPDATED v2.0: created_by_name is now required (vs optional created_by in v1.0)
     created_by_name: str = Field(..., description="Full name of the user who created this media plan")
-    created_at: datetime = Field(default_factory=datetime.now, description="Creation timestamp")
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="Creation timestamp")
 
     # Optional fields from v1.0 (maintained for backward compatibility)
     name: Optional[str] = Field(None, description="Name of the media plan")
@@ -1501,7 +1501,7 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
             "id": mediaplan_id,
             "schema_version": schema_version,
             "created_by_name": created_by_name,  # Required in v2.0
-            "created_at": datetime.now(),
+            "created_at": datetime.now(timezone.utc),
             "name": media_plan_name,
             **meta_fields  # Dynamic meta fields from kwargs
         }
