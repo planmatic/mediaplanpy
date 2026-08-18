@@ -724,6 +724,11 @@ def _build_sql_filter_conditions(self, filters):
     Handles:
     - List values (IN operator)
     - Range filters {'min': x, 'max': y}
+    - Regex filters {'regex': pattern} - true engine-native regex matching
+      (PostgreSQL's `~` operator, DuckDB's regexp_matches()), not a SQL LIKE
+      emulation, so alternation/anchors/character classes are supported
+      (subject to each engine's own regex dialect: POSIX ERE for PostgreSQL,
+      RE2 for DuckDB - both close to, but not identical to, Python's `re`)
     - Exact matches
     - Date field detection and conversion
     - SQL injection prevention through proper escaping
@@ -819,18 +824,21 @@ def _build_sql_filter_conditions(self, filters):
                         conditions.append(f"({' AND '.join(range_conditions)})")
 
                 if 'regex' in value:
-                    # Regex filter - convert to SQL LIKE or similar
-                    # Note: Full regex support varies by database, using LIKE for compatibility
-                    regex_pattern = self._escape_sql_value(value['regex'])
-                    # Convert basic regex patterns to SQL LIKE
-                    if regex_pattern.startswith('^') and regex_pattern.endswith('$'):
-                        # Exact match pattern
-                        pattern = regex_pattern[1:-1].replace('.*', '%').replace('.', '_')
-                        conditions.append(f"{field} LIKE '{pattern}'")
+                    # Regex filter - use each engine's native boolean regex-match
+                    # capability rather than emulating via SQL LIKE, which cannot
+                    # express alternation/anchors/character classes at all.
+                    # _escape_sql_value() is NOT used here - its whitelist strips
+                    # regex metacharacters (|, ^, $, (), [], etc.), which is exactly
+                    # right for a literal value but destroys a regex pattern.
+                    escaped_pattern = self._escape_regex_literal(value['regex'])
+                    if self._get_active_sql_engine() == 'database':
+                        # PostgreSQL: `~` is the boolean POSIX-regex match operator.
+                        conditions.append(f"{field} ~ '{escaped_pattern}'")
                     else:
-                        # Contains pattern
-                        pattern = regex_pattern.replace('.*', '%').replace('.', '_')
-                        conditions.append(f"{field} LIKE '%{pattern}%'")
+                        # DuckDB: `~` silently misbehaves for strings (returns no
+                        # match, no error) - the 2-arg form of regexp_matches() is
+                        # DuckDB's boolean regex-match function (RE2 syntax).
+                        conditions.append(f"regexp_matches({field}, '{escaped_pattern}')")
 
             else:
                 # Exact match
@@ -881,6 +889,47 @@ def _escape_sql_value(self, value):
     escaped = re.sub(r"[^\w\s\-\.:@]", "", escaped)
 
     return escaped
+
+
+def _escape_regex_literal(self, pattern):
+    """
+    Escape a regex pattern for safe embedding in a single-quoted SQL string
+    literal, preserving regex syntax.
+
+    Unlike _escape_sql_value(), which strips characters like |, ^, $, (), []
+    that are meaningless for a plain literal value but essential to a regex
+    pattern, this only doubles single quotes - the standard, sufficient
+    escaping for a value placed inside a quoted SQL string literal.
+
+    Args:
+        pattern: Regex pattern string to escape
+
+    Returns:
+        Escaped string safe to embed inside a single-quoted SQL literal
+    """
+    return str(pattern).replace("'", "''")
+
+
+def _get_active_sql_engine(self):
+    """
+    Determine which engine a default ("auto") sql_query() call will route to,
+    so filter conditions that need engine-specific SQL (e.g. regex matching,
+    which has no syntax shared identically by DuckDB and PostgreSQL) can be
+    chosen at filter-build time, before sql_query() itself decides the engine.
+
+    Mirrors _should_route_to_database()'s "auto" branch. Valid because
+    list_campaigns()/list_mediaplans()/list_lineitems() - the only callers of
+    _build_sql_filter_conditions() - always call sql_query() with the default
+    engine="auto" and never override it.
+
+    Returns:
+        'database' if the workspace's database is enabled, else 'duckdb'
+    """
+    try:
+        db_config = self.get_database_config()
+    except Exception:
+        return 'duckdb'
+    return 'database' if db_config.get('enabled', False) else 'duckdb'
 
 
 def sql_query(self,
@@ -1884,6 +1933,8 @@ def patch_workspace_manager():
     WorkspaceManager._build_sql_filter_conditions = _build_sql_filter_conditions
     WorkspaceManager._column_is_numeric = _column_is_numeric
     WorkspaceManager._escape_sql_value = _escape_sql_value
+    WorkspaceManager._escape_regex_literal = _escape_regex_literal
+    WorkspaceManager._get_active_sql_engine = _get_active_sql_engine
 
 # Update the patch call at the bottom of the file
 patch_workspace_manager()
