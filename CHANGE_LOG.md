@@ -1,5 +1,43 @@
 # Changelog
 
+## [v3.0.8] - 2026-08-18
+
+### Fixed
+- `Meta.created_at` stamped with UTC instead of naive local time
+  Both the Pydantic field default and every save()/create()/Excel-import site
+  that stamps `meta.created_at` used naive `datetime.now()` - local server
+  wall-clock time with no timezone info. Downstream consumers reading or
+  displaying the field as UTC saw a reproducible skew equal to the server's
+  UTC offset (e.g. a plan created at 23:33:24 on a UTC-4 server recorded
+  19:33:23). All five sites that set `meta.created_at` (the `Meta` model's
+  field default, `MediaPlan.create()`, `MediaPlan.save()`'s first-save
+  timestamp, and both Excel-import fallbacks) now use
+  `datetime.now(timezone.utc)`. Already-persisted (skewed) values are left as
+  historical data - a separate product decision, not part of this code fix.
+- `{regex}` filter with `|` alternation silently returning 0 rows
+  `_build_sql_filter_conditions()`'s regex branch ran the pattern through the
+  generic literal-value sanitizer (`_escape_sql_value()`) before converting it
+  to a SQL `LIKE` pattern. That sanitizer's whitelist strips anything that
+  isn't alphanumeric/space/`-`/`.`/`:`/`@` - so a pattern like
+  `"Meridian|PROC|QA"` had its `|` characters silently removed, becoming
+  `"MeridianPROCQA"`, wrapped as `LIKE '%MeridianPROCQA%'` and matching
+  nothing. A single term like `"Meridian"` has no special characters to
+  strip, so it worked by accident - exactly the reported symptom. Fixing the
+  escaping alone wouldn't have been enough, since SQL `LIKE` cannot express
+  alternation at all: `{regex}` filters now use each engine's real boolean
+  regex-match capability instead - PostgreSQL's `~` operator, DuckDB's
+  `regexp_matches(col, pattern)` (DuckDB's own `~` operator silently
+  misbehaves for strings, so it can't be shared across both engines). Which
+  engine a query will use is now determined up front via a new
+  `_get_active_sql_engine()` helper, since the WHERE-clause text is built
+  once and can run on either engine depending on `sql_query()`'s routing.
+  Verified end-to-end against DuckDB with the exact reported scenario; the
+  investigation also ruled out the requirements doc's original suspect
+  (`_apply_filters()`'s `pandas.Series.str.match()`), confirming it is
+  unreachable dead code in the current SDK.
+
+---
+
 ## [v3.0.7] - 2026-08-17
 
 ### Added

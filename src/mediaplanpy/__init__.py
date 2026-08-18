@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.7'          # SDK version
+__version__ = '3.0.8'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -27,6 +27,7 @@ VERSION_NOTES = {
     '3.0.5': 'Add include_archived parameter to workspace.list_campaigns(); add allow_current override to MediaPlan.archive() to support campaign-level archive cascades (purely additive)',
     '3.0.6': 'Add include_archived parameter to workspace.list_mediaplans() (defaults to True, preserving existing behavior)',
     '3.0.7': 'MCP QA triage fixes: list_campaigns() now selects meta_is_archived; add MediaPlanNotFoundError distinct from StorageError; SQL filter values quoted by column type instead of guessed from value shape; JSON import auto-generates meta.id when missing; JSON-import validation failures propagate as ValidationError instead of being double-wrapped into StorageError',
+    '3.0.8': 'MCP regression triage fixes: Meta.created_at now stamped with UTC instead of naive local time; {regex} filters use each engine\'s native regex matching (PostgreSQL ~, DuckDB regexp_matches()) instead of a SQL LIKE emulation that silently stripped alternation/anchors',
 }
 
 # Schema version compatibility constants - Updated for v3.0
