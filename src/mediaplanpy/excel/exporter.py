@@ -1078,6 +1078,15 @@ def _populate_v3_metadata_sheet(sheet, media_plan: "MediaPlan") -> None:
         # Special handling for schema_version
         if field_key == "schema_version":
             sheet[f'B{row}'] = "3.0"
+        elif field_key == "created_at":
+            # openpyxl rejects tz-aware datetimes outright ("Excel does not
+            # support timezones in datetimes"). meta.created_at is always UTC
+            # (see models/mediaplan.py); strip tzinfo for the cell - the
+            # importer reattaches UTC on the way back in.
+            created_at = getattr(meta, field_key, "")
+            if isinstance(created_at, datetime) and created_at.tzinfo is not None:
+                created_at = created_at.replace(tzinfo=None)
+            sheet[f'B{row}'] = created_at
         else:
             sheet[f'B{row}'] = getattr(meta, field_key, "")
         sheet[f'C{row}'] = "TRUE" if is_required else ""

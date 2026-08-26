@@ -856,7 +856,14 @@ def _import_v3_metadata(metadata_sheet) -> Dict[str, Any]:
         elif key_cell == "Created By ID:":
             meta["created_by_id"] = value_cell or None
         elif key_cell == "Created At:":
-            meta["created_at"] = value_cell or datetime.now(timezone.utc).isoformat()
+            if isinstance(value_cell, datetime) and value_cell.tzinfo is None:
+                # Excel cells can't carry tzinfo. This SDK's own exporter always
+                # writes created_at as UTC (with tzinfo stripped for the cell),
+                # so reattach it here rather than silently reverting to an
+                # ambiguous naive datetime.
+                meta["created_at"] = value_cell.replace(tzinfo=timezone.utc)
+            else:
+                meta["created_at"] = value_cell or datetime.now(timezone.utc).isoformat()
         elif key_cell == "Is Current:":
             if value_cell is not None:
                 meta["is_current"] = str(value_cell).lower() in ['true', 'yes', '1']

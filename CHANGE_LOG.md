@@ -1,5 +1,24 @@
 # Changelog
 
+## [v3.0.9] - 2026-08-26
+
+### Fixed
+- Excel export crash caused by tz-aware `Meta.created_at` (3.0.8 regression)
+  3.0.8 made `Meta.created_at` tz-aware (`datetime.now(timezone.utc)`) to fix a
+  real UTC-skew bug - the correct instant, but openpyxl rejects tz-aware
+  datetimes outright ("Excel does not support timezones in datetimes"), and
+  the metadata sheet wrote `meta.created_at` directly into a cell as a native
+  datetime object, crashing every `export_to_excel()` call. The exporter now
+  strips `tzinfo` before writing the cell - Excel has no timezone concept for
+  datetime cells anyway, so nothing the file format could represent is lost;
+  the written value is still the correct UTC instant, just without the
+  Python-level tz marker. The importer reattaches `timezone.utc` when reading
+  a naive datetime back from that cell, so an export/reimport round-trip
+  doesn't quietly regress to an ambiguous naive timestamp - the same failure
+  mode 3.0.8's fix addressed in the first place.
+
+---
+
 ## [v3.0.8] - 2026-08-18
 
 ### Fixed
