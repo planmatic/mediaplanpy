@@ -45,6 +45,8 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 - `SchemaValidator`: Validates media plans against schemas
 - `SchemaMigrator`: Migrates v2.0 → v3.0 with automatic audience/location restructuring
 - `SchemaRegistry`: Manages schema definitions stored in `definitions/` subdirectories
+- `refs.py` + `get_schema()`/`get_schema_bundle()`/`get_example()` (v3.0.10): serve those
+  definitions to outside consumers — see "Schema Exposure" below
 
 **Storage (`src/mediaplanpy/storage/`)**
 - Pluggable storage backends: Local filesystem, S3, Google Drive, PostgreSQL
@@ -72,6 +74,37 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 - v2.0 → v3.0 migration handles audience/location restructuring and new field additions
 - v0.0 and v1.0 are no longer supported
 
+**Schema Exposure (v3.0.10)**
+- `schema.get_schema()` returns a **self-contained** document. The on-disk
+  `mediaplan.schema.json` references its siblings by bare filename
+  (`{"$ref": "campaign.schema.json"}`) — a convention of this package's own
+  `definitions/<version>/` layout that no outside consumer can dereference. Resolution lives
+  in `schema/refs.py` for that reason: re-implementing it elsewhere breaks silently the first
+  time these files are reorganised.
+- External (filename) references are **inlined**; local `#/$defs/...` pointers are **hoisted**
+  into the result's own `$defs` and retargeted, not expanded. `dictionary.schema.json` shares
+  one definition across ~35 custom-field slots, so expanding in place takes the media plan
+  schema from ~32 KB to ~92 KB. `inline_local=True` still offers full expansion. Hoisted names
+  are namespaced by source document (`dictionary__custom_field_config`) so merging documents
+  cannot let one definition shadow another.
+- The property consumers rely on is `contains_external_ref()` — "points at nothing you cannot
+  reach" — not a blanket "no `$ref` anywhere".
+- `get_example()` **generates** its example via `MediaPlan.create()` rather than returning a
+  fixture, so it cannot drift from the schema. Do not replace it with a stored file.
+- Primary consumer: `planmatic_ask_api` re-serves these over HTTP (`GET /schemas/{entity_type}`),
+  which `planmatic_mcp` proxies as its `entity_schema` tool.
+
+**Id generation on import**
+- `_ensure_entity_ids()` in `models/mediaplan_json.py` mints `meta.id`, `campaign.id` and each
+  `lineitems[].id` when absent, matching `MediaPlan.create()`, `create_lineitem()` and the Excel
+  importer. Before v3.0.10 only `meta.id` was minted, so an identical plan imported as Excel and
+  failed as JSON.
+- Ids are filled **only when absent**, which is what makes export → edit → re-import safe.
+- This is on the **JSON import path only**. `MediaPlan.from_dict()` still requires all three, and
+  `schema.validate()` still reports them missing — it validates a document literally. Both are
+  defensible (they answer different questions) but the asymmetry surprises people; keep it in
+  mind before documenting ids as simply "optional".
+
 **Database Integration**
 - PostgreSQL integration is optional (requires `psycopg2-binary`)
 - Database functionality is patched into MediaPlan models when available
@@ -85,7 +118,7 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 ## Configuration
 
 **Version Information**
-- Current SDK version: 3.0.9
+- Current SDK version: 3.0.10
 - Current schema version: 3.0
 - Supported major versions: [2, 3]
 

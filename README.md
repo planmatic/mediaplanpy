@@ -1,8 +1,8 @@
-# MediaPlanPy v3.0.9
+# MediaPlanPy v3.0.10
 
 Open source Python SDK providing the foundational tools developers need to build, manage, and analyze media plans based on our open data standard (mediaplanschema).
 
-**Latest Release:** v3.0.9 - [View Changelog](https://github.com/planmatic/mediaplanpy/blob/main/CHANGE_LOG.md)
+**Latest Release:** v3.0.10 - [View Changelog](https://github.com/planmatic/mediaplanpy/blob/main/CHANGE_LOG.md)
 
 ## 🔗 Related Projects
 
@@ -23,6 +23,7 @@ MediaPlanPy handles schema validation, versioning, and migration to ensure full 
 - **Workspace Management** - Multi-environment support with isolated configurations and strict version enforcement
 - **Excel Integration** - Formula-aware import/export with automatic coefficient calculation
 - **CLI Interface** - Comprehensive command-line tools for workspace management and operations
+- **Schema Access** - Serve the bundled JSON Schemas as self-contained documents, with generated examples, so plans can be authored from scratch rather than copied from an existing file
 - **Validation Framework** - Schema-based validation with detailed error reporting
 - **Analytics Ready** - Built-in Parquet generation and SQL query capabilities
 - **Database Integration** - Automatic PostgreSQL synchronization for analytics with enhanced schema migration
@@ -70,7 +71,7 @@ MediaPlanPy fully implements the [MediaPlan Schema](https://github.com/planmatic
 
 ## 🏷️ Version Information
 
-- **SDK Version**: 3.0.9
+- **SDK Version**: 3.0.10
 - **Schema Version**: 3.0 (v2.0 migration utility included)
 - **Python Support**: 3.8, 3.9, 3.10, 3.11, 3.12
 

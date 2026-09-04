@@ -25,16 +25,46 @@ EXPORTS_SUBDIR = "exports"
 IMPORTS_SUBDIR = "imports"
 
 
-def _ensure_meta_id(data: Dict[str, Any]) -> None:
-    """Auto-generate meta.id if missing, mirroring the Excel importer's behavior.
+def _ensure_entity_ids(data: Dict[str, Any]) -> None:
+    """Auto-generate meta.id, campaign.id and line item ids if missing.
 
     Only for brand-new imports where no identity exists yet - do not call this
     from a load()/clone()/migration path, where a missing id on an
     already-saved plan indicates corruption rather than a new plan.
+
+    This mirrors the Excel importer, which mints all three (_import_v3_meta,
+    _import_v3_campaign, _import_v3_lineitems), and MediaPlan.create() /
+    create_lineitem(), which do the same. Until v3.0.10 the JSON path minted
+    only meta.id, so the same plan authored as JSON rather than Excel was
+    rejected for missing ids that the schema marks required but every other
+    entry point supplies. That asymmetry had no rationale and was a real
+    obstacle to authoring a plan programmatically - now a first-class use case
+    (see schema.get_schema / schema.get_example).
+
+    Ids are only ever filled in when absent, so an export -> edit -> re-import
+    round trip preserves every id it was given, exactly as meta.id always has.
     """
     meta = data.setdefault("meta", {})
     if not meta.get("id"):
         meta["id"] = f"mediaplan_{uuid.uuid4().hex[:8]}"
+
+    # .get, not .setdefault: a plan omitting the campaign block entirely is a
+    # schema violation the validator should report as such, not something to
+    # paper over by inventing a campaign that only has an id.
+    campaign = data.get("campaign")
+    if isinstance(campaign, dict) and not campaign.get("id"):
+        campaign["id"] = f"campaign_{uuid.uuid4().hex[:8]}"
+
+    lineitems = data.get("lineitems")
+    if isinstance(lineitems, list):
+        for line_item in lineitems:
+            if isinstance(line_item, dict) and not line_item.get("id"):
+                line_item["id"] = f"pli_{uuid.uuid4().hex[:8]}"
+
+
+# Retained for any caller outside this module; the import paths below call
+# _ensure_entity_ids directly.
+_ensure_meta_id = _ensure_entity_ids
 
 
 def _create_schema_error_message(data: Dict[str, Any], file_identifier: str) -> str:
@@ -260,7 +290,7 @@ class JsonMixin:
 
                 # Auto-generate meta.id if missing, matching the Excel importer's
                 # behavior - there's no existing identity to preserve on a new import.
-                _ensure_meta_id(data)
+                _ensure_entity_ids(data)
 
                 # Create MediaPlan instance with enhanced version error handling
                 try:
@@ -310,7 +340,7 @@ class JsonMixin:
 
                 # Auto-generate meta.id if missing, matching the Excel importer's
                 # behavior - there's no existing identity to preserve on a new import.
-                _ensure_meta_id(data)
+                _ensure_entity_ids(data)
 
                 # Create MediaPlan instance with enhanced version error handling
                 try:

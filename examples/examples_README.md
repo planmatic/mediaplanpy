@@ -57,6 +57,7 @@ All examples are located in the `/examples` directory. Run them in any order bas
 | 13 | `examples_13_cli_interface.md` | CLI commands for workspace management | Workspace create/settings/validate/upgrade, list campaigns/plans, CLI inspection tools |
 | 14 | `examples_14_api_client.py` | Interface with Planmatic API Server | API authentication, remote workspace operations, load/import media plans via API |
 | 15 | `examples_15_formulas.py` | Formula management and auto-recalculation | Dynamic formula system, automatic recalculation, coefficient management, dependency chains |
+| 16 | `examples_16_schemas.py` | Schema access and authoring plans from scratch | Reading the bundled schemas, reference resolution, generated examples, authoring without ids, pre-import validation |
 
 ---
 
@@ -135,6 +136,16 @@ Progressive demonstration of the v3.0 dynamic formula system:
 - ✅ **Default Formulas** - Works without dictionary (defaults to cost_per_unit/cost_total)
 - ✅ **Progressive Workflow** - 5-step demonstration from simple to advanced
 - ✅ **Production-Ready** - Real-world patterns for formula management
+
+### NEW: examples_16_schemas.py
+Schema access (v3.0.10) — build a valid media plan with no existing file to copy:
+- ✅ **No Setup Needed** - Schemas ship with the SDK; steps 1-3 and 6 need no workspace at all
+- ✅ **Self-Contained Schemas** - `get_schema()` resolves references so the document stands alone
+- ✅ **Raw vs Resolved** - Why a bare-filename `$ref` is useless outside the SDK package
+- ✅ **Size Trade-off** - Hoisted `$defs` (~32 KB) vs `inline_local=True` (~92 KB), same information
+- ✅ **Generated Examples** - `get_example()` is built by `MediaPlan.create()`, so it cannot drift
+- ✅ **Authoring Without Ids** - Omit `meta.id`, `campaign.id` and line item ids; import mints them
+- ✅ **Pre-Import Validation** - Fix-and-revalidate loop, and how to read the id errors
 
 ### NEW: examples_11_manage_lineitems.py
 Comprehensive guide to LineItem management with 11 complete examples:
@@ -305,8 +316,9 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 3. **examples_11_manage_lineitems.py** - Comprehensive LineItem management patterns
 4. **examples_12_manage_dictionary.py** - Configure Dictionary for custom fields
 5. **examples_15_formulas.py** - Master dynamic formulas and auto-recalculation
-6. **examples_09_sql_queries.py** - Run complex analytics queries
-7. **examples_10_manage_mediaplan.py** - Lifecycle management
+6. **examples_16_schemas.py** - Read the schemas directly and author plans from scratch
+7. **examples_09_sql_queries.py** - Run complex analytics queries
+8. **examples_10_manage_mediaplan.py** - Lifecycle management
 
 ### For Specific Use Cases
 
@@ -340,6 +352,10 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 
 **API Server Integration:**
 - `examples_14_api_client.py` → Authenticate, load workspace, load/import plans via Planmatic API
+
+**Building Plans Programmatically (or with an LLM agent):**
+- `examples_16_schemas.py` → Read the schema, get a generated example, author a plan with no ids
+- `examples_03_create_mediaplan.py` → Build plans in code with `MediaPlan.create()`
 
 ---
 
