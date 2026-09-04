@@ -26,6 +26,16 @@
   `success=False` if anything failed, rather than hiding a partial cascade. Re-running
   after a partial failure is safe - an already-archived plan is skipped, not errored.
 
+  `delete_campaign()`'s outcome fields differ by mode, so that no field name
+  claims something happened when it did not. A dry run reports `plans_to_delete`
+  (the intent) and `files_to_delete`, and omits `plans_changed`/`deleted_files`
+  entirely; a real delete reports `plans_changed` and `deleted_files` and omits
+  `files_to_delete`. This matters because `plans_changed` means "ids actually
+  transitioned" in `archive_campaign()`/`restore_campaign()` -- sharing it with a
+  preview would have let a caller reading it consistently conclude that a dry run
+  had already deleted the campaign. On a dry run, "previewed cleanly" is
+  `plans_to_delete` minus `plans_failed`.
+
   Two deliberate asymmetries with the plan-level methods, both documented in the
   docstrings so neither reads as an oversight:
   - `delete_campaign()` defaults `dry_run=True`, where `MediaPlan.delete()` defaults

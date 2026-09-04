@@ -369,7 +369,7 @@ for plan_id in archived:
   - `campaign_id`: The campaign to delete
   - `dry_run`: **Defaults to `True`** - preview only, delete nothing
   - `include_database`: Also delete each plan's database records, if configured
-- **Returns**: The shared envelope plus `dry_run`, `plans_to_delete`, `files_found`, `files_deleted`, `database_rows_deleted`, `deleted_files`, `campaign_deleted`
+- **Returns**: The shared envelope plus `dry_run`, `plans_to_delete`, `plans_failed`, `files_found`, `files_deleted`, `database_rows_deleted`, `campaign_deleted` — **plus mode-specific outcome fields**: a dry run adds `files_to_delete` (paths that *would* go) and omits `plans_changed`/`deleted_files` entirely; a real delete adds `plans_changed` (ids actually deleted) and `deleted_files`. No field name ever claims something happened when it did not, and `plans_changed` keeps the exact meaning it has in `archive_campaign()`/`restore_campaign()`. On a dry run, "previewed cleanly" is `plans_to_delete` minus `plans_failed`
 - **Notes**:
   - `dry_run` defaults to `True` here, whereas `MediaPlan.delete()` defaults it to `False`. Deliberate: the cascade is far more destructive, and this is new API with no backwards-compatibility obligation to the riskier default.
   - There is no `allow_current_plan_deletion` parameter. Deleting a campaign means deleting its current plan too, so a guard against that would make the method impossible to complete.
@@ -379,10 +379,15 @@ for plan_id in archived:
 # Always preview first (this is the default)
 preview = workspace.delete_campaign("CAM_001")
 print(preview["plans_to_delete"])   # ['MP_A', 'MP_B'] - reviewable, not just a count
+print(preview["files_to_delete"])   # paths that WOULD be removed
 print(preview["files_found"])       # 4
+print(preview["files_deleted"])     # 0 - nothing happened
+"plans_changed" in preview          # False - that field means "actually deleted"
 
 # Then, after confirming:
 result = workspace.delete_campaign("CAM_001", dry_run=False)
+print(result["plans_changed"])      # ['MP_A', 'MP_B'] - actually deleted
+print(result["deleted_files"])      # paths actually removed
 print(result["campaign_deleted"])   # True
 ```
 

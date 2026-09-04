@@ -289,6 +289,55 @@ class TestDeleteCampaign:
         result = workspace_with_campaigns.delete_campaign(CAMPAIGN_A)
         assert set(result["plans_to_delete"]) == {"MP_A1", "MP_A2", "MP_A3"}
 
+    def test_dry_run_reports_no_past_tense_outcome_fields(self, workspace_with_campaigns):
+        """
+        A preview must not describe hypothetical outcomes in field names that
+        mean "this happened". plans_changed specifically means "ids actually
+        transitioned" in archive_campaign/restore_campaign, so a caller reading
+        it the same way on a delete preview concludes the delete already ran.
+        """
+        result = workspace_with_campaigns.delete_campaign(CAMPAIGN_A)
+
+        assert "plans_changed" not in result
+        assert "deleted_files" not in result
+        # The conditional equivalents carry the same information.
+        assert set(result["files_to_delete"]) and result["files_deleted"] == 0
+
+    def test_real_delete_reports_no_conditional_outcome_fields(self, workspace_with_campaigns):
+        """The mirror of the above: a completed delete says what it did, once."""
+        result = workspace_with_campaigns.delete_campaign(CAMPAIGN_A, dry_run=False)
+
+        assert "files_to_delete" not in result
+        assert set(result["plans_changed"]) == {"MP_A1", "MP_A2", "MP_A3"}
+        assert result["deleted_files"]
+
+    def test_a_plan_that_fails_to_preview_is_not_counted_as_deletable(
+        self, workspace_with_campaigns, monkeypatch
+    ):
+        """
+        plans_to_delete is the intent, so it lists every plan; a preview failure
+        shows up in plans_failed. "Previewed cleanly" is the difference between
+        the two -- which is what replaces plans_changed on a dry run.
+        """
+        manager = workspace_with_campaigns
+        real_delete = MediaPlan.delete
+
+        def flaky(self, workspace_manager, dry_run=False, include_database=True):
+            if self.meta.id == "MP_A2":
+                raise RuntimeError("cannot read plan")
+            return real_delete(self, workspace_manager, dry_run=dry_run,
+                               include_database=include_database)
+
+        monkeypatch.setattr(MediaPlan, "delete", flaky)
+        result = manager.delete_campaign(CAMPAIGN_A)
+
+        assert "MP_A2" in result["plans_to_delete"]
+        assert [f["media_plan_id"] for f in result["plans_failed"]] == ["MP_A2"]
+        previewed_cleanly = set(result["plans_to_delete"]) - {
+            f["media_plan_id"] for f in result["plans_failed"]
+        }
+        assert previewed_cleanly == {"MP_A1", "MP_A3"}
+
     def test_real_delete_removes_the_campaign_entirely(self, workspace_with_campaigns):
         manager = workspace_with_campaigns
 

@@ -284,13 +284,27 @@ def delete_campaign(
         include_database: Also delete each plan's database records, if configured.
 
     Returns:
-        Same envelope as archive_campaign() (operation "delete"), plus:
+        Same envelope as archive_campaign() (operation "delete"), except that the
+        outcome fields differ by mode so that no field name claims something
+        happened when it did not:
+
+        Both modes:
         - dry_run: echoed back
-        - plans_to_delete: every plan id in the campaign -- the reviewable preview,
-          since a dry run reporting only a count is not reviewable
+        - plans_to_delete: every plan id in the campaign -- the INTENT, and the
+          reviewable preview, since a dry run reporting only a count is not
+          reviewable
+        - plans_failed: plans that could not be deleted (or, on a dry run, could
+          not be previewed)
         - files_found / files_deleted / database_rows_deleted: batch totals
-        - deleted_files: every file path removed (or that would be)
+          (files_deleted is 0 on a dry run)
         - campaign_deleted: whether the campaign is now gone entirely
+
+        Dry run only:  files_to_delete -- the paths that WOULD be removed.
+        Real run only: plans_changed   -- the ids actually deleted, matching the
+                       meaning the field has in archive_campaign()/restore_campaign();
+                       deleted_files  -- the paths actually removed.
+
+        On a dry run, "previewed cleanly" is plans_to_delete minus plans_failed.
 
     Raises:
         CampaignNotFoundError: No media plans carry this campaign_id.
@@ -312,9 +326,11 @@ def delete_campaign(
         "files_found": 0,
         "files_deleted": 0,
         "database_rows_deleted": 0,
-        "deleted_files": [],
         "campaign_deleted": False,
     })
+    # Collected under a neutral name, then reported below under one that matches
+    # what actually happened -- see the past/conditional split at the end.
+    file_paths: List[str] = []
 
     for row in plans:
         plan_id = row.get("meta_id")
@@ -329,7 +345,7 @@ def delete_campaign(
             result["files_found"] += plan_result.get("files_found", 0)
             result["files_deleted"] += plan_result.get("files_deleted", 0)
             result["database_rows_deleted"] += plan_result.get("database_rows_deleted", 0)
-            result["deleted_files"].extend(plan_result.get("deleted_files", []))
+            file_paths.extend(plan_result.get("deleted_files", []))
 
             # MediaPlan.delete() collects its own per-file errors rather than raising,
             # so a plan that reports errors has NOT fully succeeded even though no
@@ -356,9 +372,33 @@ def delete_campaign(
     # In a dry run nothing was removed, so the campaign is emphatically still there.
     result["campaign_deleted"] = result["success"] and not dry_run
 
+    # A preview must not report its findings in past-tense field names. Sharing
+    # plans_changed/deleted_files across both modes meant a dry run listed every
+    # plan under "changed" and every path under "deleted" -- and plans_changed
+    # means "ids actually transitioned" in archive_campaign/restore_campaign, so
+    # a caller reading it the same way here concludes the delete already ran.
+    # Only dry_run/files_deleted/campaign_deleted contradicted that, which is
+    # three fields too many to have to cross-check on the safest verb available.
+    #
+    # So the two modes report disjoint outcome fields, and each name states its
+    # own tense:
+    #   dry run  -> plans_to_delete, files_to_delete   (conditional)
+    #   real run -> plans_changed,   deleted_files     (past)
+    # plans_to_delete is present in both -- it is the intent, not an outcome --
+    # and plans_failed works unchanged either way (a preview can fail to load a
+    # plan). Nothing is lost: on a dry run "previewed cleanly" is
+    # plans_to_delete minus plans_failed.
+    if dry_run:
+        result["files_to_delete"] = file_paths
+        del result["plans_changed"]
+    else:
+        result["deleted_files"] = file_paths
+
+    applied = len(result["plans_to_delete"]) - len(result["plans_failed"]) if dry_run \
+        else len(result["plans_changed"])
     logger.info(
         f"Campaign '{campaign_id}' delete (dry_run={dry_run}): "
-        f"{len(result['plans_changed'])} plan(s) "
+        f"{applied} plan(s) "
         f"{'would be removed' if dry_run else 'removed'}, "
         f"{len(result['plans_failed'])} failed, "
         f"{result['files_found']} file(s) found"
