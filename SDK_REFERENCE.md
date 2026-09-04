@@ -1124,6 +1124,83 @@ Functions for schema validation and migration.
 - **Key Use Cases**: Version compatibility checking
 - **Returns**: List of supported versions (["2.0", "3.0"])
 
+### Schema Access (v3.0.10)
+
+Functions for reading the schemas themselves. Useful when building a media plan
+from scratch — from another system's data, from a form, or by an LLM agent — rather
+than starting from an existing file. The schemas ship with the SDK, so none of these
+require a workspace, a network call or an API.
+
+**`get_schema(schema_type="mediaplan", version=None, resolve_refs=True, inline_local=False) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/schema/__init__.py`
+- **Description**: Gets a schema definition, by default as a **self-contained** document
+- **Key Use Cases**: Authoring plans programmatically, serving schemas to other systems, form/UI generation
+- **Parameters**:
+  - `schema_type`: `"mediaplan"`, `"campaign"`, `"lineitem"` or `"dictionary"`
+  - `version`: 2-digit version (e.g. `"3.0"`). `None` uses the current version
+  - `resolve_refs`: Resolve references so the result stands alone. `False` returns the raw on-disk document
+  - `inline_local`: Also expand local `#/$defs/...` pointers in place
+- **Returns**: The schema as a dictionary
+
+Why the default matters: `mediaplan.schema.json` on disk references its siblings **by bare
+filename** (`{"$ref": "campaign.schema.json"}`). That convention only means something inside
+the SDK package — any other consumer, from a form generator to an HTTP client to an LLM,
+cannot follow it. With `resolve_refs=True` those are spliced in, so the returned document
+references nothing outside itself.
+
+Local `$defs` pointers are **hoisted** into the result's own `$defs` and retargeted, not
+expanded in place. `dictionary.schema.json` shares one definition across ~35 custom-field
+slots; expanding it at every site takes the media plan schema from ~32 KB to ~92 KB for
+no added information. Pass `inline_local=True` only if your consumer cannot follow a local
+pointer.
+
+```python
+from mediaplanpy import schema
+
+# Self-contained by default
+mediaplan_schema = schema.get_schema("mediaplan")
+campaign = mediaplan_schema["properties"]["campaign"]
+print(campaign["required"])          # ['id', 'name', 'start_date', 'end_date', 'budget_total']
+
+# Just one sub-schema
+lineitem_schema = schema.get_schema("lineitem")
+
+# The raw document, references intact
+raw = schema.get_schema("mediaplan", resolve_refs=False)
+```
+
+**`get_schema_bundle(version=None) -> Dict[str, Dict[str, Any]]`**
+- **Location**: `src/mediaplanpy/schema/__init__.py`
+- **Description**: Gets every schema for a version, keyed by filename, references intact
+- **Key Use Cases**: Bulk export of schema definitions; supplying the lookup table `resolve_refs()` consumes
+- **Returns**: e.g. `{"mediaplan.schema.json": {...}, "campaign.schema.json": {...}, ...}`
+
+**`get_example(schema_type="mediaplan", version=None) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/schema/__init__.py`
+- **Description**: Gets a minimal valid instance that imports successfully
+- **Key Use Cases**: A working starting point for authoring; documentation; test fixtures
+- **Raises**: `ValueError` if no generator exists for `schema_type` (currently only `"mediaplan"`)
+
+The example is **generated** by `MediaPlan.create()`, not stored — so it is produced by the
+same code that builds a real plan and cannot drift out of sync with the schema the way a
+checked-in fixture silently does. Values are illustrative; only the structure is meaningful.
+
+```python
+example = schema.get_example("mediaplan")
+# {'meta': {...}, 'campaign': {...}, 'lineitems': [{...}]}
+```
+
+**`resolve_refs(schema, sibling_schemas, inline_local=False) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/schema/refs.py`
+- **Description**: Resolves references in an arbitrary schema document
+- **Key Use Cases**: Applying the same resolution to your own schema documents
+- **Raises**: `SchemaRefError` on an unresolvable reference or a reference cycle
+
+**`contains_external_ref(schema) -> bool`** / **`contains_ref(schema) -> bool`**
+- **Location**: `src/mediaplanpy/schema/refs.py`
+- **Description**: Whether a document references anything outside itself / contains any `$ref` at all
+- **Key Use Cases**: Asserting that a schema is safe to hand to a consumer that cannot fetch a second document
+
 ### Validation Functions
 
 **`validate(media_plan, version=None) -> List[str]`**
@@ -1143,6 +1220,13 @@ if not errors:
 - **Location**: `src/mediaplanpy/schema/__init__.py:90`
 - **Description**: Validates JSON file against schema
 - **Key Use Cases**: File validation, batch processing
+
+> **Note on ids (v3.0.10+).** `meta.id`, `campaign.id` and every `lineitems[].id` are marked
+> `required` in the schema, but `import_from_json()` mints them when they are absent — so a plan
+> you intend to import may be authored without them. `validate()` checks a document literally and
+> will still report them missing; read past those errors when validating an authored plan. The
+> minting is on the **import** path only: `MediaPlan.from_dict()` builds a model directly and
+> still requires all three.
 
 ### Migration Functions
 

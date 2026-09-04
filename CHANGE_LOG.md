@@ -33,6 +33,9 @@
   cannot drift out of sync with the schema - both come from this library at
   this version.
 
+- `examples/examples_16_schemas.py` - worked demonstration of the above. Steps 1-3
+  and 6 run with no workspace at all, since the schemas ship with the SDK.
+
 ### Fixed
 - JSON import now auto-generates `campaign.id` and line item ids, not just
   `meta.id`
@@ -50,6 +53,14 @@
   always has. A plan with no `campaign` block at all is left untouched, so the
   validator still reports that as the schema violation it is instead of it
   being masked by an invented campaign.
+
+  **Scope worth knowing:** the minting is on the JSON *import* path.
+  `MediaPlan.from_dict()` builds a model directly and still requires all three
+  ids, and `schema.validate()` still reports them missing, since it validates a
+  document literally. Both are defensible - they answer different questions from
+  "can this be imported?" - but the asymmetry is easy to trip over when reading
+  "ids are optional" unqualified. Documented in `SDK_REFERENCE.md` and
+  demonstrated in `examples_16_schemas.py` step 5.
 
 ---
 
