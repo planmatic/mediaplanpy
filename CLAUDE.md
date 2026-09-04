@@ -105,6 +105,22 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
   defensible (they answer different questions) but the asymmetry surprises people; keep it in
   mind before documenting ids as simply "optional".
 
+**Campaigns Are Derived, Not Stored**
+- There is no campaign file, no campaign record, and no stored campaign state.
+  `WorkspaceManager.list_campaigns()` (`workspace/query.py`) derives its rows entirely
+  from media plan files: it filters archived *plans* out at the SQL level, then keeps
+  one row per `campaign_id` taken from that campaign's current/latest plan.
+- Consequences, all load-bearing: a campaign is "archived" exactly when **every** one
+  of its plans is archived (archiving some leaves the campaign fully visible from a
+  survivor); a campaign ceases to exist when its last plan is deleted; and every
+  campaign lifecycle operation is therefore a **cascade over plans**.
+- `WorkspaceManager.archive_campaign()` / `restore_campaign()` / `delete_campaign()`
+  (`workspace/campaign_lifecycle.py`, v3.0.11) implement that cascade. They are
+  non-atomic and continue-on-error, returning `plans_changed`/`plans_skipped`/
+  `plans_failed` rather than hiding a partial result.
+- This is not an implementation shortcut — it is the only semantics the storage model
+  can express. Do not "fix" it by inventing a campaign record.
+
 **Database Integration**
 - PostgreSQL integration is optional (requires `psycopg2-binary`)
 - Database functionality is patched into MediaPlan models when available
@@ -118,7 +134,7 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 ## Configuration
 
 **Version Information**
-- Current SDK version: 3.0.10
+- Current SDK version: 3.0.11
 - Current schema version: 3.0
 - Supported major versions: [2, 3]
 

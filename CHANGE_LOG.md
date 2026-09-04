@@ -1,5 +1,74 @@
 # Changelog
 
+## [v3.0.11] - 2026-09-04
+
+### Added
+- Campaign lifecycle methods on `WorkspaceManager`: `archive_campaign()`,
+  `restore_campaign()` and `delete_campaign()`.
+
+  Campaigns have no independent existence in this data model. There is no campaign
+  file and no campaign record: `list_campaigns()` derives its rows entirely from
+  media plan files, keeping one row per `campaign_id` after archived *plans* have
+  been filtered out at the SQL level. A campaign is therefore "archived" exactly
+  when every one of its plans is, and it ceases to exist when its last plan is
+  deleted. Every one of these methods is consequently a cascade over the campaign's
+  media plans rather than a state transition on a campaign - not an implementation
+  shortcut, but the only semantics the storage model can express.
+
+  `archive_campaign()` archives all plans including the current one, via
+  `MediaPlan.archive(allow_current=True)` - the parameter added in 3.0.5 for exactly
+  this case, which preserves `is_current` rather than clearing it, so a later restore
+  reinstates the same current plan with no re-election step.
+
+  All three are non-atomic and continue-on-error: there is no transaction spanning
+  file storage, Parquet and PostgreSQL, so one plan failing does not abandon the
+  rest. Each returns `plans_changed` / `plans_skipped` / `plans_failed` and sets
+  `success=False` if anything failed, rather than hiding a partial cascade. Re-running
+  after a partial failure is safe - an already-archived plan is skipped, not errored.
+
+  `delete_campaign()`'s outcome fields differ by mode, so that no field name
+  claims something happened when it did not. A dry run reports `plans_to_delete`
+  (the intent) and `files_to_delete`, and omits `plans_changed`/`deleted_files`
+  entirely; a real delete reports `plans_changed` and `deleted_files` and omits
+  `files_to_delete`. This matters because `plans_changed` means "ids actually
+  transitioned" in `archive_campaign()`/`restore_campaign()` -- sharing it with a
+  preview would have let a caller reading it consistently conclude that a dry run
+  had already deleted the campaign. On a dry run, "previewed cleanly" is
+  `plans_to_delete` minus `plans_failed`.
+
+  Two deliberate asymmetries with the plan-level methods, both documented in the
+  docstrings so neither reads as an oversight:
+  - `delete_campaign()` defaults `dry_run=True`, where `MediaPlan.delete()` defaults
+    it to `False`. The cascade is N times more destructive and this is new API with
+    no backwards-compatibility obligation to the riskier default.
+  - `delete_campaign()` has no `allow_current_plan_deletion` parameter. Deleting a
+    campaign means deleting its current plan too; a guard against that would make the
+    method impossible to complete.
+
+  `restore_campaign()` un-archives **every** archived plan in the campaign, not only
+  those a previous `archive_campaign()` archived. Nothing in the data model records
+  why a plan was archived, so a plan archived individually beforehand is restored too.
+  This is an accepted tradeoff taken over adding a provenance field to the schema;
+  callers needing a precise inverse should persist `archive_campaign()`'s
+  `plans_changed` list and restore those plans individually via `MediaPlan.restore()`.
+
+- `CampaignNotFoundError`, raised when a campaign lifecycle method is given a
+  `campaign_id` no media plan carries. Kept distinct from `StorageError` (the same
+  reasoning as 3.0.7's `MediaPlanNotFoundError`) so consumers can map it to a 404
+  without string-matching a message.
+
+### Notes
+- Purely additive. No existing method changes shape or behaviour.
+- Deliberately **not** added: `Campaign.archive()`/`.restore()`/`.delete()` instance
+  methods (`Campaign` is a nested sub-model of `MediaPlan` with no storage identity
+  or `WorkspaceManager` reference - giving it a lifecycle would mean inventing both);
+  a campaign `set_as_current` (a campaign has no current-ness - its plans elect one
+  among themselves); and CLI commands (there are no `mediaplan archive` CLI commands
+  either, so adding campaign ones would make campaign lifecycle more discoverable
+  from the CLI than plan lifecycle).
+
+---
+
 ## [v3.0.10] - 2026-09-04
 
 ### Added

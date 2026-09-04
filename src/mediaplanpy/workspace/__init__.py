@@ -18,6 +18,11 @@ from mediaplanpy.workspace.validator import validate_workspace, WORKSPACE_SCHEMA
 # Import query module to patch methods into WorkspaceManager
 import mediaplanpy.workspace.query
 
+# Import campaign lifecycle module to patch its methods into WorkspaceManager.
+# Separate from query.py because query.py is read-only querying and this is
+# write/destructive; same patching mechanism.
+import mediaplanpy.workspace.campaign_lifecycle
+
 __all__ = [
     'WorkspaceManager',
     'WorkspaceError',

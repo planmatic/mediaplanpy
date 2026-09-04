@@ -302,6 +302,95 @@ result = workspace.sql_query(
 )
 ```
 
+#### Campaign Lifecycle
+
+Archive, restore and delete a whole campaign. **All three are cascades over the
+campaign's media plans, not state changes on a campaign**, because campaigns have no
+independent existence in this data model: `list_campaigns()` derives its rows entirely
+from media plan files, so a campaign is "archived" exactly when every one of its plans
+is, and it ceases to exist when its last plan is deleted.
+
+None of these is atomic - there is no transaction spanning file storage, Parquet and
+PostgreSQL. They are continue-on-error: one plan failing does not abandon the rest.
+Each returns `plans_changed` / `plans_skipped` / `plans_failed` and sets
+`success: False` if anything failed. Re-running after a partial failure is safe, since
+an already-archived plan is skipped rather than errored.
+
+All three raise `CampaignNotFoundError` when no media plan carries the given
+`campaign_id`, and `WorkspaceInactiveError` on an inactive workspace.
+
+There are deliberately no `Campaign.archive()`/`.restore()`/`.delete()` instance
+methods (`Campaign` is a nested sub-model of `MediaPlan` with no storage identity),
+no campaign `set_as_current` (a campaign has no current-ness - its plans elect one
+among themselves), and no CLI commands for any of this (there are no `mediaplan
+archive` CLI commands either, so campaign lifecycle is not made more discoverable from
+the CLI than plan lifecycle).
+
+**`archive_campaign(campaign_id: str) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/workspace/campaign_lifecycle.py`
+- **Description**: Archives every media plan in the campaign, so the campaign drops out of default `list_campaigns()` results
+- **Key Use Cases**: Retiring a completed campaign while keeping it recoverable
+- **Parameters**:
+  - `campaign_id`: The campaign whose plans should be archived
+- **Returns**: `{campaign_id, operation, success, plans_total, plans_changed, plans_skipped, plans_failed, campaign_now_hidden}`
+- **Notes**: Archives the campaign's **current** plan too, via `MediaPlan.archive(allow_current=True)`. That override preserves `is_current` rather than clearing it, so `restore_campaign()` reinstates the same current plan with no re-election step. Plans already archived are skipped, not re-archived.
+- **Example**:
+```python
+result = workspace.archive_campaign("CAM_001")
+
+print(result["campaign_now_hidden"])   # True once every plan is archived
+print(result["plans_changed"])         # ['MP_A', 'MP_B'] - archived by THIS call
+
+# The campaign is hidden, not gone:
+"CAM_001" in {c["campaign_id"] for c in workspace.list_campaigns()}                        # False
+"CAM_001" in {c["campaign_id"] for c in workspace.list_campaigns(include_archived=True)}   # True
+```
+
+**`restore_campaign(campaign_id: str) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/workspace/campaign_lifecycle.py`
+- **Description**: Restores every archived media plan in the campaign, bringing it back into default `list_campaigns()` results
+- **Key Use Cases**: Reversing a campaign archive
+- **Parameters**:
+  - `campaign_id`: The campaign whose plans should be restored
+- **Returns**: Same envelope as `archive_campaign()`, with `campaign_now_visible` in place of `campaign_now_hidden` and `plans_skipped` reasons of `"not_archived"`
+- **⚠️ Important**: This un-archives **every** archived plan in the campaign, not only those a previous `archive_campaign()` archived. Nothing in the data model records *why* a plan was archived, so a plan a user archived individually beforehand is restored too. This is an accepted tradeoff, taken over adding a provenance field to the schema. For a precise inverse, persist `archive_campaign()`'s `plans_changed` and restore those plans individually:
+```python
+archived = workspace.archive_campaign("CAM_001")["plans_changed"]
+# ... later, restoring exactly what was archived and nothing else:
+for plan_id in archived:
+    MediaPlan.load(workspace, media_plan_id=plan_id).restore(workspace)
+```
+
+**`delete_campaign(campaign_id: str, dry_run: bool = True, include_database: bool = True) -> Dict[str, Any]`**
+- **Location**: `src/mediaplanpy/workspace/campaign_lifecycle.py`
+- **Description**: Permanently deletes every media plan in the campaign, which deletes the campaign
+- **Key Use Cases**: Removing test or abandoned campaigns
+- **Parameters**:
+  - `campaign_id`: The campaign to delete
+  - `dry_run`: **Defaults to `True`** - preview only, delete nothing
+  - `include_database`: Also delete each plan's database records, if configured
+- **Returns**: The shared envelope plus `dry_run`, `plans_to_delete`, `plans_failed`, `files_found`, `files_deleted`, `database_rows_deleted`, `campaign_deleted` — **plus mode-specific outcome fields**: a dry run adds `files_to_delete` (paths that *would* go) and omits `plans_changed`/`deleted_files` entirely; a real delete adds `plans_changed` (ids actually deleted) and `deleted_files`. No field name ever claims something happened when it did not, and `plans_changed` keeps the exact meaning it has in `archive_campaign()`/`restore_campaign()`. On a dry run, "previewed cleanly" is `plans_to_delete` minus `plans_failed`
+- **Notes**:
+  - `dry_run` defaults to `True` here, whereas `MediaPlan.delete()` defaults it to `False`. Deliberate: the cascade is far more destructive, and this is new API with no backwards-compatibility obligation to the riskier default.
+  - There is no `allow_current_plan_deletion` parameter. Deleting a campaign means deleting its current plan too, so a guard against that would make the method impossible to complete.
+  - This touches only mediaplanpy's own storage. Documents, measurements and other artefacts that consuming applications attach to a campaign live outside this SDK and are left pointing at a campaign that no longer exists - warning about those is the consuming application's job, since only it can see them.
+- **Example**:
+```python
+# Always preview first (this is the default)
+preview = workspace.delete_campaign("CAM_001")
+print(preview["plans_to_delete"])   # ['MP_A', 'MP_B'] - reviewable, not just a count
+print(preview["files_to_delete"])   # paths that WOULD be removed
+print(preview["files_found"])       # 4
+print(preview["files_deleted"])     # 0 - nothing happened
+"plans_changed" in preview          # False - that field means "actually deleted"
+
+# Then, after confirming:
+result = workspace.delete_campaign("CAM_001", dry_run=False)
+print(result["plans_changed"])      # ['MP_A', 'MP_B'] - actually deleted
+print(result["deleted_files"])      # paths actually removed
+print(result["campaign_deleted"])   # True
+```
+
 #### Storage and Database
 
 **`get_storage_backend() -> StorageBackend`**

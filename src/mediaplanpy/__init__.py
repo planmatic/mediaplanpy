@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.10'          # SDK version
+__version__ = '3.0.11'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -30,6 +30,7 @@ VERSION_NOTES = {
     '3.0.8': 'MCP regression triage fixes: Meta.created_at now stamped with UTC instead of naive local time; {regex} filters use each engine\'s native regex matching (PostgreSQL ~, DuckDB regexp_matches()) instead of a SQL LIKE emulation that silently stripped alternation/anchors',
     '3.0.9': 'Fix Excel export crash introduced by 3.0.8\'s UTC-aware Meta.created_at - openpyxl rejects tz-aware datetimes, so the exporter now strips tzinfo for the cell and the importer reattaches UTC on the way back in',
     '3.0.10': 'Schema exposure for agent-authored media plans: new schema.get_schema()/get_schema_bundle()/get_example() serve the bundled definitions as self-contained documents with $refs resolved; JSON import now auto-generates campaign.id and line item ids as well as meta.id, matching MediaPlan.create() and the Excel importer',
+    '3.0.11': 'Add campaign lifecycle methods to WorkspaceManager: archive_campaign(), restore_campaign(), delete_campaign(). Each cascades over the campaign\'s media plans, because campaigns are derived from plans and have no stored state of their own. Adds CampaignNotFoundError. Purely additive.',
 }
 
 # Schema version compatibility constants - Updated for v3.0
@@ -65,7 +66,8 @@ from mediaplanpy.exceptions import (
     S3Error,
     DatabaseError,
     WorkspaceInactiveError,
-    FeatureDisabledError
+    FeatureDisabledError,
+    CampaignNotFoundError
 )
 
 # Import schema module
@@ -153,6 +155,7 @@ __all__ = [
     'DatabaseError',
     'WorkspaceInactiveError',
     'FeatureDisabledError',
+    'CampaignNotFoundError',
 
     # Schema
     'get_current_version',
