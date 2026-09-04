@@ -102,6 +102,19 @@ class MediaPlanNotFoundError(StorageError):
     pass
 
 
+class CampaignNotFoundError(MediaPlanError):
+    """Raised when a campaign lifecycle operation is asked for a campaign_id that
+    has no media plans in the workspace.
+
+    Campaigns have no independent existence in this data model -- they are derived
+    from media plan files -- so "campaign not found" means "no media plan carries
+    this campaign_id", which is not a storage failure. Kept distinct from
+    StorageError so consumers can map it to a 404 without string-matching a
+    message (same reasoning as MediaPlanNotFoundError above).
+    """
+    pass
+
+
 class SQLQueryError(Exception):
     """Exception raised for SQL query errors."""
     pass

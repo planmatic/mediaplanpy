@@ -58,6 +58,7 @@ All examples are located in the `/examples` directory. Run them in any order bas
 | 14 | `examples_14_api_client.py` | Interface with Planmatic API Server | API authentication, remote workspace operations, load/import media plans via API |
 | 15 | `examples_15_formulas.py` | Formula management and auto-recalculation | Dynamic formula system, automatic recalculation, coefficient management, dependency chains |
 | 16 | `examples_16_schemas.py` | Schema access and authoring plans from scratch | Reading the bundled schemas, reference resolution, generated examples, authoring without ids, pre-import validation |
+| 17 | `examples_17_manage_campaign.py` | Campaign lifecycle management | archive_campaign/restore_campaign/delete_campaign, cascade over plans, derived campaign visibility, dry_run preview, precise restore via plans_changed |
 
 ---
 
@@ -146,6 +147,16 @@ Schema access (v3.0.10) — build a valid media plan with no existing file to co
 - ✅ **Generated Examples** - `get_example()` is built by `MediaPlan.create()`, so it cannot drift
 - ✅ **Authoring Without Ids** - Omit `meta.id`, `campaign.id` and line item ids; import mints them
 - ✅ **Pre-Import Validation** - Fix-and-revalidate loop, and how to read the id errors
+
+### NEW: examples_17_manage_campaign.py
+Campaign lifecycle (v3.0.11) — archive, restore and delete a whole campaign:
+- ✅ **Campaigns Are Derived** - The script prints campaign visibility before/after each step, so you watch the state change rather than take it on faith
+- ✅ **Cascade, Not a Flag** - `list_campaigns()` is built from plan files, so a campaign is archived exactly when all of its plans are
+- ✅ **The Current Plan** - Why `archive_campaign()` can archive it when `MediaPlan.archive()` refuses to
+- ✅ **Idempotency** - Archiving twice skips already-archived plans instead of erroring
+- ✅ **Lossy Restore, Made Explicit** - `restore_campaign()` restores every archived plan; `plans_changed` gives you a precise inverse when that matters
+- ✅ **dry_run Defaults to True** - Unlike `MediaPlan.delete()`, and the preview lists plan ids, not just a count
+- ✅ **Archived vs Deleted** - An archived campaign leaves one listing; a deleted one leaves both
 
 ### NEW: examples_11_manage_lineitems.py
 Comprehensive guide to LineItem management with 11 complete examples:
@@ -319,6 +330,7 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 6. **examples_16_schemas.py** - Read the schemas directly and author plans from scratch
 7. **examples_09_sql_queries.py** - Run complex analytics queries
 8. **examples_10_manage_mediaplan.py** - Lifecycle management
+9. **examples_17_manage_campaign.py** - Campaign-level lifecycle (cascades over plans)
 
 ### For Specific Use Cases
 
@@ -352,6 +364,10 @@ The SDK automatically migrates v2.0 media plans to v3.0 when loading:
 
 **API Server Integration:**
 - `examples_14_api_client.py` → Authenticate, load workspace, load/import plans via Planmatic API
+
+**Retiring or Removing Work:**
+- `examples_10_manage_mediaplan.py` → Archive/restore/delete a single plan, manage versions
+- `examples_17_manage_campaign.py` → Archive/restore/delete a whole campaign in one call
 
 **Building Plans Programmatically (or with an LLM agent):**
 - `examples_16_schemas.py` → Read the schema, get a generated example, author a plan with no ids
