@@ -40,13 +40,25 @@ class SchemaManager:
     }
 
     @staticmethod
-    def get_schema(schema_type: str, version: str = "2.0") -> Dict[str, Any]:
+    def _default_version(version: Optional[str]) -> str:
+        """None -> the current schema version.
+
+        Every method here defaulted to a pinned "2.0" before v3.0.14, so the
+        manager silently served a different document than schema.get_schema().
+        """
+        if version is None:
+            from mediaplanpy import __schema_version__
+            return __schema_version__
+        return version
+
+    @staticmethod
+    def get_schema(schema_type: str, version: Optional[str] = None) -> Dict[str, Any]:
         """
         Get schema definition for specified type and version.
 
         Args:
             schema_type: "mediaplan", "campaign", "lineitem", or "dictionary"
-            version: Schema version in 2-digit format (default: "2.0")
+            version: Schema version in 2-digit format (default: current version)
 
         Returns:
             Dictionary containing the JSON schema definition
@@ -61,6 +73,8 @@ class SchemaManager:
                 f"Invalid schema type: {schema_type}. "
                 f"Must be one of: {', '.join(SchemaManager.VALID_SCHEMA_TYPES)}"
             )
+
+        version = SchemaManager._default_version(version)
 
         # Validate and normalize version format
         if not validate_version_format(version):
@@ -87,13 +101,16 @@ class SchemaManager:
         if not schema_path.exists():
             # For dictionary schema, provide more helpful error message
             if schema_type == "dictionary":
+                # Relative name only: these messages reach API clients of
+                # services that re-serve schemas, and the absolute path would
+                # disclose the server's install layout.
                 raise FileNotFoundError(
-                    f"Dictionary schema file not found: {schema_path}. "
+                    f"Dictionary schema file not found: {normalized_version}/{schema_file}. "
                     f"Dictionary schema is only available in v2.0+."
                 )
             else:
                 raise FileNotFoundError(
-                    f"Schema file not found: {schema_path}. "
+                    f"Schema file not found: {normalized_version}/{schema_file}. "
                     f"Version {normalized_version} may not be supported."
                 )
 
@@ -106,23 +123,23 @@ class SchemaManager:
             return schema_data
 
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in schema file {schema_path}: {e}")
+            raise ValueError(f"Invalid JSON in schema file {normalized_version}/{schema_file}: {e}")
         except Exception as e:
-            raise FileNotFoundError(f"Error reading schema file {schema_path}: {e}")
+            raise FileNotFoundError(f"Error reading schema file {normalized_version}/{schema_file}: {e}")
 
     @staticmethod
-    def get_all_schemas(version: str = "2.0") -> Dict[str, Dict[str, Any]]:
+    def get_all_schemas(version: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
         Get all schema definitions for specified version.
 
         Args:
-            version: Schema version in 2-digit format (default: "2.0")
+            version: Schema version in 2-digit format (default: current version)
 
         Returns:
             Dictionary with schema type as key, schema definition as value
         """
         schemas = {}
-        normalized_version = normalize_version(version)
+        normalized_version = normalize_version(SchemaManager._default_version(version))
 
         for schema_type in SchemaManager.VALID_SCHEMA_TYPES:
             try:
@@ -206,23 +223,34 @@ class SchemaManager:
 
     @staticmethod
     def validate_against_schema(data: Dict[str, Any], schema_type: str,
-                                version: str = "2.0") -> bool:
+                                version: Optional[str] = None) -> bool:
         """
         Validate data against specified schema.
 
         Args:
             data: Data to validate
             schema_type: Schema to validate against
-            version: Schema version in 2-digit format
+            version: Schema version in 2-digit format (default: current version)
 
         Returns:
             True if valid, False otherwise
         """
+        from mediaplanpy.schema import refs as _refs
+
         try:
+            version = SchemaManager._default_version(version)
             schema = SchemaManager.get_schema(schema_type, version)
+            # Resolve cross-file refs ("campaign.schema.json") first: validating
+            # the raw document raised an unresolvable-reference error for
+            # "mediaplan" instead of returning a bool.
+            bundle = {
+                SchemaManager.SCHEMA_FILES[name]: doc
+                for name, doc in SchemaManager.get_all_schemas(version).items()
+            }
+            schema = _refs.resolve_refs(schema, bundle)
             jsonschema.validate(instance=data, schema=schema)
             return True
-        except (JsonSchemaValidationError, FileNotFoundError, ValueError):
+        except (JsonSchemaValidationError, FileNotFoundError, ValueError, _refs.SchemaRefError):
             return False
 
     @staticmethod

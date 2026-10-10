@@ -179,16 +179,23 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 - PostgreSQL integration is optional (requires `psycopg2-binary`)
 - Database functionality is patched into MediaPlan models when available
 - Use `is_database_available()` to check if database features are accessible
+- String columns are `TEXT` (v3.0.14; were `VARCHAR(255)`, which silently dropped plans with
+  longer values). The SDK never alters an existing table: tables created earlier stay
+  `VARCHAR(255)` until migrated by hand (SQL in CHANGE_LOG v3.0.14). Keep it that way - automatic
+  DDL against shared Stage/Prod databases is a deployment decision, not an SDK side effect.
 
 **Error Handling**
 - Custom exception hierarchy in `exceptions.py`
-- All exceptions inherit from `MediaPlanError`
+- All exceptions inherit from `MediaPlanError` - including `SQLQueryError` since v3.0.14 - and
+  every class is exported from the package root. Define exceptions only in `exceptions.py` and
+  import them elsewhere: a same-named local class (as `workspace/loader.py` had until v3.0.14)
+  makes `except mediaplanpy.<Name>` silently catch nothing.
 - Specific exceptions for schema, storage, validation, and workspace errors
 
 ## Configuration
 
 **Version Information**
-- Current SDK version: 3.0.13
+- Current SDK version: 3.0.14
 - Current schema version: 3.0
 - Supported major versions: [2, 3]
 

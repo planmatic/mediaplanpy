@@ -8,7 +8,8 @@ from mediaplanpy.storage.formats.base import (
     FormatHandler,
     register_format,
     get_format_handler,
-    get_format_handler_for_file
+    get_format_handler_for_file,
+    _format_registry,
 )
 from mediaplanpy.storage.formats.json_format import JsonFormatHandler
 from mediaplanpy.storage.formats.parquet import ParquetFormatHandler

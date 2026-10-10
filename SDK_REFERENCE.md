@@ -669,9 +669,15 @@ result = media_plan.set_as_current(workspace_manager)
 print(f"Unset {result['plans_unset_count']} other current plans")
 ```
 
-**`archive(workspace_manager: WorkspaceManager) -> None`**
-- **Location**: `src/mediaplanpy/models/mediaplan.py:650`
+**`archive(workspace_manager: WorkspaceManager, allow_current: bool = False) -> None`**
+- **Location**: `src/mediaplanpy/models/mediaplan.py`
 - **Description**: Archives the media plan
+- **Parameters**:
+  - `allow_current`: If False (default), archiving a plan marked `is_current=True` raises
+    `ValidationError`. If True, the current plan is archived with its `is_current` flag kept,
+    so `restore()` reinstates it as current. Intended for campaign-level archival
+    (`WorkspaceManager.archive_campaign()`), where every plan of a campaign is archived together;
+    on a single plan of a live campaign it drops that campaign out of default `list_campaigns()` results.
 - **Key Use Cases**: Deactivating old plans while preserving data
 
 **`restore(workspace_manager: WorkspaceManager) -> None`**
@@ -1347,6 +1353,13 @@ migrated_data = migrate(old_plan, "2.0", "3.0")
 Utility functions for Excel validation. For Excel import/export, use the MediaPlan methods
 `export_to_excel()` and `import_from_excel()` documented in the [Export/Import Operations](#exportimport-operations) section.
 
+**Formula results must be cached before import.** The exporter writes cost breakdowns and metrics as
+live Excel formulas, and the importer reads the results a spreadsheet engine cached on last save
+(openpyxl cannot evaluate formulas). Open and save an exported or script-edited workbook in Excel,
+LibreOffice or Google Sheets before importing it. If a workbook has formulas but no cached results,
+`import_from_excel()` emits `mediaplanpy.excel.ExcelFormulaCacheWarning`; escalate it with
+`warnings.simplefilter("error", ExcelFormulaCacheWarning)` to make such imports fail.
+
 **`validate_excel(file_path, schema_validator=None, schema_version=None) -> List[str]`**
 - **Location**: `src/mediaplanpy/excel/validator.py:30`
 - **Description**: Validates Excel file against schema before import
@@ -1383,13 +1396,37 @@ Additional utility functions available in the SDK.
 
 ## Error Handling
 
-The SDK uses custom exception hierarchy:
+Every SDK exception derives from `MediaPlanError` and is importable from the package root
+(`from mediaplanpy import MediaPlanNotFoundError`). Catch the most specific class you can act on;
+`except MediaPlanError` catches all of them.
 
-- `MediaPlanError`: Base exception
-- `StorageError`: Storage operation failures
-- `ValidationError`: Data validation failures
-- `SchemaVersionError`: Version compatibility issues
-- `WorkspaceError`: Workspace configuration problems
+```
+MediaPlanError
+├── WorkspaceError                  workspace configuration problems
+│   ├── WorkspaceNotFoundError      settings file not found
+│   ├── WorkspaceValidationError    settings file fails schema validation
+│   ├── WorkspaceInactiveError      restricted operation on an inactive workspace
+│   └── FeatureDisabledError        feature (e.g. Excel) disabled in the workspace
+├── SchemaError
+│   ├── SchemaVersionError          unsupported or invalid schema version
+│   ├── SchemaRegistryError         schema definitions cannot be loaded
+│   ├── SchemaMigrationError        a version migration failed
+│   ├── ValidationError             data fails validation
+│   ├── UnsupportedVersionError     (reserved; not currently raised)
+│   └── VersionCompatibilityError   (reserved; not currently raised)
+├── StorageError                    storage operation failures
+│   ├── FileReadError
+│   ├── FileWriteError
+│   ├── S3Error                     (reserved; S3 failures currently raise StorageError)
+│   ├── DatabaseError
+│   └── MediaPlanNotFoundError      no media plan with that id - map to "not found"
+├── CampaignNotFoundError           no media plan carries that campaign_id
+└── SQLQueryError                   invalid, unsafe or failed sql_query() (derives from
+                                    MediaPlanError since v3.0.14; previously Exception)
+```
+
+`mediaplanpy.excel.ExcelFormulaCacheWarning` (a `UserWarning`, not an exception) is emitted when an
+imported workbook has formulas but no cached results; see the Excel section.
 
 ---
 

@@ -29,7 +29,8 @@
     },
     "budget_currency": {
       "type": "string",
-      "description": "Currency in which the budget of this campaign is expressed"
+      "pattern": "^[A-Za-z]{3}$",
+      "description": "Currency in which the budget of this campaign is expressed, as a 3-letter ISO 4217 code (e.g., USD, EUR, GBP)"
     },
     "budget_total": {
       "type": "number",

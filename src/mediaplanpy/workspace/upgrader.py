@@ -1042,7 +1042,11 @@ class WorkspaceUpgrader:
         """
         try:
             config = self.workspace_manager.get_resolved_config()
-            return 'database' in config and config['database'] is not None
+            # A database block with enabled=false (the template default) must
+            # not trigger a database upgrade - that reported spurious errors
+            # on fully successful upgrades of file-only workspaces.
+            database = config.get('database') or {}
+            return bool(database.get('enabled', False))
         except Exception:
             return False
 

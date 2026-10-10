@@ -104,13 +104,16 @@ class FormulasMixin:
                 if self.dictionary.custom_metrics is None:
                     self.dictionary.custom_metrics = {}
 
-                # Create new config dict with provided or default values
-                self.dictionary.custom_metrics[metric_name] = {
-                    "status": "enabled",
-                    "caption": metric_name.replace("metric_custom", "Custom Metric "),
-                    "formula_type": formula_type or "cost_per_unit",
-                    "base_metric": base_metric or "cost_total"
-                }
+                # A CustomMetricConfig, not a bare dict: this mutates the inner
+                # dict, so validate_assignment never runs and a dict would stay
+                # a dict, breaking every Dictionary reader (.status etc.)
+                from mediaplanpy.models.dictionary import CustomMetricConfig
+                self.dictionary.custom_metrics[metric_name] = CustomMetricConfig(
+                    status="enabled",
+                    caption=metric_name.replace("metric_custom", "Custom Metric "),
+                    formula_type=formula_type or "cost_per_unit",
+                    base_metric=base_metric or "cost_total"
+                )
                 dictionary_updated = True
             else:
                 # Add to standard_metrics

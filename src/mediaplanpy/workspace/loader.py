@@ -17,23 +17,18 @@ from datetime import datetime
 from mediaplanpy.exceptions import (
     WorkspaceError,
     WorkspaceNotFoundError,
-    WorkspaceValidationError
+    WorkspaceValidationError,
+    # Imported, not redefined: before v3.0.14 this module defined its own
+    # copies and raised those, so `except mediaplanpy.WorkspaceInactiveError`
+    # caught nothing. The names stay importable from this module.
+    WorkspaceInactiveError,
+    FeatureDisabledError,
 )
 from mediaplanpy.workspace.validator import validate_workspace, WORKSPACE_SCHEMA
 from mediaplanpy.schema import SchemaRegistry, SchemaValidator, SchemaMigrator
 
 # Configure logging
 logger = logging.getLogger("mediaplanpy.workspace.loader")
-
-
-class WorkspaceInactiveError(WorkspaceError):
-    """Exception raised when trying to perform restricted operations on an inactive workspace."""
-    pass
-
-
-class FeatureDisabledError(WorkspaceError):
-    """Exception raised when trying to use a disabled feature."""
-    pass
 
 
 class WorkspaceManager:
@@ -614,6 +609,10 @@ class WorkspaceManager:
             raise WorkspaceNotFoundError(f"Workspace file not found at {self.workspace_path}")
         except json.JSONDecodeError as e:
             raise WorkspaceError(f"Failed to parse workspace settings: {e}")
+        except WorkspaceValidationError:
+            # Raised as-is, matching the config_dict path; it subclasses
+            # WorkspaceError, so existing `except WorkspaceError` still catches it
+            raise
         except Exception as e:
             raise WorkspaceError(f"Error loading workspace: {e}")
 
@@ -811,16 +810,18 @@ class WorkspaceManager:
 
         Args:
             media_plan: The media plan data to migrate.
-            to_version: The target schema version. If None, uses the preferred
-                       version from workspace settings.
+            to_version: The target schema version. If None, uses the current
+                       schema version.
 
         Returns:
             The migrated media plan data.
         """
-        # If no target version specified, use preferred version from settings
+        # If no target version specified, use the current schema version.
+        # (schema_settings.preferred_version is deprecated and removed by
+        # load(), so reading it always gave None and the migration failed.)
         if to_version is None:
-            schema_settings = self.get_schema_settings()
-            to_version = schema_settings.get('preferred_version')
+            from mediaplanpy import __schema_version__
+            to_version = __schema_version__
 
         # Get current version from media plan
         from_version = media_plan.get("meta", {}).get("schema_version")

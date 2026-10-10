@@ -196,7 +196,8 @@ class SchemaRegistry:
         schema_type_map = {
             "mediaplan.schema.json": "mediaplan",
             "campaign.schema.json": "campaign",
-            "lineitem.schema.json": "lineitem"
+            "lineitem.schema.json": "lineitem",
+            "dictionary.schema.json": "dictionary"
         }
 
         schema_type = schema_type_map.get(schema_name)

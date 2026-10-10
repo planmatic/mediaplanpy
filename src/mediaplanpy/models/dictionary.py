@@ -340,15 +340,15 @@ class Dictionary(BaseModel):
 
         # Handle custom metric fields
         elif field_name in self.VALID_CUSTOM_METRIC_FIELDS:
-            return (self.custom_metrics and
-                    field_name in self.custom_metrics and
-                    self.custom_metrics[field_name].status == "enabled")
+            return bool(self.custom_metrics and
+                        field_name in self.custom_metrics and
+                        self.custom_metrics[field_name].status == "enabled")
 
         # Handle cost fields
         elif field_name in self.VALID_COST_FIELDS:
-            return (self.custom_costs and
-                    field_name in self.custom_costs and
-                    self.custom_costs[field_name].status == "enabled")
+            return bool(self.custom_costs and
+                        field_name in self.custom_costs and
+                        self.custom_costs[field_name].status == "enabled")
 
         return False
 

@@ -165,7 +165,8 @@
 
 	"cost_currency": {
       "type": "string",
-      "description": "Currency code for all cost fields in this line item (e.g., USD, EUR, GBP)"
+      "pattern": "^[A-Za-z]{3}$",
+      "description": "Currency for all cost fields in this line item, as a 3-letter ISO 4217 code (e.g., USD, EUR, GBP)"
     },
 	"cost_currency_exchange_rate": {
       "type": "number",

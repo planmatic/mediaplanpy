@@ -490,16 +490,11 @@ class StorageMixin:
                             f"⚠️ Media plan uses deprecated schema version '{file_version}'. "
                             "Consider upgrading to current version."
                         )
-                        if auto_migrate:
-                            # Auto-upgrade deprecated versions
-                            from mediaplanpy import __schema_version__
-                            current_version = f"v{__schema_version__}"
-
-                            if "meta" not in data:
-                                data["meta"] = {}
-                            data["meta"]["schema_version"] = current_version
-
-                            logger.info(f"Auto-upgraded deprecated version from {file_version} to {current_version}")
+                        # Deprecated versions (v2.0) need a real data migration,
+                        # which from_dict() -> check_schema_version() performs.
+                        # Do NOT bump schema_version here: before v3.0.14 this
+                        # stamped the plan as v3.0, so from_dict() saw a native
+                        # document and the v2 -> v3 migration never ran.
 
                     elif compatibility == "forward_minor":
                         from mediaplanpy import __schema_version__
@@ -553,7 +548,8 @@ class StorageMixin:
                                 from mediaplanpy.schema.version_utils import get_compatibility_type
                                 compatibility = get_compatibility_type(file_version)
 
-                                if compatibility in ["deprecated", "backward_compatible"] and auto_migrate:
+                                # "deprecated" (v2.0) is left to from_dict(), which migrates the data
+                                if compatibility == "backward_compatible" and auto_migrate:
                                     from mediaplanpy import __schema_version__
                                     current_version = f"v{__schema_version__}"
                                     data["meta"]["schema_version"] = current_version
@@ -596,7 +592,9 @@ class StorageMixin:
             include_database: If True, also delete from database if configured.
 
         Returns:
-            Dictionary containing deletion results and version information.
+            Dictionary containing deletion results and version information,
+            including "success" (bool): True when no errors occurred, even if
+            there was nothing to delete (see "files_found"/"files_deleted").
 
         Raises:
             WorkspaceError: If no configuration is loaded.
@@ -736,6 +734,9 @@ class StorageMixin:
             raise StorageError(
                 f"Failed to delete some files for media plan '{self.meta.id}': {'; '.join(result['errors'])}")
 
+        # Always a bool: True when the call completed without errors - including
+        # a no-op on a plan that was never saved (check files_deleted for that).
+        result["success"] = not result["errors"]
         return result
 
     def _should_save_parquet(self) -> bool:

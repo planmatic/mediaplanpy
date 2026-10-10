@@ -115,8 +115,13 @@ class CampaignNotFoundError(MediaPlanError):
     pass
 
 
-class SQLQueryError(Exception):
-    """Exception raised for SQL query errors."""
+class SQLQueryError(MediaPlanError):
+    """Exception raised for SQL query errors.
+
+    Derives from MediaPlanError since v3.0.14 (was Exception), so the documented
+    `except MediaPlanError` catches it like every other SDK error. A handler that
+    needs to treat it differently must come before any `except MediaPlanError`.
+    """
     pass
 
 

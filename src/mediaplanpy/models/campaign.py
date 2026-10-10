@@ -195,9 +195,9 @@ class Campaign(BaseModel):
         """
         errors = super().validate_model()
 
-        # Validate objective
-        lower_objective = self.objective.lower()
-        if not any(obj in lower_objective for obj in self.VALID_OBJECTIVES):
+        # Validate objective (optional - None is its default)
+        lower_objective = self.objective.lower() if self.objective else None
+        if lower_objective is not None and not any(obj in lower_objective for obj in self.VALID_OBJECTIVES):
             errors.append(
                 f"Objective '{self.objective}' does not contain any recognized terms. "
                 f"Recognized terms include: {', '.join(self.VALID_OBJECTIVES)}"

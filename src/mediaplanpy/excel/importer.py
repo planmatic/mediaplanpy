@@ -164,6 +164,11 @@ def _build_metric_formulas_from_import(
 
     # Process each metric
     for metric_name in all_metrics:
+        # Reset per metric: the constant branch never assigns these, so without
+        # this a constant formula inherited the previous metric's parameters.
+        parameter1 = None
+        parameter2 = None
+
         # Check if metric exists in line item
         metric_value = line_item.get(metric_name)
 

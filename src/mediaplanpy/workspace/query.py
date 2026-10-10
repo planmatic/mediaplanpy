@@ -404,6 +404,8 @@ def list_campaigns(self, filters=None, include_stats=True, include_archived=Fals
     # Step 4: Keep only the first row per campaign_id (current or most recent)
     # The ORDER BY in the SQL already sorted by is_current and created_at DESC
     result_df = df.groupby('campaign_id', as_index=False).first()
+    # meta_is_current_sort is the SQL's own ordering helper, not a result column
+    result_df = result_df.drop(columns=['meta_is_current_sort'], errors='ignore')
 
     # Step 5: Add plan counts back to the filtered dataframe
     if include_stats:

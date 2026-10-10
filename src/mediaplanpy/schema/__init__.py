@@ -133,10 +133,22 @@ def get_schema_bundle(version=None):
     Returns:
         e.g. ``{"mediaplan.schema.json": {...}, "campaign.schema.json": {...}, ...}``
         -- the shape resolve_refs() consumes as its lookup table.
+
+    Raises:
+        FileNotFoundError: If no schemas exist for that version (the same
+            exception get_schema() raises for an unsupported version).
     """
     if version is None:
         version = get_current_version()
-    return default_registry.load_all_schemas(version)
+    bundle = default_registry.load_all_schemas(version)
+    if not bundle:
+        # Raised here, matching get_schema(): an empty bundle used to surface
+        # one layer later as "SchemaRefError: ... Available schemas: (none)".
+        raise FileNotFoundError(
+            f"No schemas found for version {version}. "
+            f"Supported versions: {', '.join(get_supported_versions())}"
+        )
+    return bundle
 
 
 def get_example(schema_type="mediaplan", version=None):

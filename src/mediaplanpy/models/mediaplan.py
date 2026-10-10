@@ -537,36 +537,19 @@ class MediaPlan(JsonMixin, StorageMixin, ExcelMixin, DatabaseMixin, FormulasMixi
 
         Args:
             line_item_id: The ID of the line item to remove.
-            validate: Whether to validate media plan consistency after deletion (default: True).
+            validate: Accepted for backward compatibility; no post-deletion
+                checks are currently performed, so it has no effect (default: False).
 
         Returns:
             True if the line item was deleted, False if it wasn't found.
-
-        Raises:
-            ValidationError: If post-deletion validation fails.
         """
         # Find and remove the line item
         for i, line_item in enumerate(self.lineitems):
             if line_item.id == line_item_id:
-                # Store the item for potential rollback
-                removed_item = self.lineitems.pop(i)
-
-                # Validate the media plan consistency after deletion if requested
-                if validate:
-                    try:
-                        # Check that total costs still make sense (optional validation)
-                        # This is media plan level validation, not line item validation
-                        total_cost = sum(item.cost_total for item in self.lineitems)
-
-                        # We could add validation here if needed, but for now
-                        # we focus on line item validation only as requested
-                        pass
-
-                    except Exception as e:
-                        # If validation fails, rollback the deletion
-                        self.lineitems.insert(i, removed_item)
-                        raise ValidationError(f"Cannot delete line item: validation failed after deletion: {str(e)}")
-
+                # No post-deletion validation: the previous placeholder summed
+                # cost_total, discarded the result and could only fail (on a
+                # line item with cost_total None), never detect anything.
+                self.lineitems.pop(i)
                 return True
 
         return False

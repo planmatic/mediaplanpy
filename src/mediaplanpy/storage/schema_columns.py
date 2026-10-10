@@ -304,7 +304,11 @@ def python_type_to_sql(py_type: Type, is_primary_key: bool = False) -> str:
         Corresponding SQL type string
     """
     mapping = {
-        str: "VARCHAR(255)",
+        # TEXT, not VARCHAR(255): the media plan schema puts no length limit on
+        # string fields, and before v3.0.14 a longer value (e.g. a 480-character
+        # meta.comments) made the whole plan's insert fail. Tables created by
+        # earlier versions keep VARCHAR(255) until migrated - see CHANGE_LOG v3.0.14.
+        str: "TEXT",
         int: "INTEGER",
         Decimal: "DECIMAL(20,4)",
         datetime: "TIMESTAMP",

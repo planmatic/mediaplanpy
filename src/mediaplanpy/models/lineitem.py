@@ -1085,8 +1085,20 @@ class LineItem(BaseModel):
         # Build dependency graph for this lineitem (respects lineitem-level overrides)
         dependency_graph = self._build_dependency_graph()
 
-        # Find metrics that depend on the one being changed
-        dependent_metrics = dependency_graph.get(metric_name, set())
+        # Find every metric downstream of the one being changed - transitively.
+        # _recalculate_dependent_metrics() recomputes the full closure, so a
+        # metric two or more hops away needs its coefficient too; before v3.0.14
+        # only direct dependents got one, and the rest recalculated with the
+        # default coefficient 0. All values are still the old ones here, so
+        # every coefficient is back-solved consistently.
+        dependent_metrics = []
+        pending = list(dependency_graph.get(metric_name, set()))
+        while pending:
+            dependent = pending.pop(0)
+            if dependent in dependent_metrics or dependent == metric_name:
+                continue
+            dependent_metrics.append(dependent)
+            pending.extend(dependency_graph.get(dependent, set()))
 
         for dependent_metric in dependent_metrics:
             # Skip if formula already exists

@@ -1,5 +1,131 @@
 # Changelog
 
+## [v3.0.14] - 2026-10-10
+
+Fixes from the SDK QA report run against 3.0.11 (`QASDK-20260904-233142`): 30 of its
+46 findings. Findings left open are listed at the end with the reason.
+SDK-31 (location lists dropped on Excel import) was fixed in v3.0.13.
+
+### Upgrade notes - read before deploying
+- **PostgreSQL: existing tables need a one-time migration (SDK-24).** New tables
+  now use `TEXT` for string columns. Tables created by earlier versions keep
+  `VARCHAR(255)`, so a plan with a longer string value still fails to insert
+  until the table is migrated. The SDK does **not** alter existing tables itself.
+  Run once per media plan table (defaults: schema `public`, table `media_plans`):
+
+  ```sql
+  DO $$
+  DECLARE r record;
+  BEGIN
+    FOR r IN SELECT column_name FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'media_plans'
+               AND data_type = 'character varying'
+               AND column_name NOT IN ('workspace_id', 'workspace_name')
+    LOOP
+      EXECUTE format('ALTER TABLE public.media_plans ALTER COLUMN %I TYPE TEXT', r.column_name);
+    END LOOP;
+  END $$;
+  ```
+
+  `VARCHAR` -> `TEXT` needs no table rewrite in PostgreSQL. It does take a brief
+  exclusive lock, and fails if a view depends on the columns (drop and recreate
+  the view around it).
+- **`SQLQueryError` now derives from `MediaPlanError`** (was `Exception`) (SDK-08).
+  An `except MediaPlanError` placed *before* an `except SQLQueryError` now
+  catches SQL errors first. Check the order of exception handlers in API layers.
+- **`schema.get_schema_bundle()` raises `FileNotFoundError` for an unsupported
+  version** instead of returning `{}` (SDK-41). This is the same exception
+  `get_schema()` already raised for that case.
+- **v2.0 plans are now really migrated by `MediaPlan.load()`** (SDK-22): you get
+  `target_audiences`/`target_locations` arrays instead of a plan stamped v3.0
+  that still had v2.0 flat fields.
+
+### Fixed - P1
+- **SDK-01** CLI `list campaigns` / `list mediaplans` table output read
+  unprefixed column names that the query layer does not return. Every row
+  showed `$0`, `N/A` and zero counts. The `--format json` output was always correct.
+- **SDK-02** `workspace create --database true` wrote `table`/`user`/`password`,
+  but the backend reads `table_name`/`username`/`password_env_var`, and it wrote
+  the password inline. It now enables the template's database block, which has
+  the right keys and passes the password through an environment variable. The
+  CLI `settings`/`validate` output reads the right keys too.
+- **SDK-22** `MediaPlan.load()` bumped a v2.0 plan's `schema_version` before
+  `from_dict()` ran, so the v2 -> v3 migration was skipped. It no longer does.
+- **SDK-23** `set_metric_value(recalculate_dependents=True)` back-solved
+  coefficients for direct dependents only, so metrics two or more steps
+  downstream recalculated to 0. It now covers every metric downstream.
+- **SDK-24** String database columns are now `TEXT` (see upgrade notes).
+- **SDK-25** `campaign.budget_currency` and `lineitems[].cost_currency` carry
+  `"pattern": "^[A-Za-z]{3}$"` in the bundled schema, matching what the models
+  enforce. A document `schema.validate()` accepts no longer fails on import.
+
+### Fixed - P2/P3
+- **SDK-05** `Campaign.validate_model()` no longer crashes when `objective` is unset.
+- **SDK-07** `MediaPlanNotFoundError`, `SQLQueryError`, `UnsupportedVersionError`
+  and `VersionCompatibilityError` are exported from the package root.
+- **SDK-12** `MediaPlan.delete()` results include `success` (always a bool).
+- **SDK-16** `delete_lineitem()` docstring corrected. `validate` defaults to
+  False and has no effect. The placeholder that could only crash was removed.
+- **SDK-17** `workspace validate` exits 3 on a missing workspace, like every
+  other command.
+- **SDK-19** The extras `database`, `s3`, `gdrive`, `excel` and `parquet` now
+  exist, so the documented `pip install "mediaplanpy[database]"` works. The
+  mandatory dependencies are unchanged.
+- **SDK-20** `SDK_REFERENCE.md` documents the full exception hierarchy and
+  `archive(allow_current=...)`.
+- **SDK-26** `workspace/loader.py` raises the exported `WorkspaceInactiveError`
+  / `FeatureDisabledError` instead of its own same-named copies. They can still
+  be imported from the loader module.
+- **SDK-27** `select_metric_formula()` on a new custom metric stores a
+  `CustomMetricConfig` rather than a bare dict, which had broken every
+  Dictionary reader.
+- **SDK-32** On Excel import, a `constant` formula no longer inherits the
+  previous metric's `parameter1`/`parameter2`.
+- **SDK-33** `SchemaManager.get_schema()` / `get_all_schemas()` /
+  `validate_against_schema()` default to the current schema version (were "2.0").
+- **SDK-34** `SchemaManager.validate_against_schema(..., "mediaplan")` resolves
+  cross-file references and returns a bool. Before, it raised an unresolvable-reference error.
+- **SDK-35** `get_format_handler_instance("plan.txt")` raised `NameError`;
+  it now raises the documented `ValueError`.
+- **SDK-36** CLI `workspace statistics` / `workspace version` count plans under
+  `mediaplans/` as well as the base folder. Before, `version` reported "fully
+  upgraded" without opening a single plan.
+- **SDK-37** `WorkspaceManager.load(workspace_path=...)` raises
+  `WorkspaceValidationError` unwrapped. It subclasses `WorkspaceError`, so
+  existing handlers still catch it.
+- **SDK-38** The workspace upgrade skips the database when `database.enabled` is
+  false, instead of reporting errors on successful upgrades.
+- **SDK-39** `Dictionary.is_field_enabled()` always returns a bool.
+- **SDK-40** `list_campaigns()` no longer returns the SQL helper column
+  `meta_is_current_sort`.
+- **SDK-42** `load_schema("dictionary.schema.json")` works. Before, it failed
+  on a filename `load_all_schemas()` itself returns.
+- **SDK-44** Schema not-found messages name `<version>/<file>` instead of the
+  absolute install path, since they can reach API clients.
+- **SDK-45** `workspace create --path` help text now states the real default
+  location, and an explicit `--path ./workspace.json` is honoured. Before,
+  it was the one value the CLI ignored.
+- **SDK-46** `migrate_media_plan()` defaults to the current schema version.
+  Before, it read a setting that `load()` deletes.
+
+### Left open
+- **SDK-21** Mitigated in v3.0.13 by `ExcelFormulaCacheWarning`. A full fix
+  (recompute formula columns on import) is still open.
+- **SDK-04** The schema allows formula types beyond the built-in ones, so
+  raising on an unknown type could break apps that use them.
+- **SDK-06** This would change the exception type surfaced on import error paths.
+- **SDK-09** CTE support in the SQL safety check affects workspace isolation
+  and needs its own design.
+- **SDK-10, SDK-11** `load()` write-back and `save()` swallowing Parquet or
+  database failures both change behaviour callers depend on. SDK-46 removes the
+  practical harm of SDK-10.
+- **SDK-13, SDK-14, SDK-15** Each would reject plans that load today.
+- **SDK-03, SDK-28, SDK-29, SDK-30** These need a product decision (gdrive), or
+  belong in a separate Excel validator/format-handler cleanup.
+- **SDK-18** `--workspace_path` is a new CLI feature.
+- **SDK-43** The unused exception classes stay importable. They are marked as
+  reserved in `SDK_REFERENCE.md`.
+
 ## [v3.0.13] - 2026-10-10
 
 Excel round-trip fidelity. A Mediatools -> Planmatic round-trip test (JSON import,

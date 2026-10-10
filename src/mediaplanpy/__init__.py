@@ -6,7 +6,7 @@ standard for media plans.
 """
 
 # Central Version Definitions - Updated for v3.0
-__version__ = '3.0.13'          # SDK version
+__version__ = '3.0.14'          # SDK version
 __schema_version__ = '3.0'     # Current schema version supported
 
 VERSION_NOTES = {
@@ -33,6 +33,7 @@ VERSION_NOTES = {
     '3.0.11': 'Add campaign lifecycle methods to WorkspaceManager: archive_campaign(), restore_campaign(), delete_campaign(). Each cascades over the campaign\'s media plans, because campaigns are derived from plans and have no stored state of their own. Adds CampaignNotFoundError. Purely additive.',
     '3.0.12': 'Performance upgrade: get_storage_backend() now reuses backend instances across calls with the same effective storage configuration instead of constructing a new one every call. S3StorageBackend.__init__() performs a live head_bucket() connectivity check, so callers that invoke get_storage_backend() many times per logical operation (as several downstream packages do) were paying that network round-trip repeatedly for no reason. Cache is keyed by content (workspace_id + mode + mode-specific storage config), not by object identity, since callers typically pass a freshly-built config each time. New clear_storage_backend_cache() forces fresh instances (e.g. after external credential rotation). Purely additive/non-breaking.',
     '3.0.13': 'Excel round-trip fidelity fixes: meta/campaign custom_properties, target_locations location/exclusion lists, line item cost_currency and metric_formulas extras (comments, parameter3, formulas on metrics the importer does not rebuild) no longer dropped on Excel import; fields absent on a line item no longer come back as 0; unconfigured dictionary slots no longer added; new ExcelFormulaCacheWarning when a workbook has formulas but no cached results. Workbooks exported by earlier versions still import. Schema descriptions clarified for campaign.budget_total and metric_formulas coefficient (cost_per_unit impressions = cost per single impression).',
+    '3.0.14': 'QA report fixes (SDK-01..SDK-46, 30 findings). P1: CLI list tables read the real column names; workspace create --database true writes the keys the backend reads (no inline password); MediaPlan.load() now really migrates v2.0 plans; set_metric_value() recalculates every downstream metric; string DB columns are TEXT (new tables - existing tables need a one-time ALTER, see CHANGE_LOG); currency fields carry a 3-letter pattern in the schema. Also: SQLQueryError now derives from MediaPlanError; get_schema_bundle() raises FileNotFoundError for unsupported versions; SchemaManager defaults to the current schema version; missing exceptions exported; loader raises the exported exception classes; assorted validation, CLI and docs fixes.',
 }
 
 # Schema version compatibility constants - Updated for v3.0
@@ -69,7 +70,11 @@ from mediaplanpy.exceptions import (
     DatabaseError,
     WorkspaceInactiveError,
     FeatureDisabledError,
-    CampaignNotFoundError
+    CampaignNotFoundError,
+    MediaPlanNotFoundError,
+    SQLQueryError,
+    UnsupportedVersionError,
+    VersionCompatibilityError
 )
 
 # Import schema module
@@ -159,6 +164,10 @@ __all__ = [
     'WorkspaceInactiveError',
     'FeatureDisabledError',
     'CampaignNotFoundError',
+    'MediaPlanNotFoundError',
+    'SQLQueryError',
+    'UnsupportedVersionError',
+    'VersionCompatibilityError',
 
     # Schema
     'get_current_version',

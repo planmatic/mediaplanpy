@@ -29,6 +29,17 @@ from mediaplanpy.exceptions import MediaPlanError
 # =============================================================================
 
 
+def _plan_files(base_path, extension: str) -> List[Path]:
+    """Media plan files of one extension in a local workspace.
+
+    Plans are written to <base_path>/mediaplans/; <base_path> itself is also
+    scanned for plans saved by older SDK versions.
+    """
+    base_path = Path(base_path)
+    return (sorted((base_path / "mediaplans").glob(f"*.{extension}"))
+            + sorted(base_path.glob(f"*.{extension}")))
+
+
 def format_currency(amount: float, currency: str = "USD") -> str:
     """Format currency with thousand separators."""
     if currency:
@@ -142,8 +153,10 @@ def setup_argparse() -> argparse.ArgumentParser:
     )
     create_parser.add_argument(
         "--path",
-        default="./workspace.json",
-        help="Path to create workspace.json (default: ./workspace.json)"
+        default=None,
+        help="Path of the workspace settings file to create "
+             "(default: <workspace directory>/<workspace_id>_settings.json, "
+             "where the workspace directory is ~/mediaplanpy)"
     )
     create_parser.add_argument(
         "--name",
@@ -314,8 +327,9 @@ def handle_workspace_create(args) -> int:
         # Convert database string to boolean
         database_enabled = args.database == "true"
 
-        # Check if file exists without --force
-        if Path(args.path).exists() and not args.force:
+        # Check if file exists without --force. With no --path the file name
+        # contains a freshly generated workspace_id, so it cannot exist yet.
+        if args.path and Path(args.path).exists() and not args.force:
             print_error(
                 "File already exists",
                 f"Workspace settings file already exists: {args.path}",
@@ -335,8 +349,8 @@ def handle_workspace_create(args) -> int:
 
         # Create with specified configuration
         workspace_id, settings_path = manager.create(
-            settings_path_name=str(Path(args.path).parent) if args.path != "./workspace.json" else None,
-            settings_file_name=Path(args.path).name if args.path != "./workspace.json" else None,
+            settings_path_name=str(Path(args.path).parent) if args.path else None,
+            settings_file_name=Path(args.path).name if args.path else None,
             overwrite=args.force,
             workspace_settings=workspace_settings
         )
@@ -359,16 +373,10 @@ def handle_workspace_create(args) -> int:
 
         # Configure database
         if database_enabled:
-            config['database'] = {
-                'enabled': True,
-                'host': 'localhost',
-                'port': 5432,
-                'database': 'mediaplan_db',
-                'user': 'postgres',
-                'password': '',
-                'table': 'mediaplans',
-                'schema': 'public'
-            }
+            # Keep the template's database block - it has the keys
+            # PostgreSQLBackend reads (table_name, username, password_env_var).
+            # Never write a password into the settings file.
+            config.setdefault('database', {})['enabled'] = True
 
         # Save updated configuration
         with open(settings_path, 'w') as f:
@@ -461,8 +469,8 @@ def handle_workspace_settings(args) -> int:
             print(f"   Host: {db_config.get('host', 'Unknown')}")
             print(f"   Port: {db_config.get('port', 5432)}")
             print(f"   Database: {db_config.get('database', 'Unknown')}")
-            print(f"   Table: {db_config.get('table', 'mediaplans')}")
-            print(f"   User: {db_config.get('user', 'Unknown')}")
+            print(f"   Table: {db_config.get('table_name', 'media_plans')}")
+            print(f"   User: {db_config.get('username', 'Unknown')}")
             print(f"   Schema: {db_config.get('schema', 'public')}")
             print(f"   SSL: {db_config.get('ssl', False)}")
         else:
@@ -527,7 +535,7 @@ def handle_workspace_validate(args) -> int:
         print(f"   {str(e)}")
         print(f"\n[7/7] Overall status: ❌ FAIL (1 failure)\n")
         print(f"Workspace has validation errors. Please address failures above.")
-        return 1
+        return 3  # same exit code as every other command for "workspace not found"
     except Exception as e:
         print(f"Workspace: {args.workspace_id}\n")
         print(f"[1/7] Workspace settings file: ❌ FAIL")
@@ -637,11 +645,11 @@ def handle_workspace_validate(args) -> int:
                     if db_backend.table_exists():
                         print(f"\n[6/7] Database connection: ✅ PASS")
                         print(f"   Connected to postgresql://{db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
-                        print(f"   Table '{db_config.get('table', 'mediaplans')}' exists")
+                        print(f"   Table '{db_config.get('table_name', 'media_plans')}' exists")
                     else:
                         print(f"\n[6/7] Database connection: ⚠️  WARNING")
                         print(f"   Connected to postgresql://{db_config.get('host')}:{db_config.get('port')}/{db_config.get('database')}")
-                        print(f"   Table '{db_config.get('table', 'mediaplans')}' does not exist")
+                        print(f"   Table '{db_config.get('table_name', 'media_plans')}' does not exist")
                         print(f"   Will be created automatically on first use")
                 else:
                     print(f"\n[6/7] Database connection: ❌ FAIL")
@@ -892,12 +900,12 @@ def handle_workspace_statistics(args) -> int:
 
             if Path(base_path).exists():
                 # Count JSON files
-                json_files = list(Path(base_path).glob('*.json'))
+                json_files = _plan_files(base_path, 'json')
                 json_count = len(json_files)
                 json_size = sum(f.stat().st_size for f in json_files if f.is_file()) / (1024 * 1024)
 
                 # Count Parquet files
-                parquet_files = list(Path(base_path).glob('*.parquet'))
+                parquet_files = _plan_files(base_path, 'parquet')
                 parquet_count = len(parquet_files)
                 parquet_size = sum(f.stat().st_size for f in parquet_files if f.is_file()) / (1024 * 1024)
 
@@ -1034,7 +1042,7 @@ def handle_workspace_version(args) -> int:
             base_path = Path(resolved_config['storage']['local']['base_path'])
 
             if base_path.exists():
-                json_files = list(base_path.glob('*.json'))
+                json_files = _plan_files(base_path, 'json')
                 total_files = len(json_files)
 
                 print(f"   Total files: {total_files}")
@@ -1239,11 +1247,13 @@ def handle_list_campaigns(args) -> int:
             for _, row in campaigns_df.iterrows():
                 campaign_id = row.get('campaign_id', 'N/A')
                 campaign_name = row.get('campaign_name', 'N/A')
-                budget = row.get('budget_total', 0)
-                currency = row.get('budget_currency', 'USD')
-                start_date = row.get('start_date', 'N/A')
-                end_date = row.get('end_date', 'N/A')
-                plan_count = row.get('mediaplan_count', 0)
+                # Column names as returned by WorkspaceManager.list_campaigns()
+                budget = row.get('campaign_budget_total', 0)
+                currency = row.get('campaign_budget_currency') or 'USD'
+                start_date = row.get('campaign_start_date', 'N/A')
+                end_date = row.get('campaign_end_date', 'N/A')
+                plan_count = row.get('stat_media_plan_count', 0)
+                budget = float(budget) if budget is not None and budget == budget else 0  # None/NaN -> 0
 
                 # Format budget
                 budget_str = format_currency(budget, currency)
@@ -1350,12 +1360,13 @@ def handle_list_mediaplans(args) -> int:
             rows = []
 
             for _, row in mediaplans_df.iterrows():
-                mediaplan_id = row.get('mediaplan_id', 'N/A')
-                created_by = row.get('created_by_name', 'N/A')
-                created_at = row.get('created_at', 'N/A')
+                # Column names as returned by WorkspaceManager.list_mediaplans()
+                mediaplan_id = row.get('meta_id', 'N/A')
+                created_by = row.get('meta_created_by_name', 'N/A')
+                created_at = row.get('meta_created_at', 'N/A')
                 campaign_name = row.get('campaign_name', 'N/A')
-                schema_version = row.get('schema_version', 'N/A')
-                lineitem_count = row.get('lineitem_count', 0)
+                schema_version = str(row.get('meta_schema_version', 'N/A')).lstrip('v')
+                lineitem_count = row.get('stat_lineitem_count', 0)
 
                 # Format created_at
                 created_str = str(created_at)[:19] if created_at != 'N/A' else 'N/A'
