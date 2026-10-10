@@ -29,7 +29,7 @@ class Campaign(BaseModel):
     name: str = Field(..., description="Name of the campaign")
     start_date: date = Field(..., description="Start date of the campaign")
     end_date: date = Field(..., description="End date of the campaign")
-    budget_total: Decimal = Field(..., description="Total budget amount for the campaign")
+    budget_total: Decimal = Field(..., description="Total budget amount for the campaign. Independent of the line items: sum(lineitems[].cost_total) may be lower or higher, and neither is derived from the other")
 
     # Optional field (not required per v3.0 schema)
     objective: Optional[str] = Field(None, description="Objective of the campaign")

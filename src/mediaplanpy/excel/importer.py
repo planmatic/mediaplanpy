@@ -21,6 +21,27 @@ from mediaplanpy.exceptions import StorageError, ValidationError
 
 logger = logging.getLogger("mediaplanpy.excel.importer")
 
+# Row label for meta/campaign custom_properties. The exporter wrote
+# "Custom Properties:" up to v3.0.12 while this importer only read the "(JSON)"
+# form, so the value was silently dropped; both are accepted so workbooks
+# exported by older versions still round-trip.
+CUSTOM_PROPERTIES_LABELS = ("Custom Properties (JSON):", "Custom Properties:")
+
+# Line item fields that start with "cost_"/"metric_" but are not numeric.
+# Without this, the numeric coercion below silently drops them (float("USD")).
+NON_NUMERIC_COST_METRIC_FIELDS = {"cost_currency"}
+
+
+class ExcelFormulaCacheWarning(UserWarning):
+    """Formula cells in an imported workbook have no cached result.
+
+    openpyxl cannot evaluate formulas, so the importer reads the values a
+    spreadsheet engine cached on last save. A workbook written or edited by a
+    script (openpyxl, pandas, ...) and never opened and saved in Excel,
+    LibreOffice or Google Sheets has no cached values, and every formula-driven
+    column imports as blank.
+    """
+
 
 def _parse_json_field(value: Any, field_name: str) -> Dict[str, Any]:
     """
@@ -54,6 +75,37 @@ def _parse_json_field(value: Any, field_name: str) -> Dict[str, Any]:
     except (json.JSONDecodeError, ValueError) as e:
         logger.warning(f"Field '{field_name}' contains invalid JSON: {e}, returning empty dict")
         return {}
+
+
+def _parse_list_field(value: Any) -> List[str]:
+    """
+    Parse a list cell (e.g. target_locations[].location_list) from Excel.
+
+    The exporter writes a JSON array, which is the only lossless form: entries
+    such as "Los Angeles, CA" contain commas. A cell that is not a JSON array
+    (hand-typed, or exported by v3.0.12 and earlier) falls back to splitting on
+    commas.
+
+    Returns:
+        List of non-empty strings, or [] if the cell is empty
+    """
+    import json
+
+    if value is None:
+        return []
+    text = str(value).strip()
+    if not text:
+        return []
+
+    if text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if item is not None and str(item).strip()]
+        except (json.JSONDecodeError, ValueError):
+            logger.warning(f"Invalid JSON list '{text[:50]}', falling back to comma-separated parsing")
+
+    return [part.strip() for part in text.split(",") if part.strip()]
 
 
 def _build_metric_formulas_from_import(
@@ -212,6 +264,41 @@ def _build_metric_formulas_from_import(
             metric_formulas[metric_name] = formula_entry
 
     return metric_formulas
+
+
+def _merge_metric_formulas(
+    existing_formulas: Dict[str, Any],
+    rebuilt_formulas: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Merge formulas rebuilt from sheet values over those in the Metric Formulas JSON column.
+
+    Until v3.0.12 the rebuilt formulas replaced the JSON column outright, which lost:
+    - formulas for metrics the rebuild does not cover (metric_audience_size,
+      metric_max_daily_spend, metric_max_daily_impressions)
+    - formulas whose coefficient could not be recomputed (e.g. base metric is 0)
+    - keys the sheet has no column for (comments, parameter3)
+
+    The rebuilt values win for the keys they carry (coefficient and parameters are
+    what a user edits in the sheet); every other key of the JSON entry is kept.
+
+    Args:
+        existing_formulas: metric_formulas parsed from the JSON column
+        rebuilt_formulas: Output of _build_metric_formulas_from_import()
+
+    Returns:
+        Merged metric_formulas dictionary
+    """
+    merged = {
+        name: dict(formula)
+        for name, formula in existing_formulas.items()
+        if isinstance(formula, dict)
+    }
+    for name, rebuilt in rebuilt_formulas.items():
+        entry = merged.get(name, {})
+        entry.update({k: v for k, v in rebuilt.items() if v is not None})
+        merged[name] = entry
+    return merged
 
 
 def _get_metric_formula_definition_from_import(
@@ -466,6 +553,9 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
         # Load the workbook
         workbook = openpyxl.load_workbook(file_path, data_only=True)
 
+        # Warn when formula results are missing (workbook never recalculated)
+        _warn_if_formulas_uncalculated(file_path, workbook)
+
         # Detect and validate schema version
         schema_version = _detect_schema_version(workbook)
         if not _is_v3_schema_version(schema_version):
@@ -491,6 +581,73 @@ def import_from_excel(file_path: str, **kwargs) -> Dict[str, Any]:
         raise
     except Exception as e:
         raise StorageError(f"Failed to import media plan from Excel: {e}")
+
+
+def _warn_if_formulas_uncalculated(file_path: Any, workbook: Workbook) -> int:
+    """
+    Warn when the workbook has formula cells but none of them has a cached result.
+
+    The importer reads cached formula results (data_only=True) because openpyxl
+    cannot evaluate formulas. A workbook written by this SDK's exporter, or edited
+    and saved by a script (openpyxl drops every cached value on save), has none
+    until a spreadsheet engine opens and saves it - so every formula-driven
+    column (cost breakdown, metrics) would silently import as blank.
+
+    The test is "no formula cell has a cached value", not "some cell has none":
+    a recalculated formula that evaluates to blank (as the exporter writes for
+    fields a line item does not have) also reads back as None, so per-cell
+    checks would flag correct workbooks.
+
+    Args:
+        file_path: Path (or file-like object) the workbook was loaded from
+        workbook: The workbook loaded with data_only=True
+
+    Returns:
+        Number of formula cells without a cached value when the warning was
+        emitted, otherwise 0
+    """
+    import warnings
+
+    try:
+        if hasattr(file_path, "seek"):
+            file_path.seek(0)
+        formula_workbook = openpyxl.load_workbook(file_path, read_only=True)
+    except Exception as e:
+        logger.debug(f"Could not reload workbook to check formula cache: {e}")
+        return 0
+
+    formula_cells = 0
+    cached_cells = 0
+    try:
+        for sheet_name in formula_workbook.sheetnames:
+            if sheet_name not in workbook.sheetnames:
+                continue
+            value_rows = workbook[sheet_name].iter_rows(values_only=True)
+            for formula_row, value_row in zip(
+                formula_workbook[sheet_name].iter_rows(values_only=True), value_rows
+            ):
+                for formula_value, cached_value in zip(formula_row, value_row):
+                    if isinstance(formula_value, str) and formula_value.startswith("="):
+                        formula_cells += 1
+                        if cached_value is not None:
+                            cached_cells += 1
+    finally:
+        formula_workbook.close()
+        if hasattr(file_path, "seek"):
+            file_path.seek(0)
+
+    if formula_cells and not cached_cells:
+        message = (
+            f"Excel import: {formula_cells} formula cells have no cached value, so every "
+            f"formula-driven column (cost breakdown, metrics) will import as blank. The "
+            f"workbook was written or last saved by a tool that does not calculate formulas "
+            f"(e.g. openpyxl or pandas). Open and save it in Excel, LibreOffice or Google "
+            f"Sheets before importing."
+        )
+        logger.warning(message)
+        warnings.warn(message, ExcelFormulaCacheWarning, stacklevel=3)
+        return formula_cells
+    return 0
 
 
 def _validate_import_data_integrity(media_plan: Dict[str, Any]) -> None:
@@ -891,7 +1048,7 @@ def _import_v3_metadata(metadata_sheet) -> Dict[str, Any]:
             if value_cell and str(value_cell).strip():
                 meta["dim_custom5"] = str(value_cell).strip()
         # NEW v3.0 field: custom_properties (JSON)
-        elif key_cell == "Custom Properties (JSON):":
+        elif key_cell in CUSTOM_PROPERTIES_LABELS:
             if value_cell:
                 meta["custom_properties"] = _parse_json_field(value_cell, "meta.custom_properties")
 
@@ -1049,7 +1206,7 @@ def _import_v3_campaign(campaign_sheet) -> Dict[str, Any]:
                 campaign["dim_custom5"] = str(value_cell).strip()
 
         # NEW v3.0 custom_properties (JSON)
-        elif key_cell == "Custom Properties (JSON):":
+        elif key_cell in CUSTOM_PROPERTIES_LABELS:
             if value_cell:
                 campaign["custom_properties"] = _parse_json_field(value_cell, "campaign.custom_properties")
 
@@ -1143,8 +1300,10 @@ def _import_v3_target_locations(target_locations_sheet) -> List[Dict[str, Any]]:
         "Description": "description",
         "Location Type": "location_type",
         "Location List (JSON)": "location_list",
+        "Location List": "location_list",  # header written by v3.0.12 and earlier
         "Exclusion Type": "exclusion_type",
         "Exclusion List (JSON)": "exclusion_list",
+        "Exclusion List": "exclusion_list",  # header written by v3.0.12 and earlier
         "Population Percent": "population_percent"
     }
 
@@ -1173,15 +1332,9 @@ def _import_v3_target_locations(target_locations_sheet) -> List[Dict[str, Any]]:
                     except (ValueError, TypeError):
                         pass
                 elif field_name in ["location_list", "exclusion_list"]:
-                    # Parse JSON array
-                    import json
-                    try:
-                        if isinstance(cell_value, str) and cell_value.strip():
-                            parsed = json.loads(cell_value)
-                            if isinstance(parsed, list):
-                                location[field_name] = parsed
-                    except (json.JSONDecodeError, ValueError):
-                        logger.warning(f"Invalid JSON in {field_name} field at row {row}, skipping")
+                    parsed = _parse_list_field(cell_value)
+                    if parsed:
+                        location[field_name] = parsed
                 else:
                     if str(cell_value).strip():
                         location[field_name] = str(cell_value).strip()
@@ -1489,7 +1642,10 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
             else:
                 return ""  # String fields get empty string
 
-        if cell_value is None:
+        # None: empty cell. "": a formula that evaluated to blank - the exporter
+        # writes =IF(x="","",...) for fields the line item did not have, so
+        # that "absent" survives the round trip instead of becoming 0.
+        if cell_value is None or cell_value == "":
             return None
 
         return cell_value
@@ -1563,6 +1719,10 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
                         except (ValueError, TypeError):
                             pass
 
+                elif field_name in NON_NUMERIC_COST_METRIC_FIELDS:
+                    if str(cleaned_value).strip():
+                        line_item[field_name] = str(cleaned_value).strip()
+
                 elif field_name.startswith(("cost_", "metric_")) or field_name == "cost_total":
                     try:
                         line_item[field_name] = float(cleaned_value)
@@ -1607,13 +1767,17 @@ def _import_v3_lineitems(line_items_sheet, dictionary: Dict[str, Any]) -> List[D
             line_item = _reconstruct_zero_budget_breakdown(line_item, calculated_data)
             reconstructed_count += 1
 
-        # FORMULA-AWARE IMPORT: Build metric_formulas from imported data
-        # This overrides any metric_formulas that may have been in the JSON column
+        # FORMULA-AWARE IMPORT: Rebuild coefficients/parameters from the sheet
+        # (that is where edits happen) and merge them over the Metric Formulas
+        # JSON column, which carries everything the sheet cannot express.
         auto_generated_formulas = _build_metric_formulas_from_import(
             line_item, calculated_data, dictionary
         )
-        if auto_generated_formulas:
-            line_item["metric_formulas"] = auto_generated_formulas
+        merged_formulas = _merge_metric_formulas(
+            line_item.get("metric_formulas") or {}, auto_generated_formulas
+        )
+        if merged_formulas:
+            line_item["metric_formulas"] = merged_formulas
 
         lineitems.append(line_item)
 
@@ -1786,6 +1950,13 @@ def _import_v3_dictionary(dictionary_sheet) -> Dict[str, Any]:
             base_value = dictionary_sheet.cell(row=row, column=base_metric_col).value
             if base_value and str(base_value).strip():
                 base_metric = str(base_value).strip()
+
+        # The exporter lists every custom slot, writing unconfigured ones as
+        # status "disabled" with no caption. Importing those rows would add a
+        # placeholder entry for every slot the original plan never had;
+        # "disabled with nothing configured" means the same as absent.
+        if status == "disabled" and not caption and not formula_type and not base_metric:
+            continue
 
         # Route to appropriate section based on field_type
         if field_type == "Meta Dimension":

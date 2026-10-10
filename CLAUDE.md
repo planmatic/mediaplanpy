@@ -153,6 +153,28 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
   profile- and IAM-role-based credentials refresh themselves and don't need
   this).
 
+**Excel Round-Trip Fidelity (v3.0.13)**
+- Goal: JSON -> Excel -> (edit, recalculate) -> JSON loses nothing. `tests/unit/test_excel_roundtrip.py`
+  pins it; tests needing formula results run the workbook through LibreOffice and skip without it.
+- **Labels and headers are a contract between `excel/exporter.py` and `excel/importer.py`.** Every
+  pre-3.0.13 loss came from the two drifting apart (`Custom Properties:` vs `Custom Properties (JSON):`,
+  `Location List` vs `Location List (JSON)`). When renaming a label, keep the old one readable in the
+  importer: workbooks already exported are in users' hands.
+- The importer coerces every line-item field starting with `cost_`/`metric_` to float. A non-numeric
+  field with those prefixes must be listed in `NON_NUMERIC_COST_METRIC_FIELDS` or it is silently dropped.
+- `metric_formulas` on import = the `Metric Formulas (JSON)` column **merged under** what
+  `_build_metric_formulas_from_import()` rebuilds from sheet values (`_merge_metric_formulas()`). The
+  sheet wins for coefficient/parameters (that is where users edit); everything else in the JSON column
+  is kept. Never go back to replacing the column outright.
+- **Absent != 0.** For a field a line item lacks, the exporter leaves the `%`/coefficient cell blank and
+  wraps formulas as `=IF(x="","",...)` (the blank test must be outermost: Excel treats blank as 0);
+  the importer reads a blank result as absent. A recalculated blank result reads back as `None`, the same
+  as a never-calculated cell, which is why `_warn_if_formulas_uncalculated()` only warns when **no**
+  formula cell has a cached value (openpyxl drops all cached values on save, so this is all-or-nothing
+  in practice).
+- Lists in cells are JSON arrays, never comma-joined (`"Los Angeles, CA"`).
+- `meta.schema_version` comes back as `"3.0"` (not `"v3.0"`) after an Excel cycle - documented, not a bug.
+
 **Database Integration**
 - PostgreSQL integration is optional (requires `psycopg2-binary`)
 - Database functionality is patched into MediaPlan models when available
@@ -166,7 +188,7 @@ MediaPlanPy is a Python SDK for working with media plans that follow the MediaPl
 ## Configuration
 
 **Version Information**
-- Current SDK version: 3.0.12
+- Current SDK version: 3.0.13
 - Current schema version: 3.0
 - Supported major versions: [2, 3]
 

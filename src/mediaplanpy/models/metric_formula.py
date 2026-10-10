@@ -45,7 +45,7 @@ class MetricFormula(BaseModel):
 
     # Optional fields
     base_metric: Optional[str] = Field(None, description="The metric or cost field used as input for the formula calculation (e.g., cost_total, cost_media, metric_impressions, metric_clicks)")
-    coefficient: Optional[float] = Field(None, description="Coefficient value for the formula")
+    coefficient: Optional[float] = Field(None, description="Coefficient value for the formula. For cost_per_unit this is the cost of ONE unit - for metric_impressions, cost per single impression (CPM / 1000), not the CPM")
     parameter1: Optional[float] = Field(None, description="First parameter for the formula function")
     parameter2: Optional[float] = Field(None, description="Second parameter for the formula function")
     parameter3: Optional[float] = Field(None, description="Third parameter for the formula function")

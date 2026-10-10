@@ -33,7 +33,7 @@
     },
     "budget_total": {
       "type": "number",
-      "description": "Total budget allocated for the campaign in the base currency"
+      "description": "Total budget allocated for the campaign in the base currency. This is the campaign's budget envelope and is independent of the line items: the sum of lineitems[].cost_total may be lower (budget not yet allocated) or higher (over-allocated) than budget_total, and neither value is derived from the other."
     },
     "agency_id": {
       "type": "string",

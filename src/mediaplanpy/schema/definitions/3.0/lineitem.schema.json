@@ -414,7 +414,7 @@
           },
           "coefficient": {
             "type": "number",
-            "description": "Coefficient value for the formula"
+            "description": "Coefficient value for the formula. For 'cost_per_unit' the coefficient is the cost of ONE unit of the metric (metric = base_metric / coefficient). For metric_impressions this means cost per single impression, i.e. CPM / 1000 - not the CPM itself; tools that display a CPM (such as the Excel export's 'Cost per 1000 Impressions' column) multiply by 1000 for display only. For 'conversion_rate' it is the rate as a fraction (metric = base_metric x coefficient, e.g. 0.02 for 2%). For 'constant' it is the metric value itself."
           },
           "parameter1": {
             "type": "number",

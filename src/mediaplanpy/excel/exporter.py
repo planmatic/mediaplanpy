@@ -662,7 +662,11 @@ def _populate_coefficient_column(
 
     # Step 2: Reverse-calculate from metric and base metric values
     metric_value = getattr(line_item, metric_name, None)
-    if metric_value is None or metric_value == 0:
+    if metric_value is None:
+        # Metric absent on this line item: no coefficient, so the cell stays
+        # blank and the metric formula evaluates to blank (absent != 0).
+        return None
+    if metric_value == 0:
         return Decimal("0")
 
     # Convert to Decimal
@@ -834,7 +838,9 @@ def _generate_excel_formula(
         line_item: Line item data dictionary (needed for constant formula coefficient)
 
     Returns:
-        Excel formula string (e.g., "=IF($D5=0,0,$B5*$D5)")
+        Excel formula string (e.g., '=IF($D5="","",IF($D5=0,0,$B5*$D5))'). Every
+        non-constant formula is wrapped in a blank-coefficient test; the
+        examples below show the inner formula.
 
     Examples:
         >>> # Cost per unit (default)
@@ -875,7 +881,10 @@ def _generate_excel_formula(
         # Excel: ={coefficient_value} directly (no column reference needed)
         coefficient = _populate_coefficient_column(metric_name, line_item, formula_config)
 
-        if coefficient is None or coefficient == 0:
+        if coefficient is None:
+            # Metric absent on this line item - caller leaves the cell blank
+            return ""
+        if coefficient == 0:
             formula = "=0"
         else:
             # Format the coefficient value in the formula
@@ -952,7 +961,11 @@ def _generate_excel_formula(
         logger.warning(f"Unknown formula type '{formula_type}' for {metric_name}")
         return ""
 
-    return formula
+    # A blank coefficient means the line item does not have this metric (other
+    # line items do, hence the column). Evaluate to blank rather than 0 so the
+    # importer keeps the field absent; this must be the outermost test, since
+    # Excel treats a blank cell as equal to 0.
+    return f'=IF({coef_ref}="","",{formula[1:]})'
 
 
 def _create_v3_styles(workbook: Workbook) -> None:
@@ -1102,7 +1115,7 @@ def _populate_v3_metadata_sheet(sheet, media_plan: "MediaPlan") -> None:
         row += 1
 
     # Add custom properties field (v3.0)
-    sheet[f'A{row}'] = "Custom Properties:"
+    sheet[f'A{row}'] = "Custom Properties (JSON):"  # must match importer.CUSTOM_PROPERTIES_LABELS
     custom_props = getattr(meta, "custom_properties", None)
     if custom_props:
         import json
@@ -1202,7 +1215,7 @@ def _populate_v3_campaign_sheet(sheet, campaign) -> None:
         row += 1
 
     # Add custom properties field (v3.0)
-    sheet[f'A{row}'] = "Custom Properties:"
+    sheet[f'A{row}'] = "Custom Properties (JSON):"  # must match importer.CUSTOM_PROPERTIES_LABELS
     custom_props = getattr(campaign,"custom_properties")
     if custom_props:
         sheet[f'B{row}'] = json.dumps(custom_props)
@@ -1305,8 +1318,8 @@ def _populate_v3_target_locations_sheet(sheet, campaign) -> None:
 
     # Add headers
     headers = [
-        "Name", "Description", "Location Type", "Location List",
-        "Exclusion Type", "Exclusion List", "Population Percent"
+        "Name", "Description", "Location Type", "Location List (JSON)",
+        "Exclusion Type", "Exclusion List (JSON)", "Population Percent"
     ]
 
     for col_idx, header in enumerate(headers, 1):
@@ -1319,23 +1332,17 @@ def _populate_v3_target_locations_sheet(sheet, campaign) -> None:
         sheet.cell(row=row_idx, column=2, value=getattr(location, "description", ""))
         sheet.cell(row=row_idx, column=3, value=getattr(location, "location_type", ""))
 
-        # location_list is an array - convert to comma-separated string or JSON
+        # Lists are written as JSON arrays: comma-joining is lossy, since
+        # entries like "Los Angeles, CA" contain commas.
         location_list = getattr(location, "location_list", [])
         if location_list:
-            if isinstance(location_list, list):
-                sheet.cell(row=row_idx, column=4, value=", ".join(location_list))
-            else:
-                sheet.cell(row=row_idx, column=4, value=location_list)
+            sheet.cell(row=row_idx, column=4, value=json.dumps(list(location_list)))
 
         sheet.cell(row=row_idx, column=5, value=getattr(location, "exclusion_type", ""))
 
-        # exclusion_list is an array - convert to comma-separated string or JSON
         exclusion_list = getattr(location, "exclusion_list", [])
         if exclusion_list:
-            if isinstance(exclusion_list, list):
-                sheet.cell(row=row_idx, column=6, value=", ".join(exclusion_list))
-            else:
-                sheet.cell(row=row_idx, column=6, value=exclusion_list)
+            sheet.cell(row=row_idx, column=6, value=json.dumps(list(exclusion_list)))
 
         sheet.cell(row=row_idx, column=7, value=getattr(location, "population_percent", None))
 
@@ -1609,10 +1616,14 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                 if field_name.endswith("_pct"):
                     # Cost percentage calculation (unchanged)
                     base_field = field_name.replace("_pct", "")
-                    cost_value = getattr(line_item, base_field, 0)
-                    # Handle None values
+                    cost_value = getattr(line_item, base_field, None)
+                    # Field absent on this line item (but present on others):
+                    # leave the % blank so the cost formula evaluates to blank
+                    # and the importer keeps the field absent instead of 0.
                     if cost_value is None:
-                        cost_value = 0
+                        cell = sheet.cell(row=row_idx, column=col_idx, value=None)
+                        cell.number_format = '0.0%'
+                        continue
 
                     if cost_total_value and cost_total_value != 0:
                         percentage = (cost_value / cost_total_value)
@@ -1720,7 +1731,7 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
 
                     if pct_col_idx:
                         pct_cell_ref = f"{get_column_letter(pct_col_idx)}{row_idx}"
-                        formula = f"={cost_total_cell_ref}*{pct_cell_ref}"
+                        formula = f'=IF({pct_cell_ref}="","",{cost_total_cell_ref}*{pct_cell_ref})'
                         cell = sheet.cell(row=row_idx, column=col_idx, value=formula)
                         cell.style = "currency_style"
                         # Apply grey font formatting for formula columns
@@ -1748,10 +1759,13 @@ def _populate_v3_lineitems_sheet(sheet, line_items: List["LineItem"], dictionary
                         cell.font = Font(color="808080")  # Grey color
                         cell.number_format = "#,##0"  # Thousand comma separator, no decimals
                     else:
-                        # Formula generation failed - show metric value directly
-                        metric_value = getattr(line_item, field_name, 0)
-                        cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
-                        cell.number_format = "#,##0"
+                        # No formula (generation failed, or constant metric the
+                        # line item does not have) - write the value directly,
+                        # leaving the cell blank when the field is absent.
+                        metric_value = getattr(line_item, field_name, None)
+                        if metric_value is not None:
+                            cell = sheet.cell(row=row_idx, column=col_idx, value=metric_value)
+                            cell.number_format = "#,##0"
 
             elif field_type == "json":
                 # NEW v3.0: Handle JSON fields (metric_formulas, custom_properties)

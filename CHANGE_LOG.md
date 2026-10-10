@@ -1,5 +1,76 @@
 # Changelog
 
+## [v3.0.13] - 2026-10-10
+
+Excel round-trip fidelity. A Mediatools -> Planmatic round-trip test (JSON import,
+Excel export, edit, Excel re-import) found the Excel cycle lossless only at
+line-item level: plan- and campaign-level data (including the identifiers that
+tie a plan back to its source system) were lost after one edit cycle. A
+full-field round trip of every schema field confirmed the findings below and
+found nothing else lost.
+
+### Fixed
+- **`meta.custom_properties` and `campaign.custom_properties` dropped on Excel import.**
+  The exporter labelled the row `Custom Properties:`; the importer only read
+  `Custom Properties (JSON):`. The exporter now writes the `(JSON)` label and the
+  importer accepts both.
+- **`campaign.target_locations[].location_list` and `exclusion_list` dropped.**
+  The exporter wrote headers `Location List` / `Exclusion List` with comma-joined
+  values; the importer expected `... (JSON)` headers with JSON arrays, so the columns
+  were never read. Comma-joining was also lossy (`"Los Angeles, CA"`). The exporter
+  now writes JSON arrays under `(JSON)` headers; the importer accepts both header
+  forms, parses JSON first and falls back to comma-splitting for hand-typed cells.
+- **`lineitems[].cost_currency` dropped.** Every line-item field starting with
+  `cost_`/`metric_` was coerced with `float()`, and `float("USD")` failed silently.
+  `cost_currency` is now read as a string.
+- **`metric_formulas` entries and keys dropped.** The importer rebuilt
+  `metric_formulas` from sheet values and discarded the `Metric Formulas (JSON)`
+  column, losing formulas on metrics the rebuild does not cover
+  (`metric_audience_size`, `metric_max_daily_spend`, `metric_max_daily_impressions`),
+  formulas whose coefficient could not be recomputed, and keys with no sheet column
+  (`comments`, `parameter3`). Rebuilt coefficients/parameters are now merged over
+  the JSON column: the sheet still wins for what it carries (that is where users
+  edit), and everything else is kept.
+- **Fields absent on a line item came back as `0.0`.** When any line item has a
+  cost or metric field, every row gets that column, and its formula evaluated to 0
+  on rows that never had the field, making "absent" and "zero" indistinguishable.
+  For absent fields the exporter now leaves the `%` / coefficient cell blank, and
+  the formulas are wrapped as `=IF(x="","",...)` so they evaluate to blank; the
+  importer treats a blank result as absent. Filling in the blank cell in Excel
+  still drives the formula as before.
+- **Unconfigured dictionary slots added on import.** The Dictionary sheet lists
+  every custom slot, writing unconfigured ones as `disabled` with no caption; the
+  importer turned each into a `{"status": "disabled", "caption": ""}` entry. Such
+  rows are now skipped (they mean the same as absent).
+
+### Added
+- **`ExcelFormulaCacheWarning`** (exported from `mediaplanpy.excel`). The importer
+  reads cached formula results, because openpyxl cannot evaluate formulas. A workbook
+  exported by this SDK, or edited and saved by a script (openpyxl drops every cached
+  value on save), has none until a spreadsheet engine opens and saves it, and every
+  formula-driven column then imports as blank. The importer now emits this warning
+  (via `warnings.warn` and the logger) when a workbook has formula cells and none
+  of them has a cached value. Callers can escalate it with
+  `warnings.simplefilter("error", ExcelFormulaCacheWarning)`.
+
+### Changed
+- Schema description clarifications in the bundled v3.0 definitions (to be mirrored
+  upstream in mediaplanschema):
+  - `campaign.budget_total` is the campaign's budget envelope, independent of the
+    line items; `sum(lineitems[].cost_total)` may be lower or higher, and neither is
+    derived from the other.
+  - `metric_formulas.*.coefficient`: for `cost_per_unit` the coefficient is the cost
+    of ONE unit - for `metric_impressions`, cost per single impression (CPM / 1000),
+    not the CPM. The Excel export's "Cost per 1000 Impressions" column multiplies by
+    1000 for display only. Storing a CPM directly produces a 1000x error in impressions.
+
+### Known behaviour (documented, unchanged)
+- `meta.schema_version`: models and JSON write `"v3.0"`; Parquet, database rows and
+  the Excel import write `"3.0"`. Every SDK reader accepts both, so consumers
+  comparing the string should normalise it (e.g. strip a leading `v`).
+- An Excel import adds an explicit `metric_formulas` entry for each metric with a
+  value. This is needed: a coefficient edited in the sheet can only be stored on the line item.
+
 ## [v3.0.12] - 2026-09-09
 
 ### Changed
