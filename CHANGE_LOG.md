@@ -108,6 +108,18 @@ SDK-31 (location lists dropped on Excel import) was fixed in v3.0.13.
 - **SDK-46** `migrate_media_plan()` defaults to the current schema version.
   Before, it read a setting that `load()` deletes.
 
+### Fixed - found in QA of this release
+- **SDK-47** (P2, regression from the SDK-36 fix) Once `workspace version`
+  could find plan files, it compared their `meta.schema_version` verbatim. Plans
+  store `"v3.0"`, so a fully current workspace printed `vv3.0: 4 files`, reported
+  "Files need migration" / "partially upgraded" and recommended a pointless
+  `workspace upgrade`. Plan, database and workspace versions are now normalised
+  to `X.Y` before being compared or printed. In the same handler, the database
+  branch read the old `table` key (missed by the SDK-02 fix) and called a query
+  method that does not exist, so it always printed "Could not query record
+  versions". It now uses `get_version_statistics()`, which reports rows (one per
+  line item) by normalised version.
+
 ### Left open
 - **SDK-21** Mitigated in v3.0.13 by `ExcelFormulaCacheWarning`. A full fix
   (recompute formula columns on import) is still open.

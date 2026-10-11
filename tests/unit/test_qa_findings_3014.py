@@ -120,6 +120,57 @@ class TestCLI:
         (tmp_path / "legacy.json").write_text("{}")
         assert [p.name for p in cli._plan_files(tmp_path, "json")] == ["a.json", "legacy.json"]
 
+    def test_sdk47_version_report_normalises_plan_versions(self, home, monkeypatch, capsys):
+        # Plans are written with schema_version "v3.0"; the report compared that
+        # verbatim with "3.0", printed "vv3.0" and recommended a needless upgrade.
+        config, settings = _create_workspace(monkeypatch)
+        manager = WorkspaceManager()
+        manager.load(workspace_path=str(settings))
+        for i in range(2):
+            data = _plan_dict()
+            data["meta"]["id"] = f"mediaplan_qa{i}"
+            MediaPlan.from_dict(data).save(manager)
+        plans = list(
+            (
+                Path(manager.get_resolved_config()["storage"]["local"]["base_path"]) / "mediaplans"
+            ).glob("*.json")
+        )
+        assert all(json.loads(p.read_text())["meta"]["schema_version"] == "v3.0" for p in plans)
+        capsys.readouterr()
+
+        assert (
+            _run_cli(monkeypatch, "workspace", "version", "--workspace_id", config["workspace_id"])
+            == 0
+        )
+        out = capsys.readouterr().out
+        assert "vv" not in out
+        assert "v3.0: 2 files (100%)" in out
+        assert "All files current" in out
+        assert "Workspace fully upgraded" in out
+
+    def test_sdk47_real_v2_plan_still_flagged(self, home, monkeypatch, capsys):
+        # Normalising must not hide a plan that genuinely needs migration
+        config, settings = _create_workspace(monkeypatch)
+        manager = WorkspaceManager()
+        manager.load(workspace_path=str(settings))
+        MediaPlan.from_dict(_plan_dict()).save(manager)
+        plans_dir = (
+            Path(manager.get_resolved_config()["storage"]["local"]["base_path"]) / "mediaplans"
+        )
+        (plans_dir / "legacy_v2.json").write_text(
+            (FIXTURES / "mediaplan_v2_migration.json").read_text()
+        )
+        capsys.readouterr()
+
+        assert (
+            _run_cli(monkeypatch, "workspace", "version", "--workspace_id", config["workspace_id"])
+            == 0
+        )
+        out = capsys.readouterr().out
+        assert "v3.0: 1 files (50%)" in out and "v2.0: 1 files (50%)" in out
+        assert "Mixed versions detected" in out
+        assert "Workspace partially upgraded" in out
+
     def test_sdk45_explicit_path_is_honoured(self, home, monkeypatch):
         # "./workspace.json" was the argparse default, and the one value ignored
         assert _run_cli(monkeypatch, "workspace", "create", "--path", "./workspace.json") == 0

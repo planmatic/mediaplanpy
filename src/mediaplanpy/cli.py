@@ -29,6 +29,20 @@ from mediaplanpy.exceptions import MediaPlanError
 # =============================================================================
 
 
+def _normalize_schema_version(version: Any) -> str:
+    """Schema version in bare "X.Y" form, for comparing against __schema_version__.
+
+    Plans store meta.schema_version as "v3.0" (models/JSON) or "3.0" (Parquet,
+    database, Excel import); both mean the same version. Unparseable values are
+    returned unchanged so they still show up, and count as not current.
+    """
+    from mediaplanpy.schema.version_utils import normalize_version
+    try:
+        return normalize_version(str(version))
+    except Exception:
+        return str(version)
+
+
 def _plan_files(base_path, extension: str) -> List[Path]:
     """Media plan files of one extension in a local workspace.
 
@@ -969,7 +983,7 @@ def handle_workspace_statistics(args) -> int:
         # Check if upgrade available
         from mediaplanpy import __schema_version__
         current_schema = __schema_version__
-        if schema_version != current_schema:
+        if _normalize_schema_version(schema_version) != current_schema:
             print(f"   Upgrade available: Yes (to v{current_schema})")
         else:
             print(f"   Upgrade available: No")
@@ -1054,7 +1068,8 @@ def handle_workspace_version(args) -> int:
                         try:
                             with open(json_file, 'r') as f:
                                 data = json.load(f)
-                                version = data.get('meta', {}).get('schema_version', 'unknown')
+                                version = _normalize_schema_version(
+                                    data.get('meta', {}).get('schema_version', 'unknown'))
                                 version_counts[version] = version_counts.get(version, 0) + 1
                         except Exception:
                             version_counts['error'] = version_counts.get('error', 0) + 1
@@ -1092,12 +1107,11 @@ def handle_workspace_version(args) -> int:
 
                 if db_backend.test_connection():
                     print(f"   Enabled: Yes")
-                    table_name = db_config.get('table', 'mediaplans')
-                    print(f"   Table name: {table_name}")
+                    print(f"   Table name: {db_backend.get_full_table_name()}")
 
                     # Get database schema version
                     try:
-                        db_schema_version = db_backend.get_table_version()
+                        db_schema_version = _normalize_schema_version(db_backend.get_table_version())
                         print(f"   Schema version: v{db_schema_version}")
 
                         if db_schema_version == __schema_version__:
@@ -1107,23 +1121,21 @@ def handle_workspace_version(args) -> int:
                     except AttributeError:
                         print(f"   Schema version: Unable to determine")
 
-                    # Count records by schema version
+                    # Count rows by schema version (one row per line item)
                     try:
-                        # Query records grouped by schema version
-                        query = f"""
-                            SELECT "meta.schema_version", COUNT(*) as count
-                            FROM {table_name}
-                            GROUP BY "meta.schema_version"
-                            ORDER BY "meta.schema_version" DESC
-                        """
-                        result = db_backend.execute_query(query)
+                        distribution = db_backend.get_version_statistics()["version_distribution"]
+                        db_version_counts = {}
+                        for version, count in distribution.items():
+                            version = _normalize_schema_version(version)
+                            db_version_counts[version] = db_version_counts.get(version, 0) + count
+                        result = sorted(db_version_counts.items(), reverse=True)
 
                         if result:
-                            total_records = sum(row[1] for row in result)
-                            print(f"\n   Records by schema version:")
+                            total_records = sum(count for _, count in result)
+                            print(f"\n   Rows by schema version:")
                             for version, count in result:
                                 pct = (count / total_records * 100) if total_records > 0 else 0
-                                print(f"   v{version}: {count:,} records ({pct:.0f}%)")
+                                print(f"   v{version}: {count:,} rows ({pct:.0f}%)")
 
                             # Status
                             if len(result) == 1 and result[0][0] == __schema_version__:
@@ -1150,7 +1162,7 @@ def handle_workspace_version(args) -> int:
         all_current = True
 
         # Check workspace config
-        if workspace_schema != __schema_version__:
+        if _normalize_schema_version(workspace_schema) != __schema_version__:
             all_current = False
 
         # Check JSON files (if we scanned them)
